@@ -66,6 +66,10 @@ _progress: dict[str, dict] = {}
 _progress_lock = threading.Lock()
 _last_write = 0.0
 
+# Счётчики текущего прогона (для сводки при остановке/завершении)
+_files_ok = 0
+_files_err = 0
+
 
 def _media_type(name: str) -> str:
     return "video" if os.path.splitext(name)[1].lower() in _VIDEO_EXTS else "image"
@@ -105,7 +109,9 @@ def _clear_progress() -> None:
 
 
 def _sigterm_handler(signum, frame):
-    """При остановке из панели (/api/stop → SIGTERM) чистим файл прогресса."""
+    """При остановке из панели (/api/stop → SIGTERM): сводка, чистка, выход."""
+    logger.info("Остановлено. Всего загружено файлов: %d | Ошибок при загрузке: %d",
+                _files_ok, _files_err)
     _clear_progress()
     os._exit(0)
 
@@ -239,23 +245,25 @@ def run():
         logger.info("Нечего скачивать — все медиа уже сохранены.")
         return
 
-    files_ok = 0
-    files_err = 0
+    global _files_ok, _files_err
+    _files_ok = 0
+    _files_err = 0
     try:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(_download_task, t) for t in tasks]
             for i, fut in enumerate(as_completed(futures), 1):
                 success, info = fut.result()
                 if success:
-                    files_ok += 1
+                    _files_ok += 1
                     logger.info("[%d/%d] ✓ %s", i, total, info)  # info = имя файла
                 else:
-                    files_err += 1
+                    _files_err += 1
                     logger.warning("[%d/%d] ✗ %s", i, total, info)
     finally:
         _clear_progress()
 
-    logger.info("Завершено. Файлов сохранено: %d | Ошибок: %d", files_ok, files_err)
+    logger.info("Завершено. Всего загружено файлов: %d | Ошибок при загрузке: %d",
+                _files_ok, _files_err)
 
 
 if __name__ == "__main__":

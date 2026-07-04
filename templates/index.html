@@ -882,9 +882,17 @@ function appendLog(line, forceCls) {
   const el = document.getElementById('log');
   const div = document.createElement('div');
   div.className = 'log-line ' + (forceCls || classifyLine(line));
-  div.textContent = line;
+  div.innerHTML = linkifyLog(line);
   el.appendChild(div);
   el.scrollTop = el.scrollHeight;
+}
+
+function linkifyLog(line) {
+  // Экранируем, затем делаем http(s)/magnet-ссылки кликабельными (XSS-safe)
+  return escHtml(line).replace(
+    /(https?:\/\/[^\s<]+|magnet:\?[^\s<]+)/g,
+    m => `<a href="${m}" target="_blank" rel="noopener noreferrer">${m}</a>`
+  );
 }
 
 function classifyLine(line) {
