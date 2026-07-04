@@ -67,8 +67,9 @@ _progress_lock = threading.Lock()
 _last_write = 0.0
 
 # Счётчики текущего прогона (для сводки при остановке/завершении)
-_files_ok = 0
-_files_err = 0
+_files_ok = 0       # реально скачано
+_files_exist = 0    # уже были в папке (пропущены)
+_files_err = 0      # ошибки загрузки
 
 
 def _media_type(name: str) -> str:
@@ -110,8 +111,8 @@ def _clear_progress() -> None:
 
 def _sigterm_handler(signum, frame):
     """При остановке из панели (/api/stop → SIGTERM): сводка, чистка, выход."""
-    logger.info("Остановлено. Всего загружено файлов: %d | Ошибок при загрузке: %d",
-                _files_ok, _files_err)
+    logger.info("Остановлено. Загружено: %d | Уже были: %d | Ошибок при загрузке: %d",
+                _files_ok, _files_exist, _files_err)
     _clear_progress()
     os._exit(0)
 
@@ -223,18 +224,26 @@ def _download_task(task: tuple) -> tuple:
     media_id, field, url = task
     key = f"{media_id}:{field}"
     try:
-        name = download_file(url, DATA_DIR, progress_key=key)
-        if REQUEST_DELAY:
-            time.sleep(REQUEST_DELAY)
-        if not name:
-            return False, f"не скачан ({field} id{media_id}): {url}"
+        # Проверка по будущему имени файла: если он уже есть в папке медиа —
+        # не качаем повторно, только обновляем БД.
+        name = filename_from_url(url)
+        dest = os.path.join(DATA_DIR, name) if name else ""
+        if name and os.path.isfile(dest) and os.path.getsize(dest) > 0:
+            filename, already = name, True
+        else:
+            filename, already = download_file(url, DATA_DIR, progress_key=key), False
+            if REQUEST_DELAY:
+                time.sleep(REQUEST_DELAY)
+
+        if not filename:
+            return False, f"не скачан ({field} id{media_id}): {url}", False
         try:
             conn = db.get_db_connection()
-            db.set_media_local_file(conn, media_id, field, name)
+            db.set_media_local_file(conn, media_id, field, filename)
             conn.close()
         except Exception as exc:
-            return False, f"ошибка БД ({field} id{media_id}): {exc}"
-        return True, name
+            return False, f"ошибка БД ({field} id{media_id}): {exc}", False
+        return True, filename, already
     finally:
         _update_progress(key, None)  # убрать из активных
 
@@ -279,25 +288,29 @@ def run():
         logger.info("Нечего скачивать — все медиа уже сохранены.")
         return
 
-    global _files_ok, _files_err
+    global _files_ok, _files_exist, _files_err
     _files_ok = 0
+    _files_exist = 0
     _files_err = 0
     try:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(_download_task, t) for t in tasks]
             for i, fut in enumerate(as_completed(futures), 1):
-                success, info = fut.result()
-                if success:
-                    _files_ok += 1
-                    logger.info("[%d/%d] ✓ %s", i, total, info)  # info = имя файла
-                else:
+                success, info, already = fut.result()
+                if not success:
                     _files_err += 1
                     logger.warning("[%d/%d] ✗ %s", i, total, info)
+                elif already:
+                    _files_exist += 1
+                    logger.info("[%d/%d] • уже есть: %s", i, total, info)
+                else:
+                    _files_ok += 1
+                    logger.info("[%d/%d] ✓ %s", i, total, info)  # info = имя файла
     finally:
         _clear_progress()
 
-    logger.info("Завершено. Всего загружено файлов: %d | Ошибок при загрузке: %d",
-                _files_ok, _files_err)
+    logger.info("Завершено. Загружено: %d | Уже были: %d | Ошибок при загрузке: %d",
+                _files_ok, _files_exist, _files_err)
 
 
 if __name__ == "__main__":
