@@ -981,22 +981,29 @@ _DL_PID_FILE = os.environ.get("MEDIA_PID_FILE", "/tmp/media_downloader.pid")
 @app.get("/api/download-progress")
 def api_download_progress():
     """Активные закачки media_downloader: имя, тип, процент по каждому файлу.
-    Файл старше 5 с считаем неактуальным (процесс не работает)."""
+    Прогресс показываем, пока процесс жив (по PID) либо файл свежий. По устареванию
+    mtime не прячем — иначе на паузах в передаче (CDN тормозит) карточки мигали бы."""
     if not _settings_allowed():
         return jsonify({"error": "Forbidden", "files": []}), 403
     import json as _json, time as _time
+    empty = {"files": [], "total_bytes": 0, "updated_at": 0}
     try:
-        if _time.time() - os.path.getmtime(_DL_PROGRESS_FILE) > 5:
-            return jsonify({"files": []})
         with open(_DL_PROGRESS_FILE) as f:
             data = _json.load(f)
-        return jsonify({
-            "files": data.get("files", []),
-            "total_bytes": data.get("total_bytes", 0),
-            "updated_at": data.get("updated_at", 0),
-        })
     except (FileNotFoundError, ValueError):
-        return jsonify({"files": [], "total_bytes": 0, "updated_at": 0})
+        return jsonify(empty)
+    alive = _read_pid(_DL_PID_FILE) is not None
+    try:
+        fresh = (_time.time() - os.path.getmtime(_DL_PROGRESS_FILE)) <= 8
+    except OSError:
+        fresh = False
+    if not (alive or fresh):
+        return jsonify(empty)
+    return jsonify({
+        "files": data.get("files", []),
+        "total_bytes": data.get("total_bytes", 0),
+        "updated_at": data.get("updated_at", 0),
+    })
 
 
 @app.get("/api/settings-access")

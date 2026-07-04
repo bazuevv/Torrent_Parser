@@ -258,6 +258,11 @@ def _download_task(task: tuple) -> tuple:
         if name and os.path.isfile(dest) and os.path.getsize(dest) > 0:
             filename, already = name, True
         else:
+            # Сразу показываем закачку — ещё до ответа сервера (фаза подключения),
+            # иначе активный воркер до первого байта не виден в списке.
+            _update_progress(key, {"name": name or "?", "type": _media_type(name or ""),
+                                   "percent": None, "downloaded_mb": 0.0, "total_mb": None},
+                             force=True)
             filename, already = download_file(url, DATA_DIR, progress_key=key), False
             if REQUEST_DELAY:
                 time.sleep(REQUEST_DELAY)
