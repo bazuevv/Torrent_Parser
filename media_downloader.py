@@ -23,6 +23,7 @@ URL), после чего заменяет соответствующее пол
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, unquote
 
 import requests
@@ -94,48 +95,69 @@ def download_file(url: str, dest_dir: str) -> str | None:
     return None
 
 
+def _download_task(task: tuple) -> tuple:
+    """Воркер пула: скачивает один файл и обновляет соответствующее поле в БД.
+    Каждый воркер открывает свою короткоживущую connection (потокобезопасно).
+    Возвращает (успех: bool, сообщение: str)."""
+    media_id, field, url = task
+    name = download_file(url, DATA_DIR)
+    if REQUEST_DELAY:
+        time.sleep(REQUEST_DELAY)
+    if not name:
+        return False, f"не скачан ({field} id{media_id}): {url}"
+    try:
+        conn = db.get_db_connection()
+        db.set_media_local_file(conn, media_id, field, name)
+        conn.close()
+    except Exception as exc:
+        return False, f"ошибка БД ({field} id{media_id}): {exc}"
+    return True, name
+
+
 def run():
+    db.init_db()
     os.makedirs(DATA_DIR, exist_ok=True)
+
+    workers = max(1, int(db.get_setting("download_workers", "4")))
+    limit   = max(0, int(db.get_setting("download_limit", "0")))
 
     conn = db.get_db_connection()
     pending = db.get_pending_media(conn)
     conn.close()
 
-    total = len(pending)
-    logger.info("Строк с несохранёнными медиа: %d  →  папка %s", total, DATA_DIR)
+    # Плоский список задач: по одной на каждое ещё не скачанное поле (thumb/full_url)
+    tasks: list[tuple] = []
+    for row in pending:
+        for field in ("thumb", "full_url"):
+            value = row.get(field)
+            if value and value.startswith("http"):
+                tasks.append((row["id"], field, value))
+
+    total_all = len(tasks)
+    if limit:
+        tasks = tasks[:limit]
+    total = len(tasks)
+
+    suffix = f" (из {total_all}, лимит {limit})" if limit and total_all > total else ""
+    logger.info("Файлов к скачиванию: %d%s | потоков: %d | папка: %s",
+                total, suffix, workers, DATA_DIR)
     if total == 0:
         logger.info("Нечего скачивать — все медиа уже сохранены.")
         return
 
     files_ok = 0
     files_err = 0
-
-    for i, row in enumerate(pending, 1):
-        media_id = row["id"]
-        for field in ("thumb", "full_url"):
-            value = row.get(field)
-            if not value or not value.startswith("http"):
-                continue  # пусто или уже локальное имя файла
-
-            name = download_file(value, DATA_DIR)
-            if not name:
-                files_err += 1
-                logger.warning("[id %d] %s — не удалось скачать: %s", media_id, field, value)
-                continue
-
-            try:
-                conn = db.get_db_connection()
-                db.set_media_local_file(conn, media_id, field, name)
-                conn.close()
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_download_task, t) for t in tasks]
+        for i, fut in enumerate(as_completed(futures), 1):
+            success, info = fut.result()
+            if success:
                 files_ok += 1
-            except Exception as exc:
+            else:
                 files_err += 1
-                logger.error("[id %d] %s — ошибка обновления БД: %s", media_id, field, exc)
-
-            time.sleep(REQUEST_DELAY)
-
-        if i % LOG_EVERY == 0 or i == total:
-            logger.info("[%d/%d] Сохранено файлов: %d | Ошибок: %d", i, total, files_ok, files_err)
+                logger.warning(info)
+            if i % LOG_EVERY == 0 or i == total:
+                logger.info("[%d/%d] Сохранено: %d | Ошибок: %d", i, total, files_ok, files_err)
 
     logger.info("Завершено. Файлов сохранено: %d | Ошибок: %d", files_ok, files_err)
 

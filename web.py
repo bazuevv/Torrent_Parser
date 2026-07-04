@@ -272,6 +272,7 @@ def api_start():
         "main": "main.py",
         "leakgallery": "leakgallery_parser.py",
         "leakgallery_media": "leakgallery_media_parser.py",
+        "media_downloader": "media_downloader.py",
     }
     script = scripts.get(parser)
     if not script:
@@ -417,6 +418,9 @@ def api_stats():
         cursor.execute("SELECT COUNT(DISTINCT girl_id) AS total FROM girl_media")
         girls_with_media = cursor.fetchone()["total"]
 
+        cursor.execute("SELECT COUNT(*) AS n FROM girl_media WHERE thumb LIKE 'http%' OR full_url LIKE 'http%'")
+        media_pending = cursor.fetchone()["n"]
+
         cursor.close()
         conn.close()
 
@@ -426,6 +430,7 @@ def api_stats():
             "girls_total": girls_total,
             "girls_no_media": girls_no_media,
             "girls_with_media": girls_with_media,
+            "media_pending": media_pending,
         })
     except Exception as exc:
         return jsonify({"total": 0, "by_quality": [], "error": str(exc)})

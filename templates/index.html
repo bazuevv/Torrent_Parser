@@ -560,6 +560,7 @@
       <button class="ptab-btn ptab-active" id="ptab-btn-main" onclick="switchParserTab('main')">📦 Торрент парсер</button>
       <button class="ptab-btn" id="ptab-btn-leakgallery" onclick="switchParserTab('leakgallery')">👤 LeakGallery</button>
       <button class="ptab-btn" id="ptab-btn-leakgallery_media" onclick="switchParserTab('leakgallery_media')">🖼 Медиа профилей</button>
+      <button class="ptab-btn" id="ptab-btn-media_downloader" onclick="switchParserTab('media_downloader')">⬇ Загрузчик медиа</button>
     </div>
     <div class="ptab-panel" id="ptab-main">
       <div class="controls-row">
@@ -586,6 +587,15 @@
         <div class="stats-grid">
           <div class="stat-chip">Без медиа: <strong id="stat-girls-no-media">—</strong></div>
           <div class="stat-chip">С медиа: <strong id="stat-girls-with-media">—</strong></div>
+        </div>
+      </div>
+    </div>
+    <div class="ptab-panel" id="ptab-media_downloader" style="display:none">
+      <div class="controls-row">
+        <button id="btn-start-md" class="btn btn-start" onclick="startParser()">▶ Запустить</button>
+        <button id="btn-stop-md" class="btn btn-stop" disabled onclick="stopParser()">■ Остановить</button>
+        <div class="stats-grid">
+          <div class="stat-chip">Не скачано: <strong id="stat-media-pending">—</strong></div>
         </div>
       </div>
     </div>
@@ -887,11 +897,11 @@ function setRunning(running) {
   const badge = document.getElementById('status-badge');
   badge.className = 'badge ' + (running ? 'running' : 'stopped');
   badge.textContent = running ? 'Работает' : 'Остановлен';
-  ['btn-start', 'btn-start-lg', 'btn-start-lm'].forEach(id => {
+  ['btn-start', 'btn-start-lg', 'btn-start-lm', 'btn-start-md'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = running;
   });
-  ['btn-stop', 'btn-stop-lg', 'btn-stop-lm'].forEach(id => {
+  ['btn-stop', 'btn-stop-lg', 'btn-stop-lm', 'btn-stop-md'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = !running;
   });
@@ -916,6 +926,8 @@ function loadStats() {
       if (gnm) gnm.textContent = data.girls_no_media ?? '—';
       const gwm = document.getElementById('stat-girls-with-media');
       if (gwm) gwm.textContent = data.girls_with_media ?? '—';
+      const mp = document.getElementById('stat-media-pending');
+      if (mp) mp.textContent = data.media_pending ?? '—';
 
       const grid = document.getElementById('stats-grid');
       const extra = grid.querySelectorAll('.stat-dyn');
@@ -1267,6 +1279,7 @@ const GROUP_LABELS = {
   parser:      'Парсер',
   transcoder:  'Перекодировщик',
   qbittorrent: 'qBittorrent',
+  downloader:  'Загрузчик медиа',
 };
 
 const PRESET_OPTIONS = ['ultrafast','superfast','veryfast','faster','fast','medium','slow','slower','veryslow'];

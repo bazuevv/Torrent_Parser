@@ -102,6 +102,8 @@ def init_db():
         ("ffmpeg_cpu_cores",     "0-5",                        "Ядра CPU (taskset)",                  "Диапазон ядер, напр. 0-5 или 0,1,2",  "transcoder"),
         ("dest_dir",             "/home/ubuntu/Videos",        "Папка назначения",                    "Куда сохраняются перекодированные файлы", "transcoder"),
         ("qb_save_path",         "/home/ubuntu/Videos/Bittorrent", "Путь сохранения торрентов",       "Папка qBittorrent для новых закачек",  "qbittorrent"),
+        ("download_workers",     "4",                          "Параллельных закачек",                "Сколько файлов media_downloader качает одновременно", "downloader"),
+        ("download_limit",       "0",                          "Лимит файлов за запуск",              "0 = без ограничений; иначе скачать столько файлов и остановиться", "downloader"),
     ]
     cursor.executemany(
         "INSERT IGNORE INTO settings (key_name, value, label, description, group_name) VALUES (%s, %s, %s, %s, %s)",
