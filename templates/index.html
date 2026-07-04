@@ -100,6 +100,7 @@
       color: var(--muted);
     }
     .dl-field input { width: 90px; }
+    .dl-count { font-size: 16px; font-weight: 700; color: var(--green); padding-top: 5px; }
     .dl-settings-row { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 14px; }
     .dl-active { display: flex; flex-wrap: wrap; gap: 8px; }
     .dl-item {
@@ -630,6 +631,10 @@
           <label for="dl-limit">Лимит за запуск (0 = все)</label>
           <input type="number" min="0" id="dl-limit" class="settings-input" value="0">
         </div>
+        <div class="dl-field">
+          <label>Активных загрузок</label>
+          <div id="dl-active-count" class="dl-count">0/0</div>
+        </div>
       </div>
       <div class="controls-row">
         <button id="btn-start-md" class="btn btn-start" onclick="startParser()">▶ Запустить</button>
@@ -1015,13 +1020,17 @@ function loadDownloaderSettings() {
 }
 
 function loadDownloadProgress() {
-  const box = document.getElementById('dl-active');
-  if (!box) return;
   fetch('/api/download-progress')
     .then(r => r.json())
     .then(d => {
       const files = d.files || [];
-      if (!files.length) { box.innerHTML = ''; return; }
+      const cnt = document.getElementById('dl-active-count');
+      if (cnt) {
+        const w = document.getElementById('dl-workers');
+        cnt.textContent = files.length + '/' + (w && w.value ? w.value : '?');
+      }
+      const box = document.getElementById('dl-active');
+      if (!box) return;
       box.innerHTML = files.map(f => {
         const pct      = (f.percent != null) ? f.percent : 0;
         const pctLabel = (f.percent != null) ? f.percent + '%' : '…';
