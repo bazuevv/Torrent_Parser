@@ -645,6 +645,7 @@
     <div class="card-title" style="display:flex;align-items:center;">
       Лог выполнения
       <div class="top-right-btns">
+        <button id="btn-copy-log" class="btn btn-clear" onclick="copyLog()" title="Копировать весь лог">📋 Копировать</button>
         <button class="btn btn-clear" onclick="clearLog()">Очистить</button>
       </div>
     </div>
@@ -896,6 +897,45 @@ function classifyLine(line) {
 
 function clearLog() {
   document.getElementById('log').innerHTML = '';
+}
+
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  // Fallback для не-secure контекста (удалённый IP по http)
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    try { document.execCommand('copy') ? resolve() : reject(); }
+    catch (e) { reject(e); }
+    finally { document.body.removeChild(ta); }
+  });
+}
+
+function copyLog() {
+  const lines = Array.from(document.querySelectorAll('#log .log-line')).map(d => d.textContent);
+  const text = lines.join('\n');
+  const btn = document.getElementById('btn-copy-log');
+  if (!text) {
+    if (btn) flashBtn(btn, 'Пусто');
+    return;
+  }
+  copyTextToClipboard(text)
+    .then(() => { if (btn) flashBtn(btn, '✓ Скопировано'); })
+    .catch(() => { if (btn) flashBtn(btn, '✗ Ошибка'); });
+}
+
+function flashBtn(btn, msg) {
+  const orig = btn.dataset.orig || btn.innerHTML;
+  btn.dataset.orig = orig;
+  btn.innerHTML = msg;
+  clearTimeout(btn._flashTimer);
+  btn._flashTimer = setTimeout(() => { btn.innerHTML = btn.dataset.orig; }, 1500);
 }
 
 // ── Controls ───────────────────────────────────────────────────────────────
