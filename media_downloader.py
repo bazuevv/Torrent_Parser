@@ -66,6 +66,7 @@ _SESSION.headers.update({
 _progress: dict[str, dict] = {}
 _progress_lock = threading.Lock()
 _last_write = 0.0
+_total_bytes = 0    # суммарно скачано байт за текущий прогон (для расчёта скорости)
 
 # Счётчики текущего прогона (для сводки при остановке/завершении)
 _files_ok = 0       # реально скачано
@@ -80,7 +81,8 @@ def _media_type(name: str) -> str:
 def _write_progress_locked() -> None:
     """Атомарно дампит активные закачки в PROGRESS_FILE. Вызывать под _progress_lock."""
     global _last_write
-    data = {"updated_at": time.time(), "files": list(_progress.values())}
+    data = {"updated_at": time.time(), "total_bytes": _total_bytes,
+            "files": list(_progress.values())}
     tmp = PROGRESS_FILE + ".tmp"
     try:
         with open(tmp, "w") as f:
@@ -102,6 +104,13 @@ def _update_progress(key: str, entry: dict | None, force: bool = False) -> None:
             _progress[key] = entry
             if force or (time.time() - _last_write) > 0.3:
                 _write_progress_locked()
+
+
+def _add_bytes(n: int) -> None:
+    """Накапливает суммарно скачанные байты (потокобезопасно)."""
+    global _total_bytes
+    with _progress_lock:
+        _total_bytes += n
 
 
 def _clear_progress() -> None:
@@ -211,6 +220,7 @@ def download_file(url: str, dest_dir: str, progress_key: str | None = None) -> s
                             continue
                         f.write(chunk)
                         downloaded += len(chunk)
+                        _add_bytes(len(chunk))
                         if progress_key:
                             _update_progress(progress_key, {
                                 "name": name, "type": mtype,
@@ -266,9 +276,11 @@ def _download_task(task: tuple) -> tuple:
 
 
 def run():
+    global _total_bytes
     db.init_db()
     os.makedirs(DATA_DIR, exist_ok=True)
     signal.signal(signal.SIGTERM, _sigterm_handler)
+    _total_bytes = 0
     _clear_progress()
     _write_pid()
 

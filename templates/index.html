@@ -635,6 +635,10 @@
           <label>Активных загрузок</label>
           <div id="dl-active-count" class="dl-count">0/0</div>
         </div>
+        <div class="dl-field">
+          <label>Скорость</label>
+          <div id="dl-speed" class="dl-count">—</div>
+        </div>
       </div>
       <div class="controls-row">
         <button id="btn-start-md" class="btn btn-start" onclick="startParser()">▶ Запустить</button>
@@ -855,6 +859,7 @@
 // ── State ──────────────────────────────────────────────────────────────────
 let evtSource = null;
 let lastLogId = 0;
+let _dlPrevBytes = null, _dlPrevTs = 0;
 let currentPage = 1;
 let _searchTimer = null;
 
@@ -1019,6 +1024,12 @@ function loadDownloaderSettings() {
     });
 }
 
+function formatSpeed(bps) {
+  if (bps >= 1048576) return (bps / 1048576).toFixed(1) + ' МБ/с';
+  if (bps >= 1024)    return (bps / 1024).toFixed(0) + ' КБ/с';
+  return Math.round(bps) + ' Б/с';
+}
+
 function loadDownloadProgress() {
   fetch('/api/download-progress')
     .then(r => r.json())
@@ -1028,6 +1039,17 @@ function loadDownloadProgress() {
       if (cnt) {
         const w = document.getElementById('dl-workers');
         cnt.textContent = files.length + '/' + (w && w.value ? w.value : '?');
+      }
+      const spd = document.getElementById('dl-speed');
+      if (spd) {
+        const tb = d.total_bytes || 0, ts = d.updated_at || 0;
+        let speed = null;
+        if (files.length && _dlPrevBytes != null && ts > _dlPrevTs) {
+          speed = (tb - _dlPrevBytes) / (ts - _dlPrevTs);
+          if (speed < 0) speed = 0;
+        }
+        spd.textContent = (files.length && speed != null) ? formatSpeed(speed) : '—';
+        _dlPrevBytes = tb; _dlPrevTs = ts;
       }
       const box = document.getElementById('dl-active');
       if (!box) return;

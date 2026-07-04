@@ -990,9 +990,13 @@ def api_download_progress():
             return jsonify({"files": []})
         with open(_DL_PROGRESS_FILE) as f:
             data = _json.load(f)
-        return jsonify({"files": data.get("files", [])})
+        return jsonify({
+            "files": data.get("files", []),
+            "total_bytes": data.get("total_bytes", 0),
+            "updated_at": data.get("updated_at", 0),
+        })
     except (FileNotFoundError, ValueError):
-        return jsonify({"files": []})
+        return jsonify({"files": [], "total_bytes": 0, "updated_at": 0})
 
 
 @app.get("/api/settings-access")
