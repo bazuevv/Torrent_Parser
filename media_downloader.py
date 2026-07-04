@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, unquote
 
 import requests
+from requests.adapters import HTTPAdapter
 
 import db
 
@@ -207,6 +208,13 @@ def run():
 
     workers = max(1, int(db.get_setting("download_workers", "4")))
     limit   = max(0, int(db.get_setting("download_limit", "0")))
+
+    # Пул HTTP-соединений под число воркеров, чтобы он не стал узким местом
+    # (по умолчанию requests держит maxsize=10). На реальную скорость влияет мало,
+    # если упирается канал/лимит CDN, но снимает потолок пула при большом workers.
+    adapter = HTTPAdapter(pool_connections=workers, pool_maxsize=workers)
+    _SESSION.mount("http://", adapter)
+    _SESSION.mount("https://", adapter)
 
     conn = db.get_db_connection()
     pending = db.get_pending_media(conn)
