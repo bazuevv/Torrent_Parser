@@ -123,10 +123,24 @@ def filename_from_url(url: str) -> str:
     return os.path.basename(path)
 
 
+def _content_range_total(resp) -> int:
+    """Полный размер файла из заголовка Content-Range (формат 'bytes start-end/total')."""
+    cr = resp.headers.get("Content-Range", "")
+    if "/" in cr:
+        tail = cr.rsplit("/", 1)[-1].strip()
+        if tail.isdigit():
+            return int(tail)
+    return 0
+
+
 def download_file(url: str, dest_dir: str, progress_key: str | None = None) -> str | None:
     """Скачивает url в dest_dir под оригинальным именем. Возвращает имя файла
     или None при ошибке. Уже существующий непустой файл не перекачивается.
-    Если задан progress_key — публикует прогресс закачки (имя, тип, %)."""
+    Если задан progress_key — публикует прогресс закачки (имя, тип, %).
+
+    Поддерживает докачку: недокачанные байты остаются в <файл>.part; при повторной
+    попытке или запуске загрузка продолжается с этого места через HTTP Range
+    (bytes=<уже_скачано>-). Если сервер Range не поддерживает — качает заново."""
     name = filename_from_url(url)
     if not name:
         logger.warning("Не удалось определить имя файла из URL: %s", url)
@@ -138,19 +152,42 @@ def download_file(url: str, dest_dir: str, progress_key: str | None = None) -> s
 
     mtype = _media_type(name)
     tmp = dest + ".part"
+
     for attempt in range(1, 4):
+        # сколько уже лежит в .part — с этого места докачиваем
+        resume_from = os.path.getsize(tmp) if os.path.isfile(tmp) else 0
+        headers = {"Range": f"bytes={resume_from}-"} if resume_from else {}
         try:
-            with _SESSION.get(url, stream=True, timeout=60) as resp:
+            with _SESSION.get(url, stream=True, timeout=60, headers=headers) as resp:
+                # .part не меньше файла (докачивать нечего / битый) → начать заново
+                if resp.status_code == 416:
+                    try:
+                        os.remove(tmp)
+                    except FileNotFoundError:
+                        pass
+                    continue
                 resp.raise_for_status()
-                total = int(resp.headers.get("Content-Length", 0) or 0)
+
+                if resume_from and resp.status_code == 206:
+                    mode = "ab"                       # сервер отдал хвост — дописываем
+                    downloaded = resume_from
+                    total = _content_range_total(resp) or (
+                        resume_from + int(resp.headers.get("Content-Length", 0) or 0))
+                    logger.info("Докачка %s с %.1f МБ", name, resume_from / 1048576)
+                else:
+                    mode = "wb"                       # 200: Range проигнорирован — с нуля
+                    downloaded = 0
+                    total = int(resp.headers.get("Content-Length", 0) or 0)
+
                 total_mb = round(total / 1048576, 1) if total else None
-                downloaded = 0
                 if progress_key:
                     _update_progress(progress_key, {
-                        "name": name, "type": mtype, "percent": 0,
-                        "downloaded_mb": 0.0, "total_mb": total_mb,
+                        "name": name, "type": mtype,
+                        "percent": min(100, round(downloaded * 100 / total)) if total else None,
+                        "downloaded_mb": round(downloaded / 1048576, 1), "total_mb": total_mb,
                     }, force=True)
-                with open(tmp, "wb") as f:
+
+                with open(tmp, mode) as f:
                     for chunk in resp.iter_content(CHUNK_SIZE):
                         if not chunk:
                             continue
@@ -173,10 +210,7 @@ def download_file(url: str, dest_dir: str, progress_key: str | None = None) -> s
             return name
         except (requests.RequestException, OSError) as exc:
             logger.warning("Попытка %d/3 не удалась для %s: %s", attempt, url, exc)
-            try:
-                os.remove(tmp)
-            except FileNotFoundError:
-                pass
+            # .part НЕ удаляем — сохраняем прогресс для докачки на следующей попытке/запуске
             if attempt < 3:
                 time.sleep(attempt * 2)
     return None
