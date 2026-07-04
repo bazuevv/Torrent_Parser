@@ -199,6 +199,8 @@
     .log-line.warn { color: #fbbf24; }
     .log-line.ok   { color: #4ade80; }
     .log-line.end  { color: #818cf8; font-style: italic; }
+    #log a { color: var(--green); text-decoration: underline; }
+    #log a:hover { color: #4ade80; }
 
     /* ── Videos ── */
     .filters {
@@ -888,10 +890,17 @@ function appendLog(line, forceCls) {
 }
 
 function linkifyLog(line) {
-  // Экранируем, затем делаем http(s)/magnet-ссылки кликабельными (XSS-safe)
+  // Экранируем, затем делаем http(s)/magnet-ссылки кликабельными (XSS-safe).
+  // Хвостовую пунктуацию (напр. ':' после '.mp4:') выносим за пределы ссылки.
+  // ';' и '"' не режем — ими заканчиваются HTML-сущности (&amp; &gt; &quot;).
   return escHtml(line).replace(
     /(https?:\/\/[^\s<]+|magnet:\?[^\s<]+)/g,
-    m => `<a href="${m}" target="_blank" rel="noopener noreferrer">${m}</a>`
+    (m) => {
+      const t = m.match(/[.,:!?)\]}']+$/);
+      const trail = t ? t[0] : '';
+      const url = trail ? m.slice(0, -trail.length) : m;
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>` + trail;
+    }
   );
 }
 
