@@ -377,3 +377,27 @@ def mark_girl_inactive_db(conn, username: str) -> None:
     cursor.execute("UPDATE girls SET is_active = 0 WHERE username = %s", (username,))
     conn.commit()
     cursor.close()
+
+
+def get_pending_media(conn) -> list[dict]:
+    """Возвращает строки girl_media, у которых thumb или full_url ещё являются
+    URL (не скачаны). Позволяет запускать загрузчик повторно/докачивать."""
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT id, thumb, full_url FROM girl_media "
+        "WHERE thumb LIKE 'http%' OR full_url LIKE 'http%' ORDER BY id"
+    )
+    rows = cursor.fetchall()
+    cursor.close()
+    return rows
+
+
+def set_media_local_file(conn, media_id: int, field: str, filename: str) -> None:
+    """Заменяет URL в girl_media.<field> на имя скачанного файла.
+    field — только 'thumb' или 'full_url' (whitelist от SQL-инъекции в имени столбца)."""
+    if field not in ("thumb", "full_url"):
+        raise ValueError(f"Недопустимое поле girl_media: {field!r}")
+    cursor = conn.cursor()
+    cursor.execute(f"UPDATE girl_media SET {field} = %s WHERE id = %s", (filename, media_id))
+    conn.commit()
+    cursor.close()
