@@ -52,7 +52,9 @@ def parse_transfer_states(html: str, username: str) -> dict:
     """Извлекает данные профиля из Angular transfer-state <script>-блоков.
 
     Общая логика для media-парсера и веб-приложения. Возвращает dict с ключами:
-    banner_url, avatar_url, media_count, views, subscribers, app_token, media_items.
+    banner_url, avatar_url, media_count, views, subscribers, app_token, media_items,
+    profile_found (был ли в transfer state блок профиля для этого username; False
+    означает, что профиль не существует — сайт отдаёт 200 с содержимым главной).
     Пагинацию (страницы 2+) вызывающий делает сам — стратегия токена у них разная.
     """
     states = re.findall(
@@ -65,6 +67,7 @@ def parse_transfer_states(html: str, username: str) -> dict:
     app_token = None
     media_count = 0
     media_items: list[dict] = []
+    profile_found = False
 
     for content in states:
         try:
@@ -78,6 +81,7 @@ def parse_transfer_states(html: str, username: str) -> dict:
         # Banner, avatar, счётчики и первая страница медиа
         profile_key = f"httpGet:profile/{username}?type=All&sort=MostRecent&fake=true"
         if profile_key in data:
+            profile_found = True
             prof = data[profile_key]
             p = prof.get("profile", {})
             banner_url  = p.get("banner_pic") or banner_url
@@ -95,6 +99,7 @@ def parse_transfer_states(html: str, username: str) -> dict:
                 if "medias" in b and isinstance(b.get("profile"), dict):
                     p = b["profile"]
                     if p.get("username", "").lower() == username.lower():
+                        profile_found = True
                         banner_url  = p.get("banner_pic") or banner_url
                         avatar_url  = p.get("profile_pic") or avatar_url
                         media_count = b.get("mediaCount", media_count) or media_count
@@ -110,6 +115,7 @@ def parse_transfer_states(html: str, username: str) -> dict:
         "subscribers": subscribers,
         "app_token": app_token,
         "media_items": media_items,
+        "profile_found": profile_found,
     }
 
 
@@ -201,7 +207,9 @@ def _api_get_page(username: str, page: int, token: str) -> dict | None:
 
 def parse_profile(username: str) -> dict | None:
     """Парсит профиль через Angular transfer state + API пагинацию.
-    Возвращает dict {banner_url, avatar_url, media_items} или None если 404."""
+    Возвращает dict {banner_url, avatar_url, media_items} или None если профиль
+    не найден (404, сетевая ошибка или несуществующий профиль)."""
+    global _last_inactive
     # 1. Загружаем страницу и получаем token + начальные данные
     token = _get_token(username)
     if token is None:
@@ -209,6 +217,11 @@ def parse_profile(username: str) -> dict | None:
 
     html = getattr(_SESSION, "_last_html", "")
     parsed = parse_transfer_states(html, username)
+    # Профиль не существует: сайт вернул 200 с содержимым главной, блока профиля
+    # в transfer state нет → сигналим run(), что аккаунт надо пометить неактивным.
+    if not parsed["profile_found"]:
+        _last_inactive = True
+        return None
     banner_url  = parsed["banner_url"]
     avatar_url  = parsed["avatar_url"]
     media_count = parsed["media_count"]
@@ -278,7 +291,7 @@ def run():
         if data is None:
             errors += 1
             if _last_inactive:
-                logger.info("[%d/%d] %s — неактивен (редирект на главную)", i, total, username)
+                logger.info("[%d/%d] %s — неактивен (профиль не найден)", i, total, username)
                 try:
                     conn = db.get_db_connection()
                     db.mark_girl_inactive_db(conn, username)

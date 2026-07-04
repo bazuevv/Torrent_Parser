@@ -170,6 +170,21 @@ def fetch_girl_profile(username: str) -> dict | None:
     token_str    = parsed["app_token"]
     medias_count = str(media_count) or None
 
+    # Профиль не найден: leakgallery отдаёт 200 с содержимым главной (клиентский
+    # редирект), блока профиля в transfer state нет. Помечаем аккаунт неактивным
+    # только если страница реально загрузилась (есть APP_TOKEN) — иначе это,
+    # вероятно, временный сбой, и профиль не трогаем (будет повторная попытка).
+    if not parsed["profile_found"]:
+        if token_str:
+            try:
+                conn = db.get_db_connection()
+                db.mark_girl_inactive_db(conn, username)
+                conn.close()
+            except Exception:
+                pass
+            _PROFILE_CACHE[username] = (time.time(), None)
+        return None
+
     # Подгружаем оставшиеся страницы через API
     if token_str and media_count > len(media_items):
         import math as _math
