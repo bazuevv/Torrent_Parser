@@ -1,0 +1,276 @@
+{
+  "_meta": {
+    "locale": "ru",
+    "name": "Русский",
+    "version": "3.1",
+    "_description": "Файл переводов делится на два мета-раздела: static — то, что хук localize.py заменяет напрямую в файлах расширения VSCode на диске; runtime — то, что заменяется во время работы webview (через JS-локализатор, инжектируемый в webview/index.js)."
+  },
+  "static": {
+    "_description": "Подразделы с заменой строк напрямую в файлах расширения VSCode. Применяет хук localize.py в момент SessionStart через бэкап package.json.original; срабатывают один раз при загрузке расширения VSCode. Все ключи здесь должны быть строками, которые ФИЗИЧЕСКИ присутствуют в package.json расширения.",
+    "settings": {
+      "_description": "Описания настроек claudeCode.* — секция contributes.configuration.properties в package.json. Эти строки видны в окне VSCode Settings (Ctrl+,) после ввода 'Claude Code'.",
+      "Allow bypass permissions mode. Recommended only for sandboxes with no internet access.": "Режим пропуска разрешений. Рекомендуется только для sandbox без доступа в интернет.",
+      "Automatically save files before Claude reads or writes them.": "Автоматически сохранять файлы перед чтением или записью Claude.",
+      "Executable path used to launch the Claude process.": "Путь к исполняемому файлу для запуска процесса Claude.",
+      "When true, never prompt for login/authentication in the extension. Used when authentication is handled externally.": "Если включено, расширение не запрашивает вход/аутентификацию. Используется при внешней аутентификации.",
+      "Use the Cmd/Ctrl+N keyboard shortcut to start a new conversation when Claude is focused.": "Использовать Cmd/Ctrl+N для начала нового разговора когда Claude в фокусе.",
+      "Environment variables to set when launching Claude.": "Переменные окружения при запуске Claude.",
+      "Hide the onboarding checklist in Claude Code.": "Скрыть чек-лист онбординга в Claude Code.",
+      "Launch Claude in the terminal instead of the native UI.": "Запускать Claude в терминале вместо нативного UI.",
+      "Respect .gitignore files when performing file searches. Tip: You can still filter by other exclusion patterns in .ignore when this is disabled.": "Учитывать .gitignore при поиске файлов.",
+      "Initial permission mode for new conversations.": "Режим разрешений по умолчанию для новых разговоров.",
+      "When enabled, use Ctrl/Cmd+Enter to send prompts instead of just Enter. This allows Enter to create new lines.": "Ctrl/Cmd+Enter для отправки вместо Enter. Enter создаёт новую строку.",
+      "Where Claude opens by default. This setting updates automatically when you open Claude in a new location.": "Где Claude открывается по умолчанию.",
+      "Automatically activate the workspace's Python environment when running Claude. Requires the [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python) extension.": "Автоматически активировать Python-окружение. Требуется расширение [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python).",
+      "Sidebar (Right)": "Боковая панель (справа)",
+      "Panel (New Tab)": "Панель (новая вкладка)",
+      "Prefer setting environment variables in Claude's settings.json.\nSee documentation: https://code.claude.com/docs/en/settings": "Рекомендуется задавать переменные окружения в settings.json Claude.\nДокументация: https://code.claude.com/docs/en/settings"
+    },
+    "ui": {
+      "_description": "UI-строки, ФИЗИЧЕСКИ присутствующие в package.json расширения как самостоятельные текстовые литералы (label/title/description в contributes.*). Сейчас пуст: в текущей версии Claude Code 2.1.126 таких строк не нашлось — все UI-литералы рендерятся через JS, а короткие слова вроде 'Support'/'Permissions' нельзя патчить статически (они встречаются как подстроки внутри идентификаторов вроде 'allowDangerouslySkipPermissions' или 'updateSupported' и сломали бы конфигурацию). Все ui-переводы лежат в runtime.ui."
+    }
+  },
+  "runtime": {
+    "_description": "Подразделы с runtime-заменой через JS-локализатор, инжектируемый в webview/index.js блоком /* claude-localizer */. Замена идёт по DOM (текстовые узлы и атрибуты title/aria-label/placeholder), MutationObserver подхватывает динамически добавляемые узлы. Зону чата ([data-testid='assistant-message'] и [class*='messageContainer_']) локализатор не трогает.",
+    "permissions": {
+      "_description": "Тексты диалогов разрешений (запросы tool-вызовов Bash/Edit/Read/Glob/Grep/WebFetch и кнопки Allow/Deny/Yes/No). В package.json этих строк нет — они живут в JS-коде расширения и рендерятся динамически в React-дереве webview, поэтому только runtime.",
+      "Allow this bash command?": "Разрешить эту bash-команду?",
+      "Allow this glob command": "Разрешить эту glob-команду",
+      "Allow this grep command": "Разрешить эту grep-команду",
+      "Allow this search": "Разрешить этот поиск",
+      "Allow searching in": "Разрешить поиск в",
+      "Allow searching for this query?": "Разрешить поиск по этому запросу?",
+      "Allow glob search in": "Разрешить glob-поиск в",
+      "Allow grep in": "Разрешить grep в",
+      "Allow reading from": "Разрешить чтение из",
+      "Allow write to": "Разрешить запись в",
+      "Allow fetching this url?": "Разрешить загрузку этого URL?",
+      "Allow network connection to this host?": "Разрешить сетевое подключение к этому хосту?",
+      "Make this edit to": "Внести изменение в",
+      "Yes, allow ": "Да, разрешить ",
+      "Yes": "Да",
+      "No": "Нет",
+      "Allow": "Разрешить",
+      "Reject": "Отклонить",
+      "Allow once": "Разрешить один раз",
+      "Always allow": "Всегда разрешать",
+      "Deny": "Запретить"
+    },
+    "ui": {
+      "_description": "UI-строки, которых нет в package.json (рендерятся динамически в DOM webview: меню, тултипы, плейсхолдеры, mode-селектор, dropdown'ы). Замена идёт runtime JS-локализатором, наблюдающим за DOM-мутациями через MutationObserver. Чат ([data-testid='assistant-message'], [class*='messageContainer_']) локализатор не трогает. Структура: menu — три выпадающих меню под полем ввода (Add/command/permission); other — прочие UI-элементы (статусы, чат-индикаторы, лейблы, не относящиеся ни к одному из меню). JSON-вложенность чисто для группировки и читаемости — на стороне Python хук _runtime_blocks рекурсивно сплющивает все подразделы, и в JS-локализатор передаётся плоский словарь.",
+      "menu": {
+        "_description": "Три выпадающих меню в строке ввода: кнопка `+` (Add), кнопка `/` (command), бейдж режима/«Режимы» (permission).",
+        "Add": {
+          "_description": "Меню кнопки `+` слева от поля ввода: выбор источника контекста для разговора.",
+          "Upload from computer": "Загрузить с компьютера",
+          "Add context": "Добавить контекст",
+          "Browse the web": "Открыть веб-страницу"
+        },
+        "command": {
+          "_description": "Меню кнопки `/` (или ввод `/` в начале строки). Содержит лейблы пунктов и заголовков секций, физически видимые в выпадашке: плейсхолдер фильтра, секции Контекст / Модель / Настройка / Слеш-команды / Настройки / Поддержка и пункты внутри них. Подраздел «Слеш-команды» — словарь {имя_команды: {англ_тултип: рус_перевод}}; имена самих команд (`/init`, `/loop` и т.п.) не переводятся, переводятся только их тултипы. Прочие тултипы пунктов меню (не относящихся к слеш-командам) лежат в other.",
+          "Filter actions…": "Фильтр действий…",
+          "Context": "Контекст",
+          "Attach file…": "Прикрепить файл…",
+          "Mention file from this project…": "Упомянуть файл из проекта…",
+          "Clear conversation": "Очистить разговор",
+          "Rewind": "Перемотать",
+          "Model": "Модель",
+          "Switch model…": "Сменить модель…",
+          "Default (recommended)": "По умолчанию (рекомендуется)",
+          "Thinking": "Размышление",
+          "Effort": "Усилие",
+          "Account & usage…": "Аккаунт и расход…",
+          "Customize": "Настройка",
+          "Output styles": "Стили вывода",
+          "Agents": "Агенты",
+          "Hooks": "Хуки",
+          "Memory": "Память",
+          "Permissions": "Разрешения",
+          "MCP servers": "MCP-серверы",
+          "Manage plugins": "Управление плагинами",
+          "Open Claude in Terminal": "Открыть Claude в терминале",
+          "Slash Commands": "Слеш-команды",
+          "Слеш-команды": {
+            "_description": "Тултипы слеш-команд из выпадашки `/`. Каждый ключ — имя команды (`/batch`, `/init`, `/loop` …); значение — словарь из одной или нескольких пар `англ_тултип → рус_перевод`. Имена команд сами не уходят в плоский словарь после flatten (они контейнеры-объекты, а не строки), поэтому JS-локализатор не пытается заменить `/init` в DOM — переводятся только тултипы. Команды без известного тултипа в этом JSON (/fewer-permission-prompts, /team-onboarding и пр.) сюда не включены.",
+            "/batch": {
+              "Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR.": "Исследовать и спланировать масштабное изменение, затем выполнить параллельно в 5–30 изолированных worktree-агентах, каждый из которых откроет PR."
+            },
+            "/claude-api": {
+              "Build Claude API / Anthropic SDK apps.": "Сборка приложений с Claude API / Anthropic SDK.",
+              "TRIGGER when: code imports `anthropic`/`@anthropic-ai/sdk`; user asks to use the Claude API, Anthropic SDKs, or Managed Agents (`/v1/agents`, `/v1/sessions`); or asks to add a Claude feature (prompt caching, adaptive thinking, compaction, code_execution, batch, files API, citations, memory tool) or a Claude model (Opus/Sonnet/Haiku) to a Claude file.": "ТРИГГЕР когда: код импортирует `anthropic`/`@anthropic-ai/sdk`; пользователь хочет использовать Claude API, Anthropic SDK или Managed Agents (`/v1/agents`, `/v1/sessions`); или хочет добавить функцию Claude (prompt caching, adaptive thinking, compaction, code_execution, batch, files API, citations, memory tool) или модель Claude (Opus/Sonnet/Haiku) в файл Claude.",
+              "DO NOT TRIGGER when: file imports `openai`/non-Anthropic SDK, filename signals another provider (`agent-openai.py`, `*-generic.py`), code is provider-neutral, or task is general programming/ML.": "НЕ ТРИГГЕРИТЬ когда: файл импортирует `openai`/не-Anthropic SDK, имя файла указывает на другого провайдера (`agent-openai.py`, `*-generic.py`), код провайдер-нейтральный или задача — общее программирование/ML."
+            },
+            "/clear": {
+              "Clear conversation history and free up context": "Очистить историю разговора и освободить контекст"
+            },
+            "/compact": {
+              "Clear conversation history but keep a summary in context. Optional: /compact [instructions for summarization]": "Очистить историю, сохранив резюме в контексте. Опционально: /compact [инструкции для резюмирования]"
+            },
+            "/context": {
+              "Show current context usage": "Показать текущее использование контекста"
+            },
+            "/debug": {
+              "Enable debug logging for this session and help diagnose issues": "Включить отладочный лог для этой сессии и помочь в диагностике"
+            },
+            "/extra-usage": {
+              "Configure extra usage to keep working when limits are hit": "Настроить дополнительное использование при достижении лимитов"
+            },
+            "/heapdump": {
+              "Dump the JS heap to ~/Desktop": "Сохранить JS-хип в ~/Desktop"
+            },
+            "/init": {
+              "Initialize a new CLAUDE.md file with codebase documentation": "Инициализировать новый CLAUDE.md с документацией кодовой базы"
+            },
+            "/insights": {
+              "Generate a report analyzing your Claude Code sessions": "Сформировать отчёт по вашим сессиям Claude Code"
+            },
+            "/loop": {
+              "Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m)": "Запускать промпт или слеш-команду с заданным интервалом (напр. /loop 5m /foo, по умолчанию 10 мин)"
+            },
+            "/remote-control": {
+              "Connect this terminal for remote-control sessions": "Подключить этот терминал для удалённого управления",
+              "View and control this session from claude.ai/code": "Просмотр и управление этой сессией через claude.ai/code",
+              "Show remote session URL and QR code": "Показать URL удалённой сессии и QR-код"
+            },
+            "/review": {
+              "Review a pull request": "Ревью пулл-реквеста"
+            },
+            "/schedule": {
+              "Create, update, list, or run scheduled remote agents (triggers) that execute on a cron schedule.": "Создать, обновить, показать или запустить запланированных удалённых агентов (триггеров) по cron-расписанию."
+            },
+            "/security-review": {
+              "Complete a security review of the pending changes on the current branch": "Провести ревью безопасности ожидающих изменений на текущей ветке"
+            },
+            "/simplify": {
+              "Review changed code for reuse, quality, and efficiency, then fix any issues found.": "Проверить изменённый код на повторное использование, качество и эффективность, затем исправить найденные проблемы."
+            },
+            "/update-config": {
+              "Use this skill to configure the Claude Code harness via settings.json. Automated behaviors (\"from now on when X\", \"each time X\", \"whenever X\", \"before/after X\") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions (\"allow X\", \"add permission\", \"move permission to\"), env vars (\"set X=Y\"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: \"allow npm commands\", \"add bq permission to global settings\", \"move permission to user settings\", \"set DEBUG=true\", \"when claude stops show X\". For simple settings like theme/model, use Config tool.": "Настройка Claude Code через settings.json. Автоматические действия (\"с этого момента когда X\", \"каждый раз когда X\", \"до/после X\") требуют хуков в settings.json — их выполняет harness, не Claude. Также: разрешения (\"allow X\", \"add permission\"), переменные окружения (\"set X=Y\"), отладка хуков, изменения settings.json/settings.local.json. Примеры: \"allow npm commands\", \"move permission to user settings\", \"set DEBUG=true\". Для простых настроек (тема/модель) — Config tool."
+            },
+            "/usage": {
+              "Show your Claude Code usage statistics and activity": "Показать статистику использования Claude Code"
+            }
+          },
+          "Settings": "Настройки",
+          "Switch account": "Сменить аккаунт",
+          "General config…": "Общие настройки…",
+          "Support": "Поддержка",
+          "View help docs": "Справочная документация",
+          "Report a problem": "Сообщить о проблеме"
+        },
+        "permission": {
+          "_description": "Меню «Режимы» (бейдж под полем ввода) — выбор permission-режима + ползунок Усилие/Effort и переключатель Fast mode.",
+          "Modes": "Режимы",
+          "tab to switch": "tab — переключить",
+          "to switch": "— переключить",
+          "Ask before edits": "Спрашивать перед правками",
+          "Claude will ask for approval before making each edit": "Claude запросит подтверждение перед каждой правкой",
+          "Edit automatically": "Править автоматически",
+          "Claude will edit your selected text or the whole file": "Claude отредактирует выбранный текст или весь файл",
+          "Plan mode": "Режим плана",
+          "Claude will explore the code and present a plan before editing": "Claude изучит код и представит план перед редактированием",
+          "Auto mode": "Авто-режим",
+          "Claude will automatically choose the best permission mode for each task": "Claude автоматически выберет режим разрешений для каждой задачи"
+        }
+      },
+      "other": {
+        "_description": "UI-строки, не относящиеся ни к одному из трёх меню (menu.Add/command/permission) как отображаемые лейблы: тултипы команд и пунктов меню `/`, описания скилов, статусы стриминга, чат-индикаторы, тултипы кода, метки сессии, лейблы permission-режимов вне самого меню «Режимы», тултипы переключателя fast mode и пр.",
+        "Accept edits": "Принимать правки",
+        "Bypass permissions": "Пропуск разрешений",
+        "Toggle fast mode (Opus 4.6 only)": "Быстрый режим (только Opus 4.6)",
+        "Toggle fast mode": "Быстрый режим",
+        "Toggle fast mode for faster responses (Opus 4.6 only)": "Быстрый режим для ускоренных ответов (только Opus 4.6)",
+        "Thinking...": "Думает...",
+        "ctrl esc to focus or unfocus Claude": "ctrl esc — фокус/расфокус Claude",
+        "Copy code": "Скопировать код",
+        "Copy code to clipboard": "Скопировать код в буфер",
+        "Show more": "Показать больше",
+        "Show less": "Показать меньше",
+        "Interrupted": "Прервано",
+        "Compacting": "Сжатие",
+        "Compacted chat · ": "Сжатый чат · ",
+        "Tokens": "Токены",
+        "tokens": "токенов",
+        "Session (5hr)": "Сессия (5 часов)",
+        "(bundled)": "(встроенная)",
+        "Attach files from your computer": "Прикрепить файлы с компьютера",
+        "Reference a project file with @mention": "Упомянуть файл проекта через @",
+        "Upload a file to include in conversation": "Загрузить файл для включения в разговор",
+        "Rewind to…": "Перемотать к…",
+        "Rewind code": "Откатить код",
+        "Rewind code to here": "Откатить код до этого места",
+        "Rewinding does not affect files edited manually or via bash.": "Перемотка не затрагивает файлы, отредактированные вручную или через bash.",
+        "Restore code and conversation to an earlier point": "Восстановить код и разговор до предыдущей точки",
+        "Change the AI model": "Сменить модель ИИ",
+        "View account info and usage limits": "Просмотр аккаунта и лимитов использования",
+        "Set how hard the model tries": "Настроить степень усилий модели",
+        "Toggle extended thinking mode": "Переключить режим расширенного мышления",
+        "New conversation": "Новый разговор",
+        "Session history": "История сессий",
+        "Continue a previous conversation": "Продолжить предыдущий разговор",
+        "Open a new conversation in a new tab": "Открыть новый разговор в новой вкладке",
+        "Start a new conversation": "Начать новый разговор",
+        "Share conversation with team members": "Поделиться разговором с командой",
+        "Log in with a different account": "Войти с другим аккаунтом",
+        "Report model issues to the research team": "Сообщить о проблемах модели",
+        "Configure custom agents": "Настроить пользовательских агентов",
+        "Manage permission settings": "Управление настройками разрешений",
+        "Open a new Claude instance in the Terminal": "Открыть новый экземпляр Claude в терминале",
+        "Manage Claude's memory": "Управление памятью Claude",
+        "Set up event hooks": "Настроить хуки событий",
+        "Configure Model Context Protocol servers": "Настроить MCP-серверы",
+        "Manage MCP servers": "Управление MCP-серверами",
+        "Manage Claude Code plugins": "Управление плагинами Claude Code",
+        "Install, enable, or disable plugins": "Установить, включить или отключить плагины",
+        "Open Claude Code Extension configuration": "Открыть настройки расширения Claude Code",
+        "Open help documentation": "Открыть справочную документацию",
+        "Open config panel": "Открыть панель настроек",
+        "Restart the onboarding flow": "Перезапустить онбординг",
+        "Resume a Claude Code session from claude.ai": "Продолжить сессию Claude Code с claude.ai",
+        "Visualize current context usage as a colored grid": "Визуализировать использование контекста в виде цветной сетки",
+        "Change response formatting style": "Изменить стиль форматирования ответов",
+        "Auto-compact when context is full": "Авто-сжатие при заполнении контекста",
+        "Configure the auto-compact window size": "Настроить размер окна авто-сжатия",
+        "List all files currently in context": "Показать все файлы в текущем контексте",
+        "Show the total cost and duration of the current session": "Показать стоимость и длительность текущей сессии",
+        "Submit feedback about Claude Code": "Отправить отзыв о Claude Code",
+        "Create a git commit": "Создать git-коммит",
+        "Commit, push, and open a PR": "Закоммитить, запушить и открыть PR",
+        "Copy Claude's last response to clipboard (or /copy N for the Nth-latest)": "Скопировать последний ответ Claude в буфер (или /copy N для N-го с конца)",
+        "View uncommitted changes and per-turn diffs": "Показать незакоммиченные изменения и diff по шагам",
+        "Diagnose and verify your Claude Code installation and settings": "Диагностика и проверка установки и настроек Claude Code",
+        "Edit Claude memory files": "Редактировать файлы памяти Claude",
+        "Toggle automemory off/on for this session": "Переключить авто-память для этой сессии",
+        "Show help and available commands": "Показать справку и доступные команды",
+        "Manage IDE integrations and show status": "Управление интеграциями IDE и статус",
+        "Open or create your keybindings configuration file": "Открыть или создать файл привязки клавиш",
+        "Sign out from your Anthropic account": "Выйти из аккаунта Anthropic",
+        "Rename the current conversation": "Переименовать текущий разговор",
+        "Resume a previous conversation": "Продолжить предыдущий разговор",
+        "List available skills": "Показать доступные скиллы",
+        "Show Claude Code status including version, model, account, API connectivity, and tool statuses": "Показать статус Claude Code: версия, модель, аккаунт, подключение к API, статус инструментов",
+        "Show plan usage limits": "Показать лимиты использования плана",
+        "Change the theme": "Сменить тему",
+        "Enable plan mode or view the current session plan": "Включить режим плана или просмотреть текущий план сессии",
+        "View and update your privacy settings": "Просмотр и обновление настроек приватности",
+        "View hook configurations for tool events": "Просмотр конфигурации хуков для событий инструментов",
+        "Export the conversation to a file or clipboard": "Экспортировать разговор в файл или буфер обмена",
+        "Manage agent configurations": "Управление конфигурациями агентов",
+        "Print the version this session is running (not what autoupdate downloaded)": "Показать версию текущей сессии (не то, что скачал автообновитель)",
+        "Configure the Advisor Tool to consult a stronger model for guidance at key moments during a task": "Настроить Advisor Tool для консультации с более мощной моделью в ключевых моментах задачи",
+        "Upgrade to Max for higher rate limits and more Opus": "Перейти на Max для повышения лимитов и большего доступа к Opus",
+        "Set a session-only Stop hook with a quick prompt": "Установить Stop-хук для этой сессии через промпт",
+        "Manage allow & deny tool permission rules": "Управление правилами разрешений инструментов",
+        "Spawn a remote Claude Code session that monitors and autofixes the current PR": "Запустить удалённую сессию Claude Code для мониторинга и автоисправления текущего PR",
+        "Install the Claude Slack app": "Установить приложение Claude для Slack",
+        "Set up Claude GitHub Actions for a repository": "Настроить Claude GitHub Actions для репозитория",
+        "Reconfigure AWS Bedrock authentication, region, or model pins": "Перенастроить аутентификацию, регион или привязки моделей AWS Bedrock",
+        "Reconfigure Google Vertex AI authentication, project, region, or model pins": "Перенастроить аутентификацию, проект, регион или привязки моделей Google Vertex AI",
+        "Order Claude Code stickers": "Заказать стикеры Claude Code",
+        "Create verifier skill(s) for automated verification of code changes": "Создать верификатор(ы) для автоматической проверки изменений кода",
+        "Activate pending plugin changes in the current session": "Активировать ожидающие изменения плагинов в текущей сессии",
+        "Create a branch of the current conversation at this point": "Создать ветку разговора от этой точки"
+      }
+    }
+  }
+}

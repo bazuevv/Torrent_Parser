@@ -1,0 +1,1713 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Torrent Parser</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f172a;
+      --surface:   #1e293b;
+      --surface2:  #273449;
+      --border:    #334155;
+      --text:      #f1f5f9;
+      --muted:     #94a3b8;
+      --blue:      #3b82f6;
+      --blue-dim:  #1d4ed8;
+      --green:     #22c55e;
+      --yellow:    #eab308;
+      --red:       #ef4444;
+      --radius:    8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    header h1 { font-size: 18px; font-weight: 700; letter-spacing: .3px; }
+    header h1 span { color: var(--blue); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .badge::before {
+      content: '';
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .badge.running  { background: rgba(34,197,94,.15);  color: var(--green); }
+    .badge.stopped  { background: rgba(148,163,184,.12); color: var(--muted); }
+
+    header .spacer { flex: 1; }
+    header .hint   { color: var(--muted); font-size: 12px; }
+
+    /* ── Layout ── */
+    main { max-width: 1600px; margin: 0 auto; padding: 20px 24px 40px; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* ── Controls row ── */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 18px;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .38; cursor: not-allowed; transform: none; }
+    .btn-start { background: var(--green);  color: #0f2318; }
+    .btn-stop  { background: var(--red);    color: #fff; }
+    .btn-clear { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+
+    /* ── Parser sub-tabs ── */
+    .ptab-bar {
+      display: flex;
+      gap: 2px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ptab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      padding: 8px 18px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: -1px;
+      transition: color .15s, border-color .15s;
+    }
+    .ptab-btn:hover { color: var(--text); }
+    .ptab-btn.ptab-active { color: var(--blue); border-bottom-color: var(--blue); }
+
+    /* ── Stats ── */
+    .stats-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-left: auto;
+    }
+    .stat-chip {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 13px;
+    }
+    .stat-chip strong { color: var(--blue); }
+
+    /* ── Log console ── */
+    #log-wrap { position: relative; }
+    #log {
+      background: #090e1a;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      height: 360px;
+      overflow-y: auto;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12.5px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    #log:empty::before { content: 'Лог пуст. Запустите парсер…'; color: var(--muted); }
+    .log-line { padding: 1px 0; }
+    .log-line.err  { color: #f87171; }
+    .log-line.warn { color: #fbbf24; }
+    .log-line.ok   { color: #4ade80; }
+    .log-line.end  { color: #818cf8; font-style: italic; }
+
+    /* ── Videos ── */
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .filters input, .filters select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 7px 12px;
+      font-size: 13px;
+      outline: none;
+    }
+    .filters input { flex: 1; min-width: 200px; }
+    .filters input::placeholder { color: var(--muted); }
+    .filters input:focus, .filters select:focus { border-color: var(--blue); }
+
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      text-align: left;
+      padding: 10px 12px;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(51,65,85,.5);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+
+    .td-title {
+      max-width: 520px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .td-title:hover { white-space: normal; word-break: break-word; }
+
+    .q-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .q-1080 { background: rgba(59,130,246,.18); color: #60a5fa; }
+    .q-720  { background: rgba(34,197,94,.15);  color: #4ade80; }
+    .q-480, .q-540, .q-576 { background: rgba(148,163,184,.12); color: var(--muted); }
+    .q-none { background: rgba(148,163,184,.08); color: #64748b; }
+
+    .magnet-btns { display: flex; gap: 5px; align-items: center; }
+
+    .btn-open {
+      display: inline-block;
+      background: rgba(59,130,246,.15);
+      border: 1px solid rgba(59,130,246,.4);
+      border-radius: 6px;
+      color: #60a5fa;
+      padding: 3px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+    .btn-open:hover   { background: rgba(59,130,246,.28); border-color: var(--blue); }
+    .btn-open.adding  { opacity: .6; cursor: wait; }
+    .btn-open.added   { background: rgba(34,197,94,.15); border-color: var(--green); color: var(--green); }
+    .btn-open.failed  { background: rgba(239,68,68,.15);  border-color: var(--red);   color: var(--red); }
+
+    .btn-copy {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 3px 10px;
+      font-size: 11px;
+      transition: color .15s, border-color .15s;
+    }
+    .btn-copy:hover  { color: var(--text); border-color: var(--blue); }
+    .btn-copy.copied { color: var(--green); border-color: var(--green); }
+
+    /* ── Pagination ── */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 16px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .pagination-info { color: var(--muted); font-size: 13px; }
+    .page-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .page-btn {
+      min-width: 34px;
+      padding: 5px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 13px;
+      transition: background .15s;
+    }
+    .page-btn:hover:not(:disabled) { background: var(--border); }
+    .page-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+    .page-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+    .empty-row td { text-align: center; color: var(--muted); padding: 32px; }
+
+    .top-right-btns { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+    /* ── Видео-модалка ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.88);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+      padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .modal-title {
+      color: #e2e8f0;
+      font-size: 13px;
+      max-width: 900px;
+      width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      opacity: .8;
+    }
+
+    .modal-video {
+      max-width: 900px;
+      width: 100%;
+      max-height: 80vh;
+      border-radius: 8px;
+      background: #000;
+      outline: none;
+    }
+
+    .modal-close {
+      position: fixed;
+      top: 16px;
+      right: 20px;
+      background: transparent;
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 6px;
+      color: #fff;
+      font-size: 20px;
+      line-height: 1;
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .modal-close:hover { background: rgba(255,255,255,.1); }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 20px;
+      margin-bottom: -1px;
+      transition: color .15s, border-color .15s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Transcode progress card ── */
+    .tc-progress-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+    .tc-progress-title {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .tc-progress-filename {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 12px;
+      word-break: break-word;
+    }
+    .tc-progress-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .tc-progress-meta span { display: flex; flex-direction: column; gap: 2px; }
+    .tc-progress-meta b { color: var(--text); font-weight: 500; font-size: 14px; }
+    .tc-progress-bar-wrap {
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .tc-progress-bar {
+      height: 100%;
+      background: var(--blue);
+      border-radius: 3px;
+      transition: width .5s linear;
+    }
+    .tc-progress-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ── Transcode log ── */
+    .tc-action-transcode { color: var(--blue); }
+    .tc-action-copy      { color: var(--muted); }
+    .tc-status-queued  { color: var(--muted); }
+    .tc-status-running { color: var(--yellow); }
+    .tc-status-done    { color: var(--green); }
+    .tc-status-error   { color: var(--red); }
+    .tc-saving { color: var(--green); font-weight: 600; }
+    .tc-play-link {
+      color: var(--blue);
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-color: rgba(59,130,246,.4);
+      text-underline-offset: 3px;
+    }
+    .tc-play-link:hover { color: #93c5fd; }
+
+    /* ── Settings tab ── */
+    .settings-group { margin-bottom: 28px; }
+    .settings-group-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+      margin-bottom: 14px;
+    }
+    .settings-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 16px;
+      align-items: start;
+      margin-bottom: 12px;
+    }
+    .settings-label { font-size: 13px; padding-top: 6px; }
+    .settings-desc  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .settings-input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      padding: 6px 10px;
+      width: 100%;
+    }
+    .settings-input:focus { outline: none; border-color: var(--blue); }
+    .settings-select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      padding: 6px 10px;
+      width: 100%;
+      cursor: pointer;
+    }
+    .settings-select:focus { outline: none; border-color: var(--blue); }
+
+    /* IP list */
+    .ip-list { display:flex; flex-direction:column; gap:6px; }
+    .ip-row   { display:flex; align-items:center; gap:8px; }
+    .ip-row input[type=text] { flex:1; }
+    .ip-row input[type=checkbox] { width:16px; height:16px; cursor:pointer; accent-color:var(--blue); }
+    .ip-del-btn {
+      background:none; border:none; color:var(--muted); cursor:pointer;
+      font-size:16px; line-height:1; padding:0 2px;
+    }
+    .ip-del-btn:hover { color:var(--red); }
+    .ip-add-row { display:flex; gap:8px; margin-top:8px; }
+    .ip-add-row input { flex:1; }
+    .ip-add-btn {
+      background:rgba(59,130,246,.15); border:1px solid var(--blue);
+      color:var(--blue); border-radius:var(--radius); padding:6px 14px;
+      font-size:13px; cursor:pointer; white-space:nowrap;
+    }
+    .ip-add-btn:hover { background:rgba(59,130,246,.28); }
+
+    /* File picker */
+    .file-pick-row {
+      display:flex; align-items:center; gap:10px;
+      padding:8px 10px; border-radius:6px; cursor:pointer;
+      transition:background .15s;
+    }
+    .file-pick-row:hover { background:var(--surface2); }
+    .file-pick-name { flex:1; font-size:13px; word-break:break-all; }
+    .file-pick-badge {
+      font-size:11px; padding:2px 7px; border-radius:10px;
+      background:rgba(34,197,94,.15); color:var(--green); white-space:nowrap;
+    }
+    .file-pick-play {
+      background:rgba(59,130,246,.15); border:1px solid var(--blue);
+      color:var(--blue); border-radius:6px; padding:4px 12px;
+      font-size:12px; cursor:pointer; white-space:nowrap;
+    }
+    .file-pick-play:hover { background:rgba(59,130,246,.28); }
+  </style>
+</head>
+<body>
+
+<!-- Видео-плеер -->
+<div class="modal-overlay" id="video-modal" onclick="closeModal(event)">
+  <button class="modal-close" onclick="closeVideoModal()">✕</button>
+  <div class="modal-title" id="modal-title"></div>
+  <video class="modal-video" id="modal-video" controls preload="metadata"></video>
+</div>
+
+<!-- File picker modal for multi-file torrents -->
+<div class="modal-overlay" id="files-modal" onclick="closeFilesModal(event)" style="align-items:center;justify-content:center">
+  <div id="files-modal-inner" onclick="event.stopPropagation()" style="background:var(--surface);border-radius:var(--radius);padding:24px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;position:relative">
+    <button class="modal-close" style="top:10px;right:10px" onclick="closeFilesModal()">✕</button>
+    <div id="files-modal-title" style="font-weight:600;font-size:15px;margin-bottom:16px;padding-right:32px"></div>
+    <div id="files-modal-list"></div>
+  </div>
+</div>
+
+<header>
+  <h1>Torrent <span>Parser</span></h1>
+  <span id="status-badge" class="badge stopped">Остановлен</span>
+  <span class="spacer"></span>
+  <span class="hint">xxxtorrents.pro</span>
+</header>
+
+<main>
+
+  {% if admin %}
+  <!-- Controls -->
+  <div class="card" id="parser-controls-card">
+    <div class="card-title">Управление парсером</div>
+    <div class="ptab-bar">
+      <button class="ptab-btn ptab-active" id="ptab-btn-main" onclick="switchParserTab('main')">📦 Торрент парсер</button>
+      <button class="ptab-btn" id="ptab-btn-leakgallery" onclick="switchParserTab('leakgallery')">👤 LeakGallery</button>
+      <button class="ptab-btn" id="ptab-btn-leakgallery_media" onclick="switchParserTab('leakgallery_media')">🖼 Медиа профилей</button>
+    </div>
+    <div class="ptab-panel" id="ptab-main">
+      <div class="controls-row">
+        <button id="btn-start" class="btn btn-start" onclick="startParser()">▶ Запустить</button>
+        <button id="btn-stop" class="btn btn-stop" disabled onclick="stopParser()">■ Остановить</button>
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-chip">Всего в БД: <strong id="stat-total">—</strong></div>
+        </div>
+      </div>
+    </div>
+    <div class="ptab-panel" id="ptab-leakgallery" style="display:none">
+      <div class="controls-row">
+        <button id="btn-start-lg" class="btn btn-start" onclick="startParser()">▶ Запустить</button>
+        <button id="btn-stop-lg" class="btn btn-stop" disabled onclick="stopParser()">■ Остановить</button>
+        <div class="stats-grid">
+          <div class="stat-chip">Профилей в БД: <strong id="stat-girls-count">—</strong></div>
+        </div>
+      </div>
+    </div>
+    <div class="ptab-panel" id="ptab-leakgallery_media" style="display:none">
+      <div class="controls-row">
+        <button id="btn-start-lm" class="btn btn-start" onclick="startParser()">▶ Запустить</button>
+        <button id="btn-stop-lm" class="btn btn-stop" disabled onclick="stopParser()">■ Остановить</button>
+        <div class="stats-grid">
+          <div class="stat-chip">Без медиа: <strong id="stat-girls-no-media">—</strong></div>
+          <div class="stat-chip">С медиа: <strong id="stat-girls-with-media">—</strong></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card" id="parser-log-card">
+    <div class="card-title" style="display:flex;align-items:center;">
+      Лог выполнения
+      <div class="top-right-btns">
+        <button class="btn btn-clear" onclick="clearLog()">Очистить</button>
+      </div>
+    </div>
+    <div id="log-wrap">
+      <div id="log"></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-btn-videos" onclick="switchTab('videos')">Видео</button>
+    <button class="tab-btn" id="tab-btn-girls" onclick="switchTab('girls')">Девушки</button>
+    {% if admin %}
+    <button class="tab-btn" id="tab-btn-transcode" onclick="switchTab('transcode')">Перекодирование</button>
+    <button class="tab-btn" id="tab-btn-settings"  onclick="switchTab('settings')">Настройки</button>
+    {% endif %}
+  </div>
+
+  <!-- Tab: Videos -->
+  <div class="tab-panel active" id="tab-videos">
+    <div class="card">
+      <div class="card-title" style="display:flex;align-items:center;">
+        Сохранённые видео
+        {% if admin %}
+        <div class="top-right-btns">
+          <button id="btn-add-all" class="btn btn-clear" onclick="addAllMagnets()">↓ Загрузить все</button>
+          <button class="btn btn-clear" onclick="loadVideos(1)">↻ Обновить</button>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="filters">
+        <input id="search-input" type="text" placeholder="Поиск по названию…"
+               oninput="debounceSearch()" />
+        <select id="quality-select" onchange="loadVideos(1)">
+          <option value="">Все качества</option>
+          <option value="1080p">1080p</option>
+          <option value="720p">720p</option>
+          <option value="576p">576p</option>
+          <option value="540p">540p</option>
+          <option value="480p">480p</option>
+          <option value="__null__">Без метки</option>
+        </select>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Topic ID</th>
+              <th>Название</th>
+              <th>Качество</th>
+              <th>Дата</th>
+              <th>Файл / Действие</th>
+            </tr>
+          </thead>
+          <tbody id="videos-tbody">
+            <tr class="empty-row"><td colspan="6">Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <span class="pagination-info" id="pagination-info"></span>
+        <div class="page-btns" id="page-btns"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Girls -->
+  <div class="tab-panel" id="tab-girls">
+    <div class="card">
+      <div class="card-title" style="display:flex;align-items:center;">
+        Девушки
+        {% if admin %}
+        <div class="top-right-btns">
+          <button class="btn btn-clear" onclick="loadGirls(1)">↻ Обновить</button>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="filters">
+        <input id="girls-search-input" type="text" placeholder="Поиск по названию…"
+               oninput="debounceGirlsSearch()" />
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Username</th>
+              <th>Профиль</th>
+              <th>Дата</th>
+            </tr>
+          </thead>
+          <tbody id="girls-tbody">
+            <tr class="empty-row"><td colspan="4">Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <span class="pagination-info" id="girls-pagination-info"></span>
+        <div class="page-btns" id="girls-page-btns"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Transcode log -->
+  <div class="tab-panel" id="tab-transcode">
+
+    <!-- Current file progress -->
+    {% if admin %}
+    <div class="tc-progress-card" id="tc-now-card" style="display:none">
+      <div class="tc-progress-title">Сейчас обрабатывается</div>
+      <div class="tc-progress-filename" id="tc-now-filename">—</div>
+      <div class="tc-progress-meta">
+        <span><small>Действие</small><b id="tc-now-action">—</b></span>
+        <span><small>Разрешение</small><b id="tc-now-height">—</b></span>
+        <span><small>Исходный размер</small><b id="tc-now-srcmb">—</b></span>
+        <span><small>Длительность</small><b id="tc-now-dur">—</b></span>
+        <span><small>FPS</small><b id="tc-now-fps">—</b></span>
+        <span><small>Скорость</small><b id="tc-now-speed">—</b></span>
+        <span><small>Битрейт</small><b id="tc-now-bitrate">—</b></span>
+        <span><small>Прошло</small><b id="tc-now-elapsed">—</b></span>
+        <span><small>Осталось (ETA)</small><b id="tc-now-eta">—</b></span>
+      </div>
+      <div class="tc-progress-bar-wrap">
+        <div class="tc-progress-bar" id="tc-now-bar" style="width:0%"></div>
+      </div>
+      <div class="tc-progress-info">
+        <span id="tc-now-time">00:00:00 / —</span>
+        <span id="tc-now-pct">—</span>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-title" style="display:flex;align-items:center;gap:8px;">
+        Журнал перекодирования
+        <span id="tc-state-badge" style="font-size:12px;padding:2px 8px;border-radius:10px;display:none"></span>
+        <div class="top-right-btns" style="margin-left:auto;display:flex;gap:6px;">
+          <button class="btn btn-clear" id="tc-btn-pause"  onclick="tcControl('pause')"  style="display:none">⏸ Пауза</button>
+          <button class="btn btn-clear" id="tc-btn-resume" onclick="tcControl('resume')" style="display:none">▶ Продолжить</button>
+          <button class="btn btn-clear" id="tc-btn-stop"   onclick="tcControl('stop')"  style="display:none;color:#f87171">■ Стоп</button>
+          <button class="btn btn-clear" id="tc-btn-start"  onclick="tcControl('start')" style="display:none">▶ Запустить</button>
+          <button class="btn btn-clear" onclick="loadTranscodeLog(1)">↻ Обновить</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Файл</th>
+              <th>Действие</th>
+              <th>Исходное</th>
+              <th>Результат</th>
+              <th>Экономия</th>
+              <th>Длит. видео</th>
+              <th>В очереди с</th>
+              <th>Начало</th>
+              <th>Длительность</th>
+              <th>Статус</th>
+            </tr>
+          </thead>
+          <tbody id="tc-tbody">
+            <tr class="empty-row"><td colspan="9">Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <span class="pagination-info" id="tc-pagination-info"></span>
+        <div class="page-btns" id="tc-page-btns"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Settings -->
+  <div class="tab-panel" id="tab-settings">
+    <div class="card" style="max-width:700px;margin:0 auto">
+      <div id="settings-form">
+        <p style="color:var(--muted)">Загрузка…</p>
+      </div>
+      <div style="margin-top:20px;display:flex;gap:10px;align-items:center">
+        <button class="btn" id="settings-save-btn" onclick="saveSettings()">Сохранить</button>
+        <span id="settings-status" style="font-size:13px"></span>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let evtSource = null;
+let currentPage = 1;
+let _searchTimer = null;
+
+// ── SSE ────────────────────────────────────────────────────────────────────
+function connectSSE() {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource('/api/stream');
+
+  evtSource.onmessage = (e) => {
+    const line = e.data;
+    if (line.startsWith('__END__:')) {
+      const code = line.split(':')[1];
+      appendLog(`─── Парсер завершил работу (код: ${code}) ───`, 'end');
+      setRunning(false);
+      evtSource.close();
+      setTimeout(connectSSE, 2000);
+      loadStats();
+      loadVideos(1);
+      return;
+    }
+    appendLog(line);
+  };
+
+  evtSource.onerror = () => {
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+// ── Log ────────────────────────────────────────────────────────────────────
+function appendLog(line, forceCls) {
+  const el = document.getElementById('log');
+  const div = document.createElement('div');
+  div.className = 'log-line ' + (forceCls || classifyLine(line));
+  div.textContent = line;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function classifyLine(line) {
+  const u = line.toUpperCase();
+  if (u.includes('ERROR'))   return 'err';
+  if (u.includes('WARNING')) return 'warn';
+  if (u.includes('СОХРАНЕНО') && !u.includes('УЖЕ')) return 'ok';
+  return '';
+}
+
+function clearLog() {
+  document.getElementById('log').innerHTML = '';
+}
+
+// ── Controls ───────────────────────────────────────────────────────────────
+let activeParserTab = 'main';
+
+function switchParserTab(tab) {
+  activeParserTab = tab;
+  document.querySelectorAll('.ptab-btn').forEach(b => b.classList.remove('ptab-active'));
+  document.querySelectorAll('.ptab-panel').forEach(p => p.style.display = 'none');
+  document.getElementById('ptab-btn-' + tab).classList.add('ptab-active');
+  document.getElementById('ptab-' + tab).style.display = '';
+}
+
+function startParser() {
+  fetch('/api/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parser: activeParserTab })
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        setRunning(true);
+        appendLog('─── Парсер запущен ───', 'ok');
+      } else {
+        appendLog('Ошибка: ' + data.error, 'err');
+      }
+    });
+}
+
+function stopParser() {
+  fetch('/api/stop', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) appendLog('Ошибка: ' + data.error, 'err');
+    });
+}
+
+function setRunning(running) {
+  const badge = document.getElementById('status-badge');
+  badge.className = 'badge ' + (running ? 'running' : 'stopped');
+  badge.textContent = running ? 'Работает' : 'Остановлен';
+  ['btn-start', 'btn-start-lg', 'btn-start-lm'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = running;
+  });
+  ['btn-stop', 'btn-stop-lg', 'btn-stop-lm'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !running;
+  });
+}
+
+// ── Status poll ────────────────────────────────────────────────────────────
+function pollStatus() {
+  fetch('/api/status')
+    .then(r => r.json())
+    .then(d => setRunning(d.running));
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────
+function loadStats() {
+  fetch('/api/stats')
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('stat-total').textContent = data.total ?? '—';
+      const gc = document.getElementById('stat-girls-count');
+      if (gc) gc.textContent = data.girls_total ?? '—';
+      const gnm = document.getElementById('stat-girls-no-media');
+      if (gnm) gnm.textContent = data.girls_no_media ?? '—';
+      const gwm = document.getElementById('stat-girls-with-media');
+      if (gwm) gwm.textContent = data.girls_with_media ?? '—';
+
+      const grid = document.getElementById('stats-grid');
+      const extra = grid.querySelectorAll('.stat-dyn');
+      extra.forEach(e => e.remove());
+
+      (data.by_quality || []).forEach(q => {
+        const chip = document.createElement('div');
+        chip.className = 'stat-chip stat-dyn';
+        chip.innerHTML = `${q.quality}: <strong>${q.cnt}</strong>`;
+        grid.appendChild(chip);
+      });
+    });
+}
+
+// ── Videos table ───────────────────────────────────────────────────────────
+function loadVideos(page) {
+  currentPage = page;
+  const search  = document.getElementById('search-input').value.trim();
+  const quality = document.getElementById('quality-select').value;
+  const url = `/api/videos?page=${page}&quality=${encodeURIComponent(quality)}&search=${encodeURIComponent(search)}`;
+
+  fetch(url)
+    .then(r => r.json())
+    .then(renderVideos);
+}
+
+function renderVideos(data) {
+  const tbody = document.getElementById('videos-tbody');
+  tbody.innerHTML = '';
+
+  if (!data.items || data.items.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Ничего не найдено</td></tr>';
+  } else {
+    const offset = (data.page - 1) * data.per_page;
+    data.items.forEach((v, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${offset + i + 1}</td>
+        <td>${v.topic_id}</td>
+        <td class="td-title" title="${escHtml(v.title)}">${escHtml(v.title)}</td>
+        <td>${qualityBadge(v.quality)}</td>
+        <td style="white-space:nowrap;color:var(--muted)">${v.created_at}</td>
+        <td id="action-${v.topic_id}">${renderAction(v)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Pagination info
+  document.getElementById('pagination-info').textContent =
+    `Показано ${Math.min((data.page-1)*data.per_page+1, data.total)}–${Math.min(data.page*data.per_page, data.total)} из ${data.total}`;
+
+  renderPagination(data.page, data.pages);
+  pollPendingTorrents(data.items);
+}
+
+function qualityBadge(q) {
+  if (!q) return `<span class="q-badge q-none">—</span>`;
+  const cls = q === '1080p' ? 'q-1080' : q === '720p' ? 'q-720' : 'q-480';
+  return `<span class="q-badge ${cls}">${q}</span>`;
+}
+
+function renderPagination(page, pages) {
+  const el = document.getElementById('page-btns');
+  el.innerHTML = '';
+
+  const addBtn = (label, p, disabled, active) => {
+    const b = document.createElement('button');
+    b.className = 'page-btn' + (active ? ' active' : '');
+    b.textContent = label;
+    b.disabled = disabled;
+    b.onclick = () => loadVideos(p);
+    el.appendChild(b);
+  };
+
+  addBtn('‹', page - 1, page === 1, false);
+
+  let start = Math.max(1, page - 2);
+  let end   = Math.min(pages, page + 2);
+  if (start > 1) { addBtn('1', 1, false, false); if (start > 2) addBtn('…', null, true, false); }
+  for (let p = start; p <= end; p++) addBtn(p, p, false, p === page);
+  if (end < pages) { if (end < pages - 1) addBtn('…', null, true, false); addBtn(pages, pages, false, false); }
+
+  addBtn('›', page + 1, page === pages, false);
+}
+
+// ── Действия с торрентом ───────────────────────────────────────────────────
+
+function renderAction(v) {
+  const copyBtn = `<button class="btn-copy" onclick="copyMagnet(this, ${escHtml(JSON.stringify(v.magnet_link))})">⎘</button>`;
+
+  if (v.torrent_name) {
+    const fileUrl = `/api/video/${v.topic_id}`;
+    return `<div class="magnet-btns">
+      <button class="btn-open added" onclick="openTorrentOrVideo(${v.topic_id}, ${escHtml(JSON.stringify(v.torrent_name))})" title="${escHtml(v.torrent_name)}">
+        ▶ ${escHtml(shortName(v.torrent_name))}
+      </button>
+      ${copyBtn}
+    </div>`;
+  }
+
+  if (v.torrent_hash) {
+    // Хэш есть, но имя ещё не получено — ожидание метаданных
+    return `<div class="magnet-btns" id="status-${v.topic_id}">
+      <span class="btn-open" style="cursor:default;opacity:.6">⏳ Ожидание…</span>
+      ${copyBtn}
+    </div>`;
+  }
+
+  // Ещё не добавлено в qBittorrent
+  return `<div class="magnet-btns">
+    <button class="btn-open" onclick="addToQB(this, ${escHtml(JSON.stringify(v.topic_id))}, ${escHtml(JSON.stringify(v.magnet_link))})">↓ В qBittorrent</button>
+    ${copyBtn}
+  </div>`;
+}
+
+function shortName(name) {
+  return name.length > 30 ? name.slice(0, 28) + '…' : name;
+}
+
+function addToQB(btn, topicId, magnet) {
+  if (btn.classList.contains('adding')) return;
+  btn.classList.add('adding');
+  btn.textContent = '…';
+
+  fetch('/api/add-magnet', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({magnet, topic_id: topicId}),
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.classList.remove('adding');
+    if (!data.ok) {
+      btn.classList.add('failed');
+      btn.textContent = '✗ Ошибка';
+      btn.title = data.message || '';
+      setTimeout(() => { btn.classList.remove('failed'); btn.textContent = '↓ В qBittorrent'; btn.title = ''; }, 4000);
+      return;
+    }
+    if (data.torrent_name) {
+      // Имя пришло сразу — обновляем ячейку
+      updateActionCell(topicId, data.torrent_hash, data.torrent_name, magnet);
+    } else if (data.torrent_hash) {
+      // Имя ещё не известно — показываем ожидание и запускаем опрос
+      const cell = document.getElementById(`action-${topicId}`);
+      if (cell) {
+        cell.innerHTML = `<div class="magnet-btns"><span class="btn-open" style="cursor:default;opacity:.6">⏳ Ожидание…</span>
+          <button class="btn-copy" onclick="copyMagnet(this, ${escHtml(JSON.stringify(magnet))})">⎘</button></div>`;
+      }
+      schedulePoll(topicId, data.torrent_hash, magnet);
+    }
+  })
+  .catch(() => {
+    btn.classList.remove('adding');
+    btn.classList.add('failed');
+    btn.textContent = '✗ Ошибка';
+    setTimeout(() => { btn.classList.remove('failed'); btn.textContent = '↓ В qBittorrent'; }, 4000);
+  });
+}
+
+// ── Опрос статуса ──────────────────────────────────────────────────────────
+
+const _pendingPolls = {}; // topicId → intervalId
+
+function schedulePoll(topicId, hash, magnet) {
+  if (_pendingPolls[topicId]) return;
+  _pendingPolls[topicId] = setInterval(() => {
+    fetch(`/api/torrent-status?hashes=${hash}`)
+      .then(r => r.json())
+      .then(data => {
+        const info = data[hash];
+        if (!info) return;
+        if (info.name) {
+          clearInterval(_pendingPolls[topicId]);
+          delete _pendingPolls[topicId];
+          updateActionCell(topicId, hash, info.name, magnet, info.file_url);
+        }
+      });
+  }, 4000);
+}
+
+function updateActionCell(topicId, hash, name, magnet, fileUrl) {
+  const cell = document.getElementById(`action-${topicId}`);
+  if (!cell) return;
+  const url = `/api/video/${topicId}`;
+  const copyBtn = `<button class="btn-copy" onclick="copyMagnet(this, ${escHtml(JSON.stringify(magnet))})">⎘</button>`;
+  cell.innerHTML = `<div class="magnet-btns">
+    <button class="btn-open added" onclick="openTorrentOrVideo(${topicId}, ${escHtml(JSON.stringify(name))})" title="${escHtml(name)}">
+      ▶ ${escHtml(shortName(name))}
+    </button>
+    ${copyBtn}
+  </div>`;
+}
+
+// При загрузке страницы запускаем опрос для торрентов в ожидании
+function pollPendingTorrents(items) {
+  const pending = items.filter(v => v.torrent_hash && !v.torrent_name);
+  if (!pending.length) return;
+  const hashes = pending.map(v => v.torrent_hash);
+  fetch(`/api/torrent-status?hashes=${hashes.join(',')}`)
+    .then(r => r.json())
+    .then(data => {
+      for (const v of pending) {
+        const info = data[v.torrent_hash];
+        if (info && info.name) {
+          updateActionCell(v.topic_id, v.torrent_hash, info.name, v.magnet_link, info.file_url);
+        } else {
+          schedulePoll(v.topic_id, v.torrent_hash, v.magnet_link);
+        }
+      }
+    });
+}
+
+function copyMagnet(btn, magnet) {
+  navigator.clipboard.writeText(magnet).then(() => {
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '⎘'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function debounceSearch() {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => loadVideos(1), 350);
+}
+
+// ── Торрент: одиночный файл или папка ─────────────────────────────────────
+function openTorrentOrVideo(topicId, torrentName) {
+  fetch(`/api/torrent-files/${topicId}`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.files || data.files.length === 0) return;
+      if (data.files.length === 1) {
+        const f = data.files[0];
+        const url = f.transcoded
+          ? `/api/video/${topicId}`
+          : `/api/serve-bt-file?path=${encodeURIComponent(f.rel)}`;
+        openVideoModal(url, f.name);
+      } else {
+        openFilesModal(topicId, torrentName, data.files);
+      }
+    });
+}
+
+function openFilesModal(topicId, torrentName, files) {
+  document.getElementById('files-modal-title').textContent = torrentName;
+  const list = document.getElementById('files-modal-list');
+  list.innerHTML = files.map(f => {
+    const url = f.transcoded
+      ? `/api/serve-bt-file?path=${encodeURIComponent(f.name)}`
+      : `/api/serve-bt-file?path=${encodeURIComponent(f.rel)}`;
+    const badge = f.transcoded ? `<span class="file-pick-badge">✓ перекодирован</span>` : '';
+    return `<div class="file-pick-row">
+      <span class="file-pick-name">${escHtml(f.name)}</span>
+      ${badge}
+      <button class="file-pick-play" onclick="openVideoModal(${escHtml(JSON.stringify(url))}, ${escHtml(JSON.stringify(f.name))})">▶ Открыть</button>
+    </div>`;
+  }).join('');
+  document.getElementById('files-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeFilesModal(e) {
+  if (e && e.target !== document.getElementById('files-modal')) return;
+  document.getElementById('files-modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// ── Видео-плеер ────────────────────────────────────────────────────────────
+function openVideoModal(url, name) {
+  const modal = document.getElementById('video-modal');
+  const video = document.getElementById('modal-video');
+  const title = document.getElementById('modal-title');
+  title.textContent = name;
+  video.src = url;
+  video.load();
+  modal.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeVideoModal() {
+  const modal = document.getElementById('video-modal');
+  const video = document.getElementById('modal-video');
+  video.pause();
+  video.src = '';
+  modal.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function closeModal(e) {
+  if (e.target === document.getElementById('video-modal')) closeVideoModal();
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeVideoModal(); });
+
+// ── Загрузить все ──────────────────────────────────────────────────────────
+function addAllMagnets() {
+  const btn = document.getElementById('btn-add-all');
+  if (btn.disabled) return;
+  if (!confirm('Добавить все отсутствующие файлы в qBittorrent?')) return;
+
+  btn.disabled = true;
+  btn.textContent = '…';
+
+  fetch('/api/add-all-magnets', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      if (!data.ok) {
+        btn.textContent = '✗ Ошибка';
+        setTimeout(() => { btn.textContent = '↓ Загрузить все'; }, 4000);
+        appendLog('Ошибка batch-загрузки: ' + (data.error || ''), 'err');
+        return;
+      }
+      btn.textContent = `✓ ${data.added}`;
+      appendLog(`Добавлено в qBittorrent: ${data.added} торрентов`, 'ok');
+      setTimeout(() => { btn.textContent = '↓ Загрузить все'; }, 4000);
+      if (data.added > 0) loadVideos(currentPage);
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.textContent = '✗ Ошибка';
+      setTimeout(() => { btn.textContent = '↓ Загрузить все'; }, 4000);
+    });
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+let _activeTab = 'videos';
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('tab-btn-' + name).classList.add('active');
+  _activeTab = name;
+  if (name === 'girls')     loadGirls(1);
+  if (name === 'transcode') loadTranscodeLog(1);
+  if (name === 'settings')  loadSettings();
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
+const GROUP_LABELS = {
+  access:      'Доступ',
+  parser:      'Парсер',
+  transcoder:  'Перекодировщик',
+  qbittorrent: 'qBittorrent',
+};
+
+const PRESET_OPTIONS = ['ultrafast','superfast','veryfast','faster','fast','medium','slow','slower','veryslow'];
+
+function loadSettings() {
+  fetch('/api/settings')
+    .then(r => r.json())
+    .then(rows => {
+      const groups = {};
+      rows.forEach(r => {
+        if (!groups[r.group_name]) groups[r.group_name] = [];
+        groups[r.group_name].push(r);
+      });
+
+      let html = '';
+      for (const [gname, items] of Object.entries(groups)) {
+        html += `<div class="settings-group">
+          <div class="settings-group-title">${GROUP_LABELS[gname] || gname}</div>`;
+
+        if (gname === 'access') {
+          html += renderIpSection(items.find(s => s.key_name === 'allowed_ips'));
+        } else {
+          items.forEach(s => {
+            const inputHtml = s.key_name === 'ffmpeg_preset'
+              ? `<select class="settings-select" id="setting-${s.key_name}">
+                  ${PRESET_OPTIONS.map(o => `<option value="${o}"${o===s.value?' selected':''}>${o}</option>`).join('')}
+                 </select>`
+              : `<input class="settings-input" id="setting-${s.key_name}"
+                        type="text" value="${escHtml(s.value)}">`;
+            html += `<div class="settings-row">
+              <div>
+                <div class="settings-label">${escHtml(s.label)}</div>
+                ${s.description ? `<div class="settings-desc">${escHtml(s.description)}</div>` : ''}
+              </div>
+              <div>${inputHtml}</div>
+            </div>`;
+          });
+        }
+        html += '</div>';
+      }
+      document.getElementById('settings-form').innerHTML = html;
+    });
+}
+
+function renderIpSection(s) {
+  if (!s) return '';
+  let entries = [];
+  try { entries = JSON.parse(s.value); } catch(e) { entries = []; }
+
+  let rows = entries.map((e, i) => `
+    <div class="ip-row" id="ip-row-${i}">
+      <input type="checkbox" id="ip-on-${i}" ${e.on ? 'checked' : ''}>
+      <input class="settings-input" type="text" id="ip-val-${i}" value="${escHtml(e.ip)}">
+      <button class="ip-del-btn" onclick="deleteIpRow(${i})" title="Удалить">✕</button>
+    </div>`).join('');
+
+  return `
+    <div class="settings-label" style="margin-bottom:8px">${escHtml(s.label)}</div>
+    <div class="ip-list" id="ip-list">${rows}</div>
+    <div class="ip-add-row">
+      <input class="settings-input" type="text" id="ip-new-input" placeholder="Новый IP-адрес…">
+      <button class="ip-add-btn" onclick="addIpRow()">+ Добавить</button>
+    </div>`;
+}
+
+function addIpRow() {
+  const input = document.getElementById('ip-new-input');
+  const ip = input.value.trim();
+  if (!ip) return;
+  const list = document.getElementById('ip-list');
+  const i = list.querySelectorAll('.ip-row').length;
+  const div = document.createElement('div');
+  div.className = 'ip-row';
+  div.id = `ip-row-${i}`;
+  div.innerHTML = `
+    <input type="checkbox" id="ip-on-${i}" checked>
+    <input class="settings-input" type="text" id="ip-val-${i}" value="${escHtml(ip)}">
+    <button class="ip-del-btn" onclick="deleteIpRow(${i})" title="Удалить">✕</button>`;
+  list.appendChild(div);
+  input.value = '';
+}
+
+function deleteIpRow(i) {
+  const row = document.getElementById(`ip-row-${i}`);
+  if (row) row.remove();
+}
+
+function saveSettings() {
+  const inputs = document.querySelectorAll('[id^="setting-"]');
+  const body = {};
+  inputs.forEach(el => {
+    const key = el.id.replace('setting-', '');
+    body[key] = el.value;
+  });
+
+  // Serialize IP list (ip-row elements) into allowed_ips JSON
+  const ipList = document.getElementById('ip-list');
+  if (ipList) {
+    const entries = [];
+    ipList.querySelectorAll('.ip-row').forEach(row => {
+      const idx = row.id.replace('ip-row-', '');
+      const ipVal = document.getElementById(`ip-val-${idx}`);
+      const ipOn  = document.getElementById(`ip-on-${idx}`);
+      if (ipVal && ipVal.value.trim()) {
+        entries.push({ ip: ipVal.value.trim(), on: ipOn ? ipOn.checked : true });
+      }
+    });
+    body['allowed_ips'] = JSON.stringify(entries);
+    delete body['setting-allowed_ips'];
+  }
+  const btn = document.getElementById('settings-save-btn');
+  const status = document.getElementById('settings-status');
+  btn.disabled = true;
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  })
+    .then(r => r.json())
+    .then(d => {
+      status.style.color = d.ok ? 'var(--green)' : 'var(--red)';
+      status.textContent = d.ok ? '✓ Сохранено' : ('Ошибка: ' + d.error);
+      btn.disabled = false;
+      setTimeout(() => { status.textContent = ''; }, 3000);
+    })
+    .catch(() => { status.textContent = 'Ошибка сети'; btn.disabled = false; });
+}
+
+// ── Transcode log ──────────────────────────────────────────────────────────
+let _tcPage = 1;
+
+function loadTranscodeLog(page) {
+  _tcPage = page;
+  fetch(`/api/transcode-log?page=${page}`)
+    .then(r => r.json())
+    .then(renderTranscodeLog);
+}
+
+function renderTranscodeLog(data) {
+  const tbody = document.getElementById('tc-tbody');
+  tbody.innerHTML = '';
+
+  if (!data.items || data.items.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Записей нет</td></tr>';
+  } else {
+    const offset = (data.page - 1) * data.per_page;
+    data.items.forEach((r, i) => {
+      const saving = (r.action === 'transcode' && r.src_size_mb && r.dest_size_mb)
+        ? Math.round((1 - r.dest_size_mb / r.src_size_mb) * 100)
+        : null;
+      const savingHtml = saving !== null
+        ? `<span class="tc-saving">−${saving}%</span>`
+        : `<span style="color:var(--muted)">—</span>`;
+
+      const actionHtml = r.action === 'transcode'
+        ? `<span class="tc-action-transcode">→ 720p</span>`
+        : `<span class="tc-action-copy">копия</span>`;
+
+      const srcHtml = r.src_height
+        ? `${r.src_height}p / ${r.src_size_mb} МБ`
+        : `${r.src_size_mb} МБ`;
+
+      const videoDurHtml = r.src_duration_sec
+        ? fmtDuration(r.src_duration_sec)
+        : `<span style="color:var(--muted)">—</span>`;
+
+      const destHtml = r.dest_size_mb != null
+        ? `${r.dest_size_mb} МБ`
+        : `<span style="color:var(--muted)">—</span>`;
+
+      let durHtml;
+      if (r.status === 'running' && r.started_at) {
+        durHtml = `<span class="tc-live-timer" data-started="${r.started_at}">…</span>`;
+      } else {
+        durHtml = r.duration_sec != null ? fmtDuration(r.duration_sec) : '…';
+      }
+
+      const statusMap = {
+        queued:  `<span class="tc-status-queued">◌ в очереди</span>`,
+        running: `<span class="tc-status-running">⏳ выполняется</span>`,
+        done:    `<span class="tc-status-done">✓ готово</span>`,
+        error:   `<span class="tc-status-error">✗ ошибка</span>`,
+      };
+
+      const canPlay = r.status === 'done';
+      const filenameHtml = canPlay
+        ? `<span class="tc-play-link" title="Открыть в плеере" onclick="openVideoModal('/api/transcode-video/${r.id}', ${escHtml(JSON.stringify(r.filename))})">${escHtml(r.filename)}</span>`
+        : escHtml(r.filename);
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${offset + i + 1}</td>
+        <td class="td-title" title="${escHtml(r.filename)}" style="max-width:480px">${filenameHtml}</td>
+        <td>${actionHtml}</td>
+        <td style="white-space:nowrap">${srcHtml}</td>
+        <td style="white-space:nowrap">${destHtml}</td>
+        <td>${savingHtml}</td>
+        <td style="white-space:nowrap">${videoDurHtml}</td>
+        <td style="white-space:nowrap;color:var(--muted)">${r.queued_at || '—'}</td>
+        <td style="white-space:nowrap;color:var(--muted)">${r.started_at || '—'}</td>
+        <td style="white-space:nowrap">${durHtml}</td>
+        <td>${statusMap[r.status] || r.status}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  document.getElementById('tc-pagination-info').textContent =
+    `Показано ${Math.min((data.page-1)*data.per_page+1, data.total)}–${Math.min(data.page*data.per_page, data.total)} из ${data.total}`;
+
+  renderTcPagination(data.page, data.pages);
+}
+
+function fmtDuration(sec) {
+  if (sec < 60) return `${sec} сек`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function tickLiveTimers() {
+  document.querySelectorAll('.tc-live-timer').forEach(el => {
+    const started = new Date(el.dataset.started);
+    if (isNaN(started)) return;
+    const sec = Math.floor((Date.now() - started.getTime()) / 1000);
+    el.textContent = sec >= 0 ? fmtDuration(sec) : '…';
+  });
+}
+
+function renderTcPagination(page, pages) {
+  const el = document.getElementById('tc-page-btns');
+  el.innerHTML = '';
+  const addBtn = (label, p, disabled, active) => {
+    const b = document.createElement('button');
+    b.className = 'page-btn' + (active ? ' active' : '');
+    b.textContent = label;
+    b.disabled = disabled;
+    b.onclick = () => loadTranscodeLog(p);
+    el.appendChild(b);
+  };
+  addBtn('‹', page - 1, page === 1, false);
+  let start = Math.max(1, page - 2), end = Math.min(pages, page + 2);
+  if (start > 1) { addBtn('1', 1, false, false); if (start > 2) addBtn('…', null, true, false); }
+  for (let p = start; p <= end; p++) addBtn(p, p, false, p === page);
+  if (end < pages) { if (end < pages - 1) addBtn('…', null, true, false); addBtn(pages, pages, false, false); }
+  addBtn('›', page + 1, page === pages, false);
+}
+
+// ── Transcode control ──────────────────────────────────────────────────────
+{% if admin %}
+function fmtSec(s) {
+  if (s == null || s < 0) return '—';
+  s = Math.round(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
+    : `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+function fmtBytes(mb) {
+  if (!mb) return '—';
+  return mb >= 1024 ? `${(mb/1024).toFixed(1)} ГБ` : `${mb} МБ`;
+}
+
+function pollTcProgress() {
+  fetch('/api/transcode-progress')
+    .then(r => r.json())
+    .then(d => {
+      const card = document.getElementById('tc-now-card');
+      const cur = d.current || {};
+      if (!cur.filename) { card.style.display = 'none'; return; }
+      card.style.display = '';
+
+      document.getElementById('tc-now-filename').textContent = cur.filename;
+      document.getElementById('tc-now-action').textContent =
+        cur.action === 'transcode' ? '→ 720p перекодирование' : 'Копирование';
+      document.getElementById('tc-now-height').textContent =
+        cur.src_height ? cur.src_height + 'p' : '—';
+      document.getElementById('tc-now-srcmb').textContent = fmtBytes(cur.src_size_mb);
+      document.getElementById('tc-now-dur').textContent =
+        cur.src_duration_sec ? fmtSec(cur.src_duration_sec) : '—';
+
+      document.getElementById('tc-now-fps').textContent = d.fps || '—';
+      document.getElementById('tc-now-speed').textContent = d.speed || '—';
+      document.getElementById('tc-now-bitrate').textContent = d.bitrate || '—';
+      document.getElementById('tc-now-elapsed').textContent = fmtSec(d.elapsed_sec);
+      document.getElementById('tc-now-eta').textContent =
+        d.eta_sec != null ? fmtSec(d.eta_sec) : '—';
+
+      const pct = d.percent;
+      document.getElementById('tc-now-bar').style.width = (pct || 0) + '%';
+      document.getElementById('tc-now-pct').textContent =
+        pct != null ? pct.toFixed(1) + '%' : '—';
+
+      // time display
+      const outSec = d.out_time_us ? (d.out_time_us / 1e6) : null;
+      const totSec = cur.src_duration_sec || null;
+      document.getElementById('tc-now-time').textContent =
+        (outSec != null ? fmtSec(outSec) : '00:00') +
+        ' / ' + (totSec ? fmtSec(totSec) : '—');
+    })
+    .catch(() => {});
+}
+
+function _tcUpdateUI(state, queueRemaining, currentFile) {
+  const badge   = document.getElementById('tc-state-badge');
+  const btnPause  = document.getElementById('tc-btn-pause');
+  const btnResume = document.getElementById('tc-btn-resume');
+  const btnStop   = document.getElementById('tc-btn-stop');
+  const btnStart  = document.getElementById('tc-btn-start');
+
+  if (state === 'running') {
+    badge.textContent = '▶ работает' + (queueRemaining ? ` · в очереди: ${queueRemaining}` : '');
+    badge.style.display = '';
+    badge.style.background = 'rgba(34,197,94,.15)';
+    badge.style.color = '#22c55e';
+    btnPause.style.display  = '';
+    btnResume.style.display = 'none';
+    btnStop.style.display   = '';
+    btnStart.style.display  = 'none';
+  } else if (state === 'paused') {
+    badge.textContent = '⏸ пауза' + (queueRemaining ? ` · в очереди: ${queueRemaining}` : '');
+    badge.style.display = '';
+    badge.style.background = 'rgba(250,204,21,.15)';
+    badge.style.color = '#facc15';
+    btnPause.style.display  = 'none';
+    btnResume.style.display = '';
+    btnStop.style.display   = '';
+    btnStart.style.display  = 'none';
+  } else {
+    badge.textContent = '■ остановлен';
+    badge.style.display = queueRemaining > 0 ? '' : 'none';
+    badge.style.background = 'rgba(148,163,184,.12)';
+    badge.style.color = 'var(--muted)';
+    btnPause.style.display  = 'none';
+    btnResume.style.display = 'none';
+    btnStop.style.display   = 'none';
+    btnStart.style.display  = queueRemaining > 0 ? '' : 'none';
+  }
+}
+
+function pollTcStatus() {
+  fetch('/api/transcode-status')
+    .then(r => r.json())
+    .then(d => _tcUpdateUI(d.state, d.queue_remaining, d.current_file))
+    .catch(() => {});
+}
+
+function tcControl(action) {
+  fetch('/api/transcode-control', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action})
+  })
+    .then(r => r.json())
+    .then(d => { if (d.ok) setTimeout(pollTcStatus, 800); else alert(d.error || 'Ошибка'); })
+    .catch(() => {});
+}
+
+setInterval(pollTcStatus, 5000);
+setInterval(pollTcProgress, 2000);
+pollTcStatus();
+pollTcProgress();
+{% endif %}
+
+// ── Girls table ───────────────────────────────────────────────────────────
+let currentGirlsPage = 1;
+let _girlsSearchTimer = null;
+
+function loadGirls(page) {
+  currentGirlsPage = page;
+  const search = document.getElementById('girls-search-input').value.trim();
+  const url = `/api/girls?page=${page}&search=${encodeURIComponent(search)}`;
+  fetch(url)
+    .then(r => r.json())
+    .then(renderGirls);
+}
+
+function renderGirls(data) {
+  const tbody = document.getElementById('girls-tbody');
+  tbody.innerHTML = '';
+
+  if (!data.items || data.items.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Ничего не найдено</td></tr>';
+  } else {
+    const offset = (data.page - 1) * data.per_page;
+    data.items.forEach((v, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${offset + i + 1}</td>
+        <td>${escHtml(v.username)}</td>
+        <td><a href="/${escHtml(v.username)}" style="color:var(--blue);text-decoration:none">${escHtml(v.username)}</a></td>
+        <td style="white-space:nowrap;color:var(--muted)">${v.created_at}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  document.getElementById('girls-pagination-info').textContent =
+    `Показано ${Math.min((data.page-1)*data.per_page+1, data.total)}–${Math.min(data.page*data.per_page, data.total)} из ${data.total}`;
+
+  renderGirlsPagination(data.page, data.pages);
+}
+
+function renderGirlsPagination(page, pages) {
+  const el = document.getElementById('girls-page-btns');
+  el.innerHTML = '';
+
+  const addBtn = (label, p, disabled, active) => {
+    const b = document.createElement('button');
+    b.className = 'page-btn' + (active ? ' active' : '');
+    b.textContent = label;
+    b.disabled = disabled;
+    b.onclick = () => loadGirls(p);
+    el.appendChild(b);
+  };
+
+  addBtn('‹', page - 1, page === 1, false);
+  let start = Math.max(1, page - 2);
+  let end   = Math.min(pages, page + 2);
+  if (start > 1) { addBtn('1', 1, false, false); if (start > 2) addBtn('…', null, true, false); }
+  for (let p = start; p <= end; p++) addBtn(p, p, false, p === page);
+  if (end < pages) { if (end < pages - 1) addBtn('…', null, true, false); addBtn(pages, pages, false, false); }
+  addBtn('›', page + 1, page === pages, false);
+}
+
+function debounceGirlsSearch() {
+  clearTimeout(_girlsSearchTimer);
+  _girlsSearchTimer = setTimeout(() => loadGirls(1), 350);
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+loadVideos(1);
+{% if admin %}
+connectSSE();
+pollStatus();
+loadStats();
+setInterval(pollStatus, 5000);
+setInterval(() => { loadStats(); }, 8000);
+setInterval(() => { if (_activeTab === 'transcode') loadTranscodeLog(_tcPage); }, 10000);
+setInterval(tickLiveTimers, 1000);
+{% endif %}
+</script>
+</body>
+</html>

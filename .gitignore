@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Виртуальное окружение
+venv/
+.venv/
+
+# Секреты (реальные значения — только на сервере/в окружении)
+config_secrets.py
+
+# Syncthing-конфликты
+*.sync-conflict-*
+
+# Локальные настройки Claude Code и рантайм хуков
+.claude/settings.local.json
+.claude/hooks-runtime/
+
+# Логи
+*.log

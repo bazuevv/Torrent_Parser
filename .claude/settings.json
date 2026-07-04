@@ -1,0 +1,187 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s:*)",
+      "Bash(curl -sL:*)",
+      "Bash(php -l:*)",
+      "Bash(bash -n:*)",
+      "Bash(npm run compile:*)",
+      "Bash(npx tsc:*)",
+      "Bash(systemctl is-active:*)",
+      "Bash(sensors:*)",
+      "Bash(dig:*)",
+      "Bash(mkdir:*)",
+      "Bash(ln:*)",
+      "Bash(sed -n:*)",
+      "Bash(rm -f /tmp/*)",
+      "Bash(rm -rf /tmp/*)",
+      "Bash(cp /tmp/* /tmp/*)",
+      "Bash(cp -r /tmp/* /tmp/*)",
+      "Bash(cp -a /tmp/* /tmp/*)",
+      "Bash(cp -v /tmp/* /tmp/*)",
+      "Bash(rm examples/*)",
+      "Bash(rm -f examples/*)",
+      "Bash(rm -rf examples/*)",
+      "Bash(cp examples/*)",
+      "Bash(cp -r examples/*)",
+      "Bash(cp -a examples/*)",
+      "Bash(cp -v examples/*)",
+      "Bash(mv examples/*)",
+      "Bash(mv -v examples/*)",
+      "Bash(rm -v examples/*)",
+      "Bash(rm projects/*)",
+      "Bash(rm -f projects/*)",
+      "Bash(rm -rf projects/*)",
+      "Bash(cp projects/*)",
+      "Bash(cp -r projects/*)",
+      "Bash(cp -a projects/*)",
+      "Bash(cp -v projects/*)",
+      "Bash(mv projects/*)",
+      "Bash(mv -v projects/*)",
+      "Bash(rm -v projects/*)",
+      "Bash(rm scripts/*)",
+      "Bash(rm -f scripts/*)",
+      "Bash(rm -rf scripts/*)",
+      "Bash(cp scripts/*)",
+      "Bash(cp -r scripts/*)",
+      "Bash(cp -a scripts/*)",
+      "Bash(cp -v scripts/*)",
+      "Bash(mv scripts/*)",
+      "Bash(mv -v scripts/*)",
+      "Bash(rm -v scripts/*)",
+      "Bash(rm src/*)",
+      "Bash(rm -f src/*)",
+      "Bash(rm -rf src/*)",
+      "Bash(cp src/*)",
+      "Bash(cp -r src/*)",
+      "Bash(cp -a src/*)",
+      "Bash(cp -v src/*)",
+      "Bash(mv src/*)",
+      "Bash(mv -v src/*)",
+      "Bash(rm -v src/*)",
+      "Bash(rm out/*)",
+      "Bash(rm -f out/*)",
+      "Bash(rm -rf out/*)",
+      "Bash(cp out/*)",
+      "Bash(cp -r out/*)",
+      "Bash(cp -a out/*)",
+      "Bash(cp -v out/*)",
+      "Bash(mv out/*)",
+      "Bash(mv -v out/*)",
+      "Bash(rm -v out/*)",
+      "Bash(rm prompt/*)",
+      "Bash(rm -f prompt/*)",
+      "Bash(rm -rf prompt/*)",
+      "Bash(cp prompt/*)",
+      "Bash(cp -r prompt/*)",
+      "Bash(cp -a prompt/*)",
+      "Bash(cp -v prompt/*)",
+      "Bash(mv prompt/*)",
+      "Bash(mv -v prompt/*)",
+      "Bash(rm -v prompt/*)",
+      "Bash(rm node_modules/*)",
+      "Bash(rm -f node_modules/*)",
+      "Bash(rm -rf node_modules/*)",
+      "Bash(rm -rf node_modules)",
+      "Bash(cp node_modules/*)",
+      "Bash(cp -r node_modules/*)",
+      "Bash(cp -a node_modules/*)",
+      "Bash(cp -v node_modules/*)",
+      "Bash(mv node_modules/*)",
+      "Bash(mv -v node_modules/*)",
+      "Bash(rm -v node_modules/*)"
+    ],
+    "deny": [
+      "Bash(rm *.git)",
+      "Bash(rm *.git/*)",
+      "Bash(rm *.git *)",
+      "Bash(cp *.git)",
+      "Bash(cp *.git/*)",
+      "Bash(cp *.git *)",
+      "Bash(mv *.git)",
+      "Bash(mv *.git/*)",
+      "Bash(mv *.git *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/bash-no-var-paths.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/warn-destructive-outside.py"
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/hooks/bypass-check.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/bypass-magic-word.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/inject-timestamp.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/patch-claude-webview.py"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/patch-claude-webview.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/patch-extension-csp.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/localize.py"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/bypass-cleanup.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/patch-claude-webview.py"
+          }
+        ]
+      }
+    ]
+  }
+}

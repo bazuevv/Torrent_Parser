@@ -1,0 +1,295 @@
+/*
+ * Кастомные стили для webview расширения Claude Code (anthropic.claude-code).
+ *
+ * Загружается через <link> из webview/index.js, который инжектит JS-патч
+ * (см. PATCHES_DIR в .claude/hooks/patch-claude-webview.py).
+ *
+ * Канонический источник — этот файл; копия в
+ * ~/.vscode/extensions/anthropic.claude-code-*-linux-x64/webview/claude-custom.css
+ * синхронизируется хуком SessionStart на каждой сессии.
+ *
+ * Для применения изменений: правишь этот файл → новая сессия Claude Code
+ * скопирует его в webview/ → Developer: Reload Window в VSCode.
+ */
+
+/* TEST: жёлтый */
+.claude-ts-line,
+.claude-ts-line em,
+.claude-ts-line * {
+  color: #51e00e !important;
+}
+
+/* ============================================================
+ * SESSION MOVER — кнопка 📁 и модалка переноса сессий между проектами.
+ * JS в claude-custom.js, IIFE «session mover».
+ * ============================================================ */
+
+/* Кнопка 📁 в .sessionActions_*. Подражаем .actionButton_OOQiHg
+ * (display:flex; cursor:pointer; padding:2px; border-radius:4px), но
+ * используем шрифтовой emoji вместо SVG-иконки. */
+.claude-move-session-btn {
+  display: flex;
+  cursor: pointer;
+  color: var(--app-secondary-foreground);
+  border-radius: 4px;
+  justify-content: center;
+  align-items: center;
+  padding: 2px 4px;
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  line-height: 1;
+  font-family: inherit;
+}
+.claude-move-session-btn:hover {
+  background: var(--app-hover-background, rgba(255,255,255,0.08));
+}
+
+/* === Overlay + модалка === */
+.claude-move-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--app-primary-foreground, #ddd);
+}
+.claude-move-overlay.claude-move-busy {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.claude-move-modal {
+  background: var(--app-primary-background, #1f1f1f);
+  border: 1px solid var(--app-border-color, rgba(255,255,255,0.1));
+  border-radius: 8px;
+  padding: 16px 18px;
+  width: min(520px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.claude-move-header {
+  font-size: 15px;
+  font-weight: 600;
+}
+.claude-move-subheader {
+  font-size: 13px;
+  color: var(--app-secondary-foreground, #aaa);
+  word-break: break-word;
+}
+.claude-move-sid {
+  font-size: 11px;
+  color: var(--app-tertiary-foreground, #888);
+  font-family: var(--vscode-editor-font-family, monospace);
+  margin-bottom: 4px;
+}
+
+.claude-move-loading,
+.claude-move-empty {
+  padding: 12px;
+  color: var(--app-secondary-foreground, #aaa);
+  text-align: center;
+}
+
+/* Лог попыток fetch к серверу */
+.claude-move-log {
+  margin-top: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+  text-align: left;
+  font: 11px/1.45 var(--vscode-editor-font-family, monospace);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--app-border-color, rgba(255,255,255,0.1));
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--app-secondary-foreground, #aaa);
+}
+.claude-move-log-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.claude-move-log-ok    { color: #51e00e; }
+.claude-move-log-err   { color: #ff7373; }
+
+.claude-move-section-label {
+  font-size: 12px;
+  color: var(--app-secondary-foreground, #aaa);
+  margin-top: 8px;
+  font-weight: 500;
+}
+
+/* Список проектов */
+.claude-move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  max-height: 40vh;
+  margin-top: 2px;
+}
+.claude-move-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+.claude-move-item:hover {
+  background: var(--app-hover-background, rgba(255,255,255,0.06));
+  border-color: var(--app-border-color, rgba(255,255,255,0.15));
+}
+.claude-move-item-name {
+  font-size: 13px;
+  word-break: break-word;
+}
+.claude-move-item-meta {
+  font-size: 11px;
+  color: var(--app-secondary-foreground, #888);
+}
+
+/* Создать новый проект */
+.claude-move-new-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  margin-top: 2px;
+}
+.claude-move-new-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border-color, rgba(255,255,255,0.15));
+  background: var(--app-input-background, rgba(0,0,0,0.25));
+  color: inherit;
+  font: inherit;
+}
+.claude-move-new-input:focus {
+  outline: 1px solid var(--app-accent-color, #519aba);
+  outline-offset: -1px;
+}
+.claude-move-new-btn,
+.claude-move-cancel {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border-color, rgba(255,255,255,0.15));
+  background: var(--app-button-background, rgba(255,255,255,0.06));
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.claude-move-new-btn:hover,
+.claude-move-cancel:hover {
+  background: var(--app-button-hover-background, rgba(255,255,255,0.1));
+}
+
+.claude-move-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  gap: 8px;
+}
+
+/* Версия footer для confirm-диалога: чуть больший gap между кнопками,
+ * чтобы [Скопировать]/[Перенести]/[Отмена] не сливались. */
+.claude-move-footer-spaced {
+  gap: 12px;
+}
+
+/* Ghost-кнопка без фона и рамки (для «Назад» в confirm-диалоге).
+ * Перекрывает базовые стили .claude-move-cancel. */
+.claude-move-ghost,
+.claude-move-cancel.claude-move-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--app-secondary-foreground, #aaa);
+}
+.claude-move-ghost:hover,
+.claude-move-cancel.claude-move-ghost:hover {
+  background: var(--app-hover-background, rgba(255,255,255,0.06));
+}
+
+/* Зелёная кнопка «Скопировать» в confirm-диалоге. Использует тот же
+ * базовый класс .claude-move-new-btn, но переопределяет цвета. */
+.claude-move-copy,
+.claude-move-new-btn.claude-move-copy {
+  background: #2d8a3e;
+  border-color: #2d8a3e;
+  color: #fff;
+}
+.claude-move-copy:hover,
+.claude-move-new-btn.claude-move-copy:hover {
+  background: #36a44a;
+  border-color: #36a44a;
+}
+
+/* Confirmation-диалог (между списком проектов и финальным переносом) */
+.claude-move-confirm-question {
+  font-size: 13px;
+  color: var(--app-secondary-foreground, #aaa);
+  margin: 4px 0;
+}
+.claude-move-confirm-box {
+  background: var(--app-hover-background, rgba(255,255,255,0.04));
+  border: 1px solid var(--app-border-color, rgba(255,255,255,0.1));
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.claude-move-confirm-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--app-tertiary-foreground, #888);
+}
+.claude-move-confirm-value {
+  font-size: 14px;
+  font-weight: 500;
+  word-break: break-word;
+}
+.claude-move-confirm-path {
+  font-size: 11px;
+  color: var(--app-secondary-foreground, #888);
+  font-family: var(--vscode-editor-font-family, monospace);
+  word-break: break-all;
+  margin-top: 2px;
+}
+.claude-move-confirm-arrow {
+  text-align: center;
+  font-size: 18px;
+  color: var(--app-tertiary-foreground, #888);
+  margin: -2px 0;
+}
+
+/* Success-экран после переноса */
+.claude-move-success .claude-move-header {
+  color: #51e00e;
+}
+.claude-move-hint {
+  font-size: 12px;
+  color: var(--app-secondary-foreground, #aaa);
+  padding: 10px 12px;
+  margin-top: 6px;
+  background: var(--app-hover-background, rgba(255,255,255,0.04));
+  border-radius: 4px;
+  line-height: 1.5;
+}
