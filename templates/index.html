@@ -846,15 +846,17 @@
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 let evtSource = null;
+let lastLogId = 0;
 let currentPage = 1;
 let _searchTimer = null;
 
 // ── SSE ────────────────────────────────────────────────────────────────────
 function connectSSE() {
   if (evtSource) evtSource.close();
-  evtSource = new EventSource('/api/stream');
+  evtSource = new EventSource('/api/stream?after=' + lastLogId);
 
   evtSource.onmessage = (e) => {
+    if (e.lastEventId) lastLogId = e.lastEventId;
     const line = e.data;
     if (line.startsWith('__END__:')) {
       const code = line.split(':')[1];

@@ -69,16 +69,22 @@ _process: subprocess.Popen | None = None
 
 _sub_lock = threading.Lock()
 _subscribers: list[queue.Queue] = []
-_log_history: collections.deque[str] = collections.deque(maxlen=1000)
+# История хранит (seq, line); seq — монотонный id строки для SSE Last-Event-ID,
+# чтобы при переподключении отдавать только новые строки (без дублей).
+_log_history: collections.deque[tuple[int, str]] = collections.deque(maxlen=1000)
+_log_seq = 0
 
 
 def _broadcast(line: str) -> None:
-    _log_history.append(line)
+    global _log_seq
+    _log_seq += 1
+    item = (_log_seq, line)
+    _log_history.append(item)
     with _sub_lock:
         dead = []
         for q in _subscribers:
             try:
-                q.put_nowait(line)
+                q.put_nowait(item)
             except queue.Full:
                 dead.append(q)
         for q in dead:
@@ -86,12 +92,13 @@ def _broadcast(line: str) -> None:
 
 
 def _broadcast_live(line: str) -> None:
-    """Отправляет сообщение только живым подписчикам, без сохранения в историю."""
+    """Отправляет сообщение только живым подписчикам, без сохранения в историю (seq=None)."""
+    item = (None, line)
     with _sub_lock:
         dead = []
         for q in _subscribers:
             try:
-                q.put_nowait(line)
+                q.put_nowait(item)
             except queue.Full:
                 dead.append(q)
         for q in dead:
@@ -310,9 +317,17 @@ def api_stop():
 def api_stream():
     if not _settings_allowed():
         return jsonify({"error": "Forbidden"}), 403
+    # ?after=<seq> — клиент передаёт последний полученный id, чтобы при
+    # переподключении не получать повторно всю историю (защита от дублей).
+    try:
+        after = int(request.args.get("after", 0))
+    except (TypeError, ValueError):
+        after = 0
+
     def generate():
-        for line in list(_log_history):
-            yield f"data: {line}\n\n"
+        for seq, line in list(_log_history):
+            if seq > after:
+                yield f"id: {seq}\ndata: {line}\n\n"
 
         q: queue.Queue = queue.Queue(maxsize=500)
         with _sub_lock:
@@ -320,8 +335,11 @@ def api_stream():
         try:
             while True:
                 try:
-                    line = q.get(timeout=25)
-                    yield f"data: {line}\n\n"
+                    seq, line = q.get(timeout=25)
+                    if seq is not None:
+                        yield f"id: {seq}\ndata: {line}\n\n"
+                    else:
+                        yield f"data: {line}\n\n"
                     if line.startswith("__END__:"):
                         break
                 except queue.Empty:

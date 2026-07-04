@@ -46,7 +46,6 @@ PROJECT_DIR   = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR      = os.environ.get("MEDIA_DATA_DIR") or os.path.join(PROJECT_DIR, "data")
 REQUEST_DELAY = 0.3            # секунды между скачиваниями
 CHUNK_SIZE    = 1 << 16        # 64 KiB на чтение потока
-LOG_EVERY     = 50            # логировать прогресс каждые N строк
 
 PROGRESS_FILE = os.environ.get("MEDIA_PROGRESS_FILE", "/tmp/media_downloader_progress.json")
 _VIDEO_EXTS   = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts"}
@@ -249,11 +248,10 @@ def run():
                 success, info = fut.result()
                 if success:
                     files_ok += 1
+                    logger.info("[%d/%d] ✓ %s", i, total, info)  # info = имя файла
                 else:
                     files_err += 1
-                    logger.warning(info)
-                if i % LOG_EVERY == 0 or i == total:
-                    logger.info("[%d/%d] Сохранено: %d | Ошибок: %d", i, total, files_ok, files_err)
+                    logger.warning("[%d/%d] ✗ %s", i, total, info)
     finally:
         _clear_progress()
 
