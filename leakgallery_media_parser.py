@@ -48,6 +48,71 @@ def _media_item_from_api(item: dict, username: str) -> dict:
     return {"url": url, "thumb": thumb, "full_url": full_url, "is_video": is_video}
 
 
+def parse_transfer_states(html: str, username: str) -> dict:
+    """Извлекает данные профиля из Angular transfer-state <script>-блоков.
+
+    Общая логика для media-парсера и веб-приложения. Возвращает dict с ключами:
+    banner_url, avatar_url, media_count, views, subscribers, app_token, media_items.
+    Пагинацию (страницы 2+) вызывающий делает сам — стратегия токена у них разная.
+    """
+    states = re.findall(
+        r'<script[^>]*type=["\'](?:application/json|ng-state)["\'][^>]*>(.*?)</script>',
+        html, re.DOTALL,
+    )
+
+    banner_url = avatar_url = None
+    views = subscribers = None
+    app_token = None
+    media_count = 0
+    media_items: list[dict] = []
+
+    for content in states:
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            continue
+
+        if "APP_TOKEN" in data:
+            app_token = data["APP_TOKEN"]
+
+        # Banner, avatar, счётчики и первая страница медиа
+        profile_key = f"httpGet:profile/{username}?type=All&sort=MostRecent&fake=true"
+        if profile_key in data:
+            prof = data[profile_key]
+            p = prof.get("profile", {})
+            banner_url  = p.get("banner_pic") or banner_url
+            avatar_url  = p.get("profile_pic") or avatar_url
+            media_count = prof.get("mediaCount", 0)
+            views       = str(prof.get("profileViews", "")) or views
+            subscribers = str(prof.get("profileSubscribers", "")) or subscribers
+            for item in prof.get("medias", []):
+                media_items.append(_media_item_from_api(item, username))
+
+        # Также проверяем вложенный ключ (вариант 3810946911.b)
+        for v in data.values():
+            if isinstance(v, dict) and isinstance(v.get("b"), dict):
+                b = v["b"]
+                if "medias" in b and isinstance(b.get("profile"), dict):
+                    p = b["profile"]
+                    if p.get("username", "").lower() == username.lower():
+                        banner_url  = p.get("banner_pic") or banner_url
+                        avatar_url  = p.get("profile_pic") or avatar_url
+                        media_count = b.get("mediaCount", media_count) or media_count
+                        if not media_items:
+                            for item in b.get("medias", []):
+                                media_items.append(_media_item_from_api(item, username))
+
+    return {
+        "banner_url": banner_url,
+        "avatar_url": avatar_url,
+        "media_count": media_count,
+        "views": views,
+        "subscribers": subscribers,
+        "app_token": app_token,
+        "media_items": media_items,
+    }
+
+
 _SESSION = requests.Session()
 _SESSION.headers.update({
     "User-Agent": (
@@ -143,46 +208,11 @@ def parse_profile(username: str) -> dict | None:
         return None  # 404 или ошибка сети
 
     html = getattr(_SESSION, "_last_html", "")
-    states = re.findall(
-        r'<script[^>]*type=["\'](?:application/json|ng-state)["\'][^>]*>(.*?)</script>',
-        html, re.DOTALL,
-    )
-
-    banner_url  = None
-    avatar_url  = None
-    media_count = 0
-    media_items: list[dict] = []
-
-    for content in states:
-        try:
-            data = json.loads(content)
-        except json.JSONDecodeError:
-            continue
-
-        # Banner и avatar
-        profile_key = f"httpGet:profile/{username}?type=All&sort=MostRecent&fake=true"
-        if profile_key in data:
-            prof = data[profile_key]
-            p = prof.get("profile", {})
-            banner_url  = p.get("banner_pic") or banner_url
-            avatar_url  = p.get("profile_pic") or avatar_url
-            media_count = prof.get("mediaCount", 0)
-            for item in prof.get("medias", []):
-                media_items.append(_media_item_from_api(item, username))
-
-        # Также проверяем вложенный ключ (вариант 3810946911.b)
-        for v in data.values():
-            if isinstance(v, dict) and "b" in v and isinstance(v["b"], dict):
-                b = v["b"]
-                if "medias" in b and "profile" in b:
-                    p = b.get("profile", {})
-                    if p.get("username", "").lower() == username.lower():
-                        banner_url  = p.get("banner_pic") or banner_url
-                        avatar_url  = p.get("profile_pic") or avatar_url
-                        media_count = b.get("mediaCount", media_count) or media_count
-                        if not media_items:
-                            for item in b.get("medias", []):
-                                media_items.append(_media_item_from_api(item, username))
+    parsed = parse_transfer_states(html, username)
+    banner_url  = parsed["banner_url"]
+    avatar_url  = parsed["avatar_url"]
+    media_count = parsed["media_count"]
+    media_items = parsed["media_items"]
 
     # 2. Если медиа больше чем поместилось на первой странице — грузим остальные
     seen_ids = {m["url"] for m in media_items}

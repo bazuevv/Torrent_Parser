@@ -160,50 +160,15 @@ def fetch_girl_profile(username: str) -> dict | None:
 
     html = resp.text
 
-    import json as _json
-    banner_url = avatar_url = None
-    views = medias_count = subscribers = None
-    media_items: list[dict] = []
-    media_count = 0
-    token_str = None
-
-    # Извлекаем данные из Angular transfer state
-    states = re.findall(
-        r'<script[^>]*type=["\'](?:application/json|ng-state)["\'][^>]*>(.*?)</script>',
-        html, re.DOTALL,
-    )
-    for content in states:
-        try:
-            data = _json.loads(content)
-        except Exception:
-            continue
-        if "APP_TOKEN" in data:
-            token_str = data["APP_TOKEN"]
-        profile_key = f"httpGet:profile/{username}?type=All&sort=MostRecent&fake=true"
-        if profile_key in data:
-            prof = data[profile_key]
-            p = prof.get("profile", {})
-            banner_url  = p.get("banner_pic") or banner_url
-            avatar_url  = p.get("profile_pic") or avatar_url
-            media_count = prof.get("mediaCount", 0)
-            views       = str(prof.get("profileViews", "")) or None
-            subscribers = str(prof.get("profileSubscribers", "")) or None
-            medias_count = str(media_count) or None
-            for item in prof.get("medias", []):
-                media_items.append(_lm._media_item_from_api(item, username))
-        for v in data.values():
-            if isinstance(v, dict) and "b" in v and isinstance(v["b"], dict):
-                b = v["b"]
-                if "medias" in b and isinstance(b.get("profile"), dict):
-                    p = b["profile"]
-                    if p.get("username", "").lower() == username.lower():
-                        banner_url   = p.get("banner_pic") or banner_url
-                        avatar_url   = p.get("profile_pic") or avatar_url
-                        media_count  = b.get("mediaCount", media_count) or media_count
-                        medias_count = str(media_count) or medias_count
-                        if not media_items:
-                            for item in b.get("medias", []):
-                                media_items.append(_lm._media_item_from_api(item, username))
+    parsed = _lm.parse_transfer_states(html, username)
+    banner_url   = parsed["banner_url"]
+    avatar_url   = parsed["avatar_url"]
+    media_count  = parsed["media_count"]
+    media_items  = parsed["media_items"]
+    views        = parsed["views"]
+    subscribers  = parsed["subscribers"]
+    token_str    = parsed["app_token"]
+    medias_count = str(media_count) or None
 
     # Подгружаем оставшиеся страницы через API
     if token_str and media_count > len(media_items):
