@@ -1024,10 +1024,11 @@ function loadDownloaderSettings() {
     });
 }
 
-function formatSpeed(bps) {
-  if (bps >= 1048576) return (bps / 1048576).toFixed(1) + ' МБ/с';
-  if (bps >= 1024)    return (bps / 1024).toFixed(0) + ' КБ/с';
-  return Math.round(bps) + ' Б/с';
+function formatSpeed(bytesPerSec) {
+  const bits = bytesPerSec * 8;               // байты → биты
+  if (bits >= 1e6) return (bits / 1e6).toFixed(1) + ' Мбит/с';
+  if (bits >= 1e3) return (bits / 1e3).toFixed(0) + ' Кбит/с';
+  return Math.round(bits) + ' бит/с';
 }
 
 function loadDownloadProgress() {
