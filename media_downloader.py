@@ -48,6 +48,7 @@ REQUEST_DELAY = 0.3            # секунды между скачивания�
 CHUNK_SIZE    = 1 << 16        # 64 KiB на чтение потока
 
 PROGRESS_FILE = os.environ.get("MEDIA_PROGRESS_FILE", "/tmp/media_downloader_progress.json")
+PID_FILE      = os.environ.get("MEDIA_PID_FILE", "/tmp/media_downloader.pid")
 _VIDEO_EXTS   = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts"}
 
 _SESSION = requests.Session()
@@ -109,11 +110,27 @@ def _clear_progress() -> None:
         _write_progress_locked()
 
 
+def _write_pid() -> None:
+    try:
+        with open(PID_FILE, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass
+
+
+def _remove_pid() -> None:
+    try:
+        os.remove(PID_FILE)
+    except FileNotFoundError:
+        pass
+
+
 def _sigterm_handler(signum, frame):
     """При остановке из панели (/api/stop → SIGTERM): сводка, чистка, выход."""
     logger.info("Остановлено. Загружено: %d | Уже были: %d | Ошибок при загрузке: %d",
                 _files_ok, _files_exist, _files_err)
     _clear_progress()
+    _remove_pid()
     os._exit(0)
 
 
@@ -253,6 +270,7 @@ def run():
     os.makedirs(DATA_DIR, exist_ok=True)
     signal.signal(signal.SIGTERM, _sigterm_handler)
     _clear_progress()
+    _write_pid()
 
     workers = max(1, int(db.get_setting("download_workers", "4")))
     limit   = max(0, int(db.get_setting("download_limit", "0")))
@@ -286,6 +304,7 @@ def run():
                 total, suffix, workers, DATA_DIR)
     if total == 0:
         logger.info("Нечего скачивать — все медиа уже сохранены.")
+        _remove_pid()
         return
 
     global _files_ok, _files_exist, _files_err
@@ -308,6 +327,7 @@ def run():
                     logger.info("[%d/%d] ✓ %s", i, total, info)  # info = имя файла
     finally:
         _clear_progress()
+        _remove_pid()
 
     logger.info("Завершено. Загружено: %d | Уже были: %d | Ошибок при загрузке: %d",
                 _files_ok, _files_exist, _files_err)

@@ -266,6 +266,11 @@ def api_status():
     with _process_lock:
         running = _process is not None and _process.poll() is None
         pid = _process.pid if running else None
+    if not running:
+        # Загрузчик мог пережить рестарт Flask / работать без _process — по PID-файлу
+        dl_pid = _read_pid(_DL_PID_FILE)
+        if dl_pid:
+            running, pid = True, dl_pid
     return jsonify({"running": running, "pid": pid})
 
 
@@ -307,10 +312,20 @@ def api_stop():
         return jsonify({"ok": False, "error": "Forbidden"}), 403
     global _process
     with _process_lock:
-        if _process is None or _process.poll() is not None:
-            return jsonify({"ok": False, "error": "Парсер не запущен"}), 400
-        _process.terminate()
-    return jsonify({"ok": True})
+        proc_alive = _process is not None and _process.poll() is None
+        if proc_alive:
+            _process.terminate()
+    if proc_alive:
+        return jsonify({"ok": True})
+    # Загрузчик без _process (пережил рестарт Flask) — гасим по PID-файлу
+    dl_pid = _read_pid(_DL_PID_FILE)
+    if dl_pid:
+        try:
+            os.kill(dl_pid, signal.SIGTERM)
+            return jsonify({"ok": True})
+        except ProcessLookupError:
+            pass
+    return jsonify({"ok": False, "error": "Парсер не запущен"}), 400
 
 
 @app.get("/api/stream")
@@ -960,6 +975,7 @@ def api_transcode_control():
 
 
 _DL_PROGRESS_FILE = os.environ.get("MEDIA_PROGRESS_FILE", "/tmp/media_downloader_progress.json")
+_DL_PID_FILE = os.environ.get("MEDIA_PID_FILE", "/tmp/media_downloader.pid")
 
 
 @app.get("/api/download-progress")
