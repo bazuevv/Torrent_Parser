@@ -20,8 +20,11 @@ URL), после чего заменяет соответствующее пол
     MEDIA_DATA_DIR=/tmp/data venv/bin/python3 media_downloader.py   # другая папка
 """
 
+import json
 import logging
 import os
+import signal
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, unquote
@@ -44,6 +47,9 @@ REQUEST_DELAY = 0.3            # секунды между скачивания�
 CHUNK_SIZE    = 1 << 16        # 64 KiB на чтение потока
 LOG_EVERY     = 50            # логировать прогресс каждые N строк
 
+PROGRESS_FILE = os.environ.get("MEDIA_PROGRESS_FILE", "/tmp/media_downloader_progress.json")
+_VIDEO_EXTS   = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts"}
+
 _SESSION = requests.Session()
 _SESSION.headers.update({
     "User-Agent": (
@@ -53,6 +59,56 @@ _SESSION.headers.update({
     )
 })
 
+# ── Прогресс активных закачек ─────────────────────────────────────────────────
+# key -> {name, type, percent, downloaded_mb, total_mb}; публикуется в PROGRESS_FILE
+# для веб-панели (web.py /api/download-progress его читает).
+_progress: dict[str, dict] = {}
+_progress_lock = threading.Lock()
+_last_write = 0.0
+
+
+def _media_type(name: str) -> str:
+    return "video" if os.path.splitext(name)[1].lower() in _VIDEO_EXTS else "image"
+
+
+def _write_progress_locked() -> None:
+    """Атомарно дампит активные закачки в PROGRESS_FILE. Вызывать под _progress_lock."""
+    global _last_write
+    data = {"updated_at": time.time(), "files": list(_progress.values())}
+    tmp = PROGRESS_FILE + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, PROGRESS_FILE)
+    except OSError:
+        pass
+    _last_write = time.time()
+
+
+def _update_progress(key: str, entry: dict | None, force: bool = False) -> None:
+    """entry=None убирает закачку из активных. Запись троттлится (~3/с);
+    удаление и force пишутся сразу."""
+    with _progress_lock:
+        if entry is None:
+            if _progress.pop(key, None) is not None:
+                _write_progress_locked()
+        else:
+            _progress[key] = entry
+            if force or (time.time() - _last_write) > 0.3:
+                _write_progress_locked()
+
+
+def _clear_progress() -> None:
+    with _progress_lock:
+        _progress.clear()
+        _write_progress_locked()
+
+
+def _sigterm_handler(signum, frame):
+    """При остановке из панели (/api/stop → SIGTERM) чистим файл прогресса."""
+    _clear_progress()
+    os._exit(0)
+
 
 def filename_from_url(url: str) -> str:
     """Оригинальное имя файла = basename пути URL (без query, декодированный).
@@ -61,9 +117,10 @@ def filename_from_url(url: str) -> str:
     return os.path.basename(path)
 
 
-def download_file(url: str, dest_dir: str) -> str | None:
+def download_file(url: str, dest_dir: str, progress_key: str | None = None) -> str | None:
     """Скачивает url в dest_dir под оригинальным именем. Возвращает имя файла
-    или None при ошибке. Уже существующий непустой файл не перекачивается."""
+    или None при ошибке. Уже существующий непустой файл не перекачивается.
+    Если задан progress_key — публикует прогресс закачки (имя, тип, %)."""
     name = filename_from_url(url)
     if not name:
         logger.warning("Не удалось определить имя файла из URL: %s", url)
@@ -73,15 +130,39 @@ def download_file(url: str, dest_dir: str) -> str | None:
     if os.path.isfile(dest) and os.path.getsize(dest) > 0:
         return name  # уже скачан ранее
 
+    mtype = _media_type(name)
     tmp = dest + ".part"
     for attempt in range(1, 4):
         try:
             with _SESSION.get(url, stream=True, timeout=60) as resp:
                 resp.raise_for_status()
+                total = int(resp.headers.get("Content-Length", 0) or 0)
+                total_mb = round(total / 1048576, 1) if total else None
+                downloaded = 0
+                if progress_key:
+                    _update_progress(progress_key, {
+                        "name": name, "type": mtype, "percent": 0,
+                        "downloaded_mb": 0.0, "total_mb": total_mb,
+                    }, force=True)
                 with open(tmp, "wb") as f:
                     for chunk in resp.iter_content(CHUNK_SIZE):
-                        if chunk:
-                            f.write(chunk)
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_key:
+                            _update_progress(progress_key, {
+                                "name": name, "type": mtype,
+                                "percent": min(100, round(downloaded * 100 / total)) if total else None,
+                                "downloaded_mb": round(downloaded / 1048576, 1),
+                                "total_mb": total_mb,
+                            })
+                if progress_key:
+                    # финальный флаш 100% (иначе для мелких файлов троттлинг съедает апдейт)
+                    _update_progress(progress_key, {
+                        "name": name, "type": mtype, "percent": 100,
+                        "downloaded_mb": round(downloaded / 1048576, 1), "total_mb": total_mb,
+                    }, force=True)
             os.replace(tmp, dest)  # атомарная замена
             return name
         except (requests.RequestException, OSError) as exc:
@@ -100,23 +181,29 @@ def _download_task(task: tuple) -> tuple:
     Каждый воркер открывает свою короткоживущую connection (потокобезопасно).
     Возвращает (успех: bool, сообщение: str)."""
     media_id, field, url = task
-    name = download_file(url, DATA_DIR)
-    if REQUEST_DELAY:
-        time.sleep(REQUEST_DELAY)
-    if not name:
-        return False, f"не скачан ({field} id{media_id}): {url}"
+    key = f"{media_id}:{field}"
     try:
-        conn = db.get_db_connection()
-        db.set_media_local_file(conn, media_id, field, name)
-        conn.close()
-    except Exception as exc:
-        return False, f"ошибка БД ({field} id{media_id}): {exc}"
-    return True, name
+        name = download_file(url, DATA_DIR, progress_key=key)
+        if REQUEST_DELAY:
+            time.sleep(REQUEST_DELAY)
+        if not name:
+            return False, f"не скачан ({field} id{media_id}): {url}"
+        try:
+            conn = db.get_db_connection()
+            db.set_media_local_file(conn, media_id, field, name)
+            conn.close()
+        except Exception as exc:
+            return False, f"ошибка БД ({field} id{media_id}): {exc}"
+        return True, name
+    finally:
+        _update_progress(key, None)  # убрать из активных
 
 
 def run():
     db.init_db()
     os.makedirs(DATA_DIR, exist_ok=True)
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+    _clear_progress()
 
     workers = max(1, int(db.get_setting("download_workers", "4")))
     limit   = max(0, int(db.get_setting("download_limit", "0")))
@@ -147,17 +234,20 @@ def run():
 
     files_ok = 0
     files_err = 0
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(_download_task, t) for t in tasks]
-        for i, fut in enumerate(as_completed(futures), 1):
-            success, info = fut.result()
-            if success:
-                files_ok += 1
-            else:
-                files_err += 1
-                logger.warning(info)
-            if i % LOG_EVERY == 0 or i == total:
-                logger.info("[%d/%d] Сохранено: %d | Ошибок: %d", i, total, files_ok, files_err)
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_download_task, t) for t in tasks]
+            for i, fut in enumerate(as_completed(futures), 1):
+                success, info = fut.result()
+                if success:
+                    files_ok += 1
+                else:
+                    files_err += 1
+                    logger.warning(info)
+                if i % LOG_EVERY == 0 or i == total:
+                    logger.info("[%d/%d] Сохранено: %d | Ошибок: %d", i, total, files_ok, files_err)
+    finally:
+        _clear_progress()
 
     logger.info("Завершено. Файлов сохранено: %d | Ошибок: %d", files_ok, files_err)
 

@@ -100,6 +100,26 @@
       color: var(--muted);
     }
     .dl-field input { width: 90px; }
+    .dl-settings-row { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 14px; }
+    .dl-active { display: flex; flex-wrap: wrap; gap: 8px; }
+    .dl-item {
+      width: 220px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 9px;
+    }
+    .dl-item-name {
+      font-size: 11px; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .dl-item-meta {
+      font-size: 11px; color: var(--muted);
+      display: flex; align-items: center; gap: 6px; margin: 4px 0;
+    }
+    .dl-badge { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(255,255,255,.08); }
+    .dl-bar { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .dl-bar-fill { height: 100%; background: var(--blue); transition: width .3s; }
 
     /* ── Buttons ── */
     .btn {
@@ -599,9 +619,7 @@
       </div>
     </div>
     <div class="ptab-panel" id="ptab-media_downloader" style="display:none">
-      <div class="controls-row">
-        <button id="btn-start-md" class="btn btn-start" onclick="startParser()">▶ Запустить</button>
-        <button id="btn-stop-md" class="btn btn-stop" disabled onclick="stopParser()">■ Остановить</button>
+      <div class="dl-settings-row">
         <div class="dl-field">
           <label for="dl-workers">Параллельных закачек</label>
           <input type="number" min="1" id="dl-workers" class="settings-input" value="4">
@@ -610,9 +628,14 @@
           <label for="dl-limit">Лимит за запуск (0 = все)</label>
           <input type="number" min="0" id="dl-limit" class="settings-input" value="0">
         </div>
+      </div>
+      <div class="controls-row">
+        <button id="btn-start-md" class="btn btn-start" onclick="startParser()">▶ Запустить</button>
+        <button id="btn-stop-md" class="btn btn-stop" disabled onclick="stopParser()">■ Остановить</button>
         <div class="stats-grid">
           <div class="stat-chip">Не скачано: <strong id="stat-media-pending">—</strong></div>
         </div>
+        <div id="dl-active" class="dl-active"></div>
       </div>
     </div>
   </div>
@@ -882,7 +905,7 @@ function switchParserTab(tab) {
   document.querySelectorAll('.ptab-panel').forEach(p => p.style.display = 'none');
   document.getElementById('ptab-btn-' + tab).classList.add('ptab-active');
   document.getElementById('ptab-' + tab).style.display = '';
-  if (tab === 'media_downloader') loadDownloaderSettings();
+  if (tab === 'media_downloader') { loadDownloaderSettings(); loadDownloadProgress(); }
 }
 
 function startParser() {
@@ -930,6 +953,29 @@ function loadDownloaderSettings() {
         if (r.key_name === 'download_limit')   l.value = r.value;
       });
     });
+}
+
+function loadDownloadProgress() {
+  const box = document.getElementById('dl-active');
+  if (!box) return;
+  fetch('/api/download-progress')
+    .then(r => r.json())
+    .then(d => {
+      const files = d.files || [];
+      if (!files.length) { box.innerHTML = ''; return; }
+      box.innerHTML = files.map(f => {
+        const pct      = (f.percent != null) ? f.percent : 0;
+        const pctLabel = (f.percent != null) ? f.percent + '%' : '…';
+        const size     = (f.total_mb != null && f.total_mb >= 0.1) ? ` · ${f.downloaded_mb}/${f.total_mb} МБ` : '';
+        const badge    = (f.type === 'video') ? '🎬 видео' : '🖼 фото';
+        return `<div class="dl-item">
+          <div class="dl-item-name" title="${escHtml(f.name)}">${escHtml(f.name)}</div>
+          <div class="dl-item-meta"><span class="dl-badge">${badge}</span> ${pctLabel}${size}</div>
+          <div class="dl-bar"><div class="dl-bar-fill" style="width:${pct}%"></div></div>
+        </div>`;
+      }).join('');
+    })
+    .catch(() => {});
 }
 
 function stopParser() {
@@ -1764,6 +1810,7 @@ connectSSE();
 pollStatus();
 loadStats();
 loadDownloaderSettings();
+setInterval(() => { if (activeParserTab === 'media_downloader') loadDownloadProgress(); }, 1000);
 setInterval(pollStatus, 5000);
 setInterval(() => { loadStats(); }, 8000);
 setInterval(() => { if (_activeTab === 'transcode') loadTranscodeLog(_tcPage); }, 10000);

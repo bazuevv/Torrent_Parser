@@ -941,6 +941,26 @@ def api_transcode_control():
     return jsonify({"ok": False, "error": f"Unknown action: {action}"}), 400
 
 
+_DL_PROGRESS_FILE = os.environ.get("MEDIA_PROGRESS_FILE", "/tmp/media_downloader_progress.json")
+
+
+@app.get("/api/download-progress")
+def api_download_progress():
+    """Активные закачки media_downloader: имя, тип, процент по каждому файлу.
+    Файл старше 5 с считаем неактуальным (процесс не работает)."""
+    if not _settings_allowed():
+        return jsonify({"error": "Forbidden", "files": []}), 403
+    import json as _json, time as _time
+    try:
+        if _time.time() - os.path.getmtime(_DL_PROGRESS_FILE) > 5:
+            return jsonify({"files": []})
+        with open(_DL_PROGRESS_FILE) as f:
+            data = _json.load(f)
+        return jsonify({"files": data.get("files", [])})
+    except (FileNotFoundError, ValueError):
+        return jsonify({"files": []})
+
+
 @app.get("/api/settings-access")
 def api_settings_access():
     return jsonify({"allowed": _settings_allowed()})
