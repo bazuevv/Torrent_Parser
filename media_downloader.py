@@ -2,13 +2,13 @@
 Загрузчик медиа из таблицы girl_media.
 
 Для каждой строки скачивает файлы по полям thumb и full_url в папку DATA_DIR
-(по умолчанию /data) под их оригинальным именем (basename пути URL), после чего
-заменяет соответствующее поле в БД на имя сохранённого файла.
+(по умолчанию — data/ в корне проекта) под их оригинальным именем (basename пути
+URL), после чего заменяет соответствующее поле в БД на имя сохранённого файла.
 
 Пример: ссылка
     https://cdn.leakgallery.com/content6/twithabigd/watermark_2549991b21e64601a3fa77f113d2b68f_twithabigd_52516260095.jpg
 сохраняется как
-    /data/watermark_2549991b21e64601a3fa77f113d2b68f_twithabigd_52516260095.jpg
+    data/watermark_2549991b21e64601a3fa77f113d2b68f_twithabigd_52516260095.jpg
 а в БД поле становится
     watermark_2549991b21e64601a3fa77f113d2b68f_twithabigd_52516260095.jpg
 
@@ -36,7 +36,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DATA_DIR      = os.environ.get("MEDIA_DATA_DIR", "/data")
+PROJECT_DIR   = os.path.dirname(os.path.abspath(__file__))
+# По умолчанию — папка data/ в корне проекта; переопределяется env MEDIA_DATA_DIR.
+DATA_DIR      = os.environ.get("MEDIA_DATA_DIR") or os.path.join(PROJECT_DIR, "data")
 REQUEST_DELAY = 0.3            # секунды между скачиваниями
 CHUNK_SIZE    = 1 << 16        # 64 KiB на чтение потока
 LOG_EVERY     = 50            # логировать прогресс каждые N строк

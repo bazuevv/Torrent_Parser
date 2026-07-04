@@ -19,3 +19,7 @@ config_secrets.py
 
 # Логи
 *.log
+
+# Скачанные медиа (media_downloader.py) — саму папку сохраняем через .gitkeep
+data/*
+!data/.gitkeep
