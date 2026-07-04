@@ -92,6 +92,14 @@
       flex-wrap: wrap;
       gap: 12px;
     }
+    .dl-field {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .dl-field input { width: 90px; }
 
     /* ── Buttons ── */
     .btn {
@@ -594,6 +602,14 @@
       <div class="controls-row">
         <button id="btn-start-md" class="btn btn-start" onclick="startParser()">▶ Запустить</button>
         <button id="btn-stop-md" class="btn btn-stop" disabled onclick="stopParser()">■ Остановить</button>
+        <div class="dl-field">
+          <label for="dl-workers">Параллельных закачек</label>
+          <input type="number" min="1" id="dl-workers" class="settings-input" value="4">
+        </div>
+        <div class="dl-field">
+          <label for="dl-limit">Лимит за запуск (0 = все)</label>
+          <input type="number" min="0" id="dl-limit" class="settings-input" value="0">
+        </div>
         <div class="stats-grid">
           <div class="stat-chip">Не скачано: <strong id="stat-media-pending">—</strong></div>
         </div>
@@ -866,22 +882,53 @@ function switchParserTab(tab) {
   document.querySelectorAll('.ptab-panel').forEach(p => p.style.display = 'none');
   document.getElementById('ptab-btn-' + tab).classList.add('ptab-active');
   document.getElementById('ptab-' + tab).style.display = '';
+  if (tab === 'media_downloader') loadDownloaderSettings();
 }
 
 function startParser() {
-  fetch('/api/start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ parser: activeParserTab })
-  })
+  const launch = () => {
+    fetch('/api/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parser: activeParserTab })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          setRunning(true);
+          appendLog('─── Парсер запущен ───', 'ok');
+        } else {
+          appendLog('Ошибка: ' + data.error, 'err');
+        }
+      });
+  };
+
+  // Для загрузчика сначала сохраняем настройки из inline-полей, затем запускаем
+  if (activeParserTab === 'media_downloader') {
+    const workers = document.getElementById('dl-workers').value || '4';
+    const limit   = document.getElementById('dl-limit').value || '0';
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ download_workers: workers, download_limit: limit })
+    }).then(() => launch()).catch(() => launch());
+  } else {
+    launch();
+  }
+}
+
+function loadDownloaderSettings() {
+  const w = document.getElementById('dl-workers');
+  const l = document.getElementById('dl-limit');
+  if (!w || !l) return;
+  fetch('/api/settings')
     .then(r => r.json())
-    .then(data => {
-      if (data.ok) {
-        setRunning(true);
-        appendLog('─── Парсер запущен ───', 'ok');
-      } else {
-        appendLog('Ошибка: ' + data.error, 'err');
-      }
+    .then(rows => {
+      if (!Array.isArray(rows)) return;
+      rows.forEach(r => {
+        if (r.key_name === 'download_workers') w.value = r.value;
+        if (r.key_name === 'download_limit')   l.value = r.value;
+      });
     });
 }
 
@@ -1716,6 +1763,7 @@ loadVideos(1);
 connectSSE();
 pollStatus();
 loadStats();
+loadDownloaderSettings();
 setInterval(pollStatus, 5000);
 setInterval(() => { loadStats(); }, 8000);
 setInterval(() => { if (_activeTab === 'transcode') loadTranscodeLog(_tcPage); }, 10000);
