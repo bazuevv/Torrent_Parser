@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Получатели — TON Payout{% endblock %}
+{% block content %}
+
+<h1>Рассылка TON</h1>
+<p class="muted">Список получателей хранится в БД. Активные адреса попадают в рассылку.</p>
+
+<div class="panel">
+  <div class="stat">
+    <div><div class="k">Активных получателей</div><div class="v">{{ active_count }}</div></div>
+    <div><div class="k">Сумма к рассылке</div><div class="v">{{ '%.4f'|format(total_active) }} TON</div></div>
+    <div><div class="k">Всего в списке</div><div class="v">{{ recipients|length }}</div></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0;">Кошелёк-отправитель</h2>
+  <div id="wallet-info" class="muted">Загрузка данных кошелька…</div>
+  <button class="btn ghost small" type="button" onclick="loadWalletInfo()" style="margin-top:10px;">Обновить баланс</button>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0;">Запустить рассылку</h2>
+  {% if payout_running %}
+    <div class="warnbox">Сейчас уже выполняется рассылка. <a href="{{ url_for('runs') }}">Открыть журнал</a>.</div>
+  {% endif %}
+  <form method="post" action="{{ url_for('payout_run') }}" onsubmit="return confirmPayout(this);">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <div class="row">
+      <div style="max-width:260px;">
+        <label>Режим</label>
+        <select name="mode" style="width:100%;">
+          <option value="highload">highload — все одной транзакцией (быстро, дёшево)</option>
+          <option value="sequential">sequential — по одному (надёжно, медленно)</option>
+        </select>
+      </div>
+      <div style="max-width:220px;">
+        <label>Тип запуска</label>
+        <label class="mono" style="color:var(--text);text-transform:none;font-size:14px;">
+          <input type="checkbox" name="dry_run" checked> Пробный прогон (dry-run)
+        </label>
+      </div>
+      <div style="flex:0;">
+        <button class="btn" type="submit">Запустить</button>
+      </div>
+    </div>
+    <p class="muted" style="font-size:13px;margin-bottom:0;">
+      Dry-run проверяет баланс и записывает план, но <b>денег не отправляет</b>. Снимите галочку для боевой отправки.
+    </p>
+  </form>
+</div>
+
+<h2>Получатели</h2>
+
+<div class="panel">
+  <form method="post" action="{{ url_for('recipient_add') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <div class="row">
+      <div style="flex:2;"><label>Адрес (UQ… / EQ…)</label>
+        <input name="address" placeholder="UQ..." style="width:100%;" required></div>
+      <div style="max-width:140px;"><label>Сумма, TON</label>
+        <input name="amount" placeholder="1.5" style="width:100%;" required></div>
+      <div style="flex:2;"><label>Комментарий</label>
+        <input name="comment" placeholder="необязательно" style="width:100%;"></div>
+      <div style="max-width:110px;"><label>Активен</label>
+        <input type="checkbox" name="is_active" checked></div>
+      <div style="flex:0;"><button class="btn" type="submit">Добавить</button></div>
+    </div>
+  </form>
+</div>
+
+<div class="panel" style="padding:0;">
+  {% if recipients %}
+  <table>
+    <thead>
+      <tr><th>#</th><th>Адрес</th><th>Сумма</th><th>Комментарий</th><th>Статус</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for r in recipients %}
+      <tr>
+        <td class="muted">{{ r.id }}</td>
+        <td class="addr">{{ r.address }}
+          <details class="edit">
+            <summary>изменить</summary>
+            <form method="post" action="{{ url_for('recipient_edit', rid=r.id) }}" style="margin-top:8px;">
+              <input type="hidden" name="csrf" value="{{ csrf_token }}">
+              <div class="row">
+                <div style="flex:2;"><input name="address" value="{{ r.address }}" style="width:100%;"></div>
+                <div style="max-width:120px;"><input name="amount" value="{{ '%.9f'|format(r.amount)|rstrip_zeros }}" style="width:100%;"></div>
+                <div style="flex:2;"><input name="comment" value="{{ r.comment or '' }}" style="width:100%;"></div>
+                <div style="max-width:90px;"><label class="mono" style="text-transform:none;">
+                  <input type="checkbox" name="is_active" {% if r.is_active %}checked{% endif %}> вкл</label></div>
+                <div style="flex:0;"><button class="btn small" type="submit">Сохранить</button></div>
+              </div>
+            </form>
+          </details>
+        </td>
+        <td class="mono">{{ '%.4f'|format(r.amount) }}</td>
+        <td class="muted">{{ r.comment or '—' }}</td>
+        <td>
+          {% if r.is_active %}<span class="pill ok">активен</span>
+          {% else %}<span class="pill muted">выключен</span>{% endif %}
+        </td>
+        <td style="white-space:nowrap;text-align:right;">
+          <form method="post" action="{{ url_for('recipient_toggle', rid=r.id) }}" class="inline-form">
+            <input type="hidden" name="csrf" value="{{ csrf_token }}">
+            <button class="btn ghost small" type="submit">{{ 'Выключить' if r.is_active else 'Включить' }}</button>
+          </form>
+          <form method="post" action="{{ url_for('recipient_delete', rid=r.id) }}" class="inline-form"
+                onsubmit="return confirm('Удалить получателя {{ r.address }}?');">
+            <input type="hidden" name="csrf" value="{{ csrf_token }}">
+            <button class="btn danger small" type="submit">Удалить</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="padding:18px;" class="muted">Список пуст. Добавьте первого получателя выше.</div>
+  {% endif %}
+</div>
+
+<script>
+function confirmPayout(form) {
+  var dry = form.dry_run.checked;
+  if (dry) return true;
+  return confirm("БОЕВАЯ отправка: реальные деньги уйдут на все активные адреса. Продолжить?");
+}
+async function loadWalletInfo() {
+  var box = document.getElementById('wallet-info');
+  box.textContent = 'Загрузка данных кошелька…';
+  try {
+    var res = await fetch("{{ url_for('api_wallet_info') }}");
+    var data = await res.json();
+    if (data.error) { box.innerHTML = '<span class="pill err">' + escapeHtml(data.error) + '</span>'; return; }
+    var html = '<div class="muted" style="margin-bottom:8px;">Сеть: ' + data.network + '</div>';
+    for (var mode in data.wallets) {
+      var w = data.wallets[mode];
+      html += '<div style="margin-bottom:10px;">'
+        + '<span class="pill">' + mode + '</span> '
+        + '<b>' + w.balance + ' TON</b> '
+        + '<span class="pill muted">' + w.state + '</span>'
+        + '<div class="addr">' + w.address + '</div></div>';
+    }
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = '<span class="pill err">Не удалось получить данные: ' + escapeHtml(String(e)) + '</span>';
+  }
+}
+function escapeHtml(s){return s.replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+loadWalletInfo();
+</script>
+{% endblock %}

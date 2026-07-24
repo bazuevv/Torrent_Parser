@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}TON Payout{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #0f1419; --panel: #1a212b; --panel2: #222c38; --border: #2d3a48;
+      --text: #e6edf3; --muted: #8b98a5; --accent: #2f81f7; --accent2: #388bfd;
+      --ok: #3fb950; --warn: #d29922; --err: #f85149; --pill: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+      font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+    a { color: var(--accent2); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    header { background: var(--panel); border-bottom: 1px solid var(--border);
+      padding: 12px 20px; display: flex; align-items: center; gap: 20px; }
+    header .brand { font-weight: 700; font-size: 17px; }
+    header nav { display: flex; gap: 16px; }
+    header .spacer { flex: 1; }
+    main { max-width: 1100px; margin: 24px auto; padding: 0 20px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 17px; margin: 24px 0 12px; }
+    .muted { color: var(--muted); }
+    .panel { background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 18px; margin-bottom: 18px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase;
+      letter-spacing: .03em; }
+    tr:last-child td { border-bottom: none; }
+    input, select { background: var(--panel2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 7px; padding: 8px 10px; font-size: 14px; }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+    label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; }
+    .btn { display: inline-block; background: var(--accent); color: #fff; border: none;
+      border-radius: 7px; padding: 8px 14px; font-size: 14px; cursor: pointer; }
+    .btn:hover { background: var(--accent2); text-decoration: none; }
+    .btn.secondary { background: var(--pill); }
+    .btn.danger { background: var(--err); }
+    .btn.small { padding: 4px 9px; font-size: 13px; }
+    .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .pill { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px;
+      background: var(--pill); }
+    .pill.ok { background: rgba(63,185,80,.15); color: var(--ok); }
+    .pill.warn { background: rgba(210,153,34,.15); color: var(--warn); }
+    .pill.err { background: rgba(248,81,73,.15); color: var(--err); }
+    .pill.muted { color: var(--muted); }
+    .flash { padding: 11px 14px; border-radius: 8px; margin-bottom: 12px; }
+    .flash.success { background: rgba(63,185,80,.12); border: 1px solid var(--ok); }
+    .flash.error { background: rgba(248,81,73,.12); border: 1px solid var(--err); }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+    .row > div { flex: 1; min-width: 120px; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+    .addr { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+    .stat { display: flex; gap: 28px; flex-wrap: wrap; }
+    .stat .k { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+    .stat .v { font-size: 20px; font-weight: 700; }
+    .inline-form { display: inline; }
+    .warnbox { background: rgba(210,153,34,.1); border: 1px solid var(--warn);
+      border-radius: 8px; padding: 10px 13px; font-size: 13.5px; }
+    details.edit { margin-top: 6px; }
+    details.edit summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  {% if logged_in %}
+  <header>
+    <span class="brand">💸 TON Payout</span>
+    <nav>
+      <a href="{{ url_for('dashboard') }}">Получатели</a>
+      <a href="{{ url_for('runs') }}">История</a>
+    </nav>
+    <span class="spacer"></span>
+    <form method="post" action="{{ url_for('logout') }}" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn ghost small" type="submit">Выйти</button>
+    </form>
+  </header>
+  {% endif %}
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

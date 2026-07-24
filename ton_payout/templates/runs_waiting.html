@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Запуск стартует… — TON Payout{% endblock %}
+{% block content %}
+<div class="panel" style="max-width:460px;margin:60px auto;text-align:center;">
+  <h1>Запуск стартует…</h1>
+  <p class="muted">Инициализируем кошелёк и проверяем баланс. Страница откроется автоматически.</p>
+  <div id="dots" class="mono" style="font-size:22px;">·</div>
+</div>
+<script>
+var AFTER = {{ after }};
+var dots = document.getElementById('dots');
+setInterval(function(){ dots.textContent = dots.textContent.length >= 5 ? '·' : dots.textContent + '·'; }, 400);
+async function poll() {
+  try {
+    var res = await fetch("{{ url_for('api_latest_run') }}?after=" + AFTER);
+    var data = await res.json();
+    if (data.ready) { location = "/runs/" + data.run_id; return; }
+  } catch (e) {}
+  setTimeout(poll, 1500);
+}
+poll();
+</script>
+{% endblock %}

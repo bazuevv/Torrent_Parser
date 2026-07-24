@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}История рассылок — TON Payout{% endblock %}
+{% block content %}
+<h1>История рассылок</h1>
+<p class="muted">Каждая строка — один запуск. Нажмите, чтобы увидеть детализацию по адресам.</p>
+
+<div class="panel" style="padding:0;">
+  {% if runs %}
+  <table>
+    <thead>
+      <tr><th>#</th><th>Начат</th><th>Режим</th><th>Сеть</th><th>Тип</th>
+          <th>Получателей</th><th>Сумма</th><th>Статус</th></tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr onclick="location='{{ url_for('run_detail', run_id=run.id) }}'" style="cursor:pointer;">
+        <td class="muted">{{ run.id }}</td>
+        <td class="mono">{{ run.started_at }}</td>
+        <td><span class="pill">{{ run.mode }}</span></td>
+        <td class="muted">{{ run.network }}</td>
+        <td>{% if run.dry_run %}<span class="pill muted">dry-run</span>{% else %}<span class="pill">боевой</span>{% endif %}</td>
+        <td>{{ run.total_recipients }}</td>
+        <td class="mono">{{ '%.4f'|format(run.total_amount) }}</td>
+        <td>
+          {% if run.status == 'done' %}<span class="pill ok">выполнен</span>
+          {% elif run.status == 'running' %}<span class="pill warn">выполняется</span>
+          {% elif run.status == 'partial' %}<span class="pill warn">частично</span>
+          {% else %}<span class="pill err">ошибка</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="padding:18px;" class="muted">Запусков ещё не было.</div>
+  {% endif %}
+</div>
+<a class="btn ghost" href="{{ url_for('dashboard') }}">← К получателям</a>
+{% endblock %}

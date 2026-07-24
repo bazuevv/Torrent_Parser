@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Запуск #{{ run.id }} — TON Payout{% endblock %}
+{% block content %}
+<h1>Запуск #{{ run.id }}
+  <span id="run-status"></span>
+</h1>
+<p class="muted"><a href="{{ url_for('runs') }}">← Ко всем запускам</a></p>
+
+<div class="panel">
+  <div class="stat">
+    <div><div class="k">Режим</div><div class="v" style="font-size:16px;">{{ run.mode }}</div></div>
+    <div><div class="k">Сеть</div><div class="v" style="font-size:16px;">{{ run.network }}</div></div>
+    <div><div class="k">Тип</div><div class="v" style="font-size:16px;">{{ 'dry-run' if run.dry_run else 'боевой' }}</div></div>
+    <div><div class="k">Получателей</div><div class="v" style="font-size:16px;">{{ run.total_recipients }}</div></div>
+    <div><div class="k">Сумма</div><div class="v" style="font-size:16px;">{{ '%.4f'|format(run.total_amount) }} TON</div></div>
+  </div>
+  <div style="margin-top:14px;" class="muted">
+    Кошелёк: <span class="addr">{{ run.wallet_address or '—' }}</span><br>
+    Начат: <span class="mono">{{ run.started_at }}</span>{% if run.finished_at %} · Завершён: <span class="mono">{{ run.finished_at }}</span>{% endif %}
+    {% if run.tx_hash %}<br>Хеш транзакции: <span class="addr">{{ run.tx_hash }}</span>{% endif %}
+  </div>
+  {% if run.error_message %}
+  <div class="flash error" style="margin-top:12px;white-space:pre-wrap;">{{ run.error_message }}</div>
+  {% endif %}
+</div>
+
+<div class="panel" style="padding:0;">
+  <table>
+    <thead>
+      <tr><th>Адрес</th><th>Сумма</th><th>Комментарий</th><th>Статус</th><th>Хеш / ошибка</th></tr>
+    </thead>
+    <tbody id="items-body">
+      {% for it in items %}
+      <tr>
+        <td class="addr">{{ it.address }}</td>
+        <td class="mono">{{ '%.4f'|format(it.amount) }}</td>
+        <td class="muted">{{ it.comment or '—' }}</td>
+        <td>
+          {% if it.status == 'sent' %}<span class="pill ok">отправлено</span>
+          {% elif it.status == 'pending' %}<span class="pill warn">в очереди</span>
+          {% elif it.status == 'skipped' %}<span class="pill muted">dry-run</span>
+          {% else %}<span class="pill err">ошибка</span>{% endif %}
+        </td>
+        <td class="addr muted">{{ it.tx_hash or it.error_message or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+var RUN_ID = {{ run.id }};
+var FINISHED = {{ 'true' if run.status != 'running' else 'false' }};
+
+function statusPill(s) {
+  var map = {sent:['ok','отправлено'], pending:['warn','в очереди'], skipped:['muted','dry-run'],
+             failed:['err','ошибка']};
+  var m = map[s] || ['muted', s];
+  return '<span class="pill ' + m[0] + '">' + m[1] + '</span>';
+}
+function runStatusPill(s) {
+  var map = {done:['ok','выполнен'], running:['warn','выполняется'],
+             partial:['warn','частично'], error:['err','ошибка']};
+  var m = map[s] || ['muted', s];
+  return '<span class="pill ' + m[0] + '">' + m[1] + '</span>';
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+async function refresh() {
+  try {
+    var res = await fetch("{{ url_for('api_run', run_id=run.id) }}");
+    var data = await res.json();
+    document.getElementById('run-status').innerHTML = ' ' + runStatusPill(data.run.status);
+    var body = document.getElementById('items-body');
+    body.innerHTML = data.items.map(function(it) {
+      var last = it.tx_hash || it.error_message || '';
+      return '<tr><td class="addr">' + escapeHtml(it.address) + '</td>'
+        + '<td class="mono">' + parseFloat(it.amount).toFixed(4) + '</td>'
+        + '<td class="muted">' + escapeHtml(it.comment || '—') + '</td>'
+        + '<td>' + statusPill(it.status) + '</td>'
+        + '<td class="addr muted">' + escapeHtml(last) + '</td></tr>';
+    }).join('');
+    if (data.finished) { clearInterval(timer); }
+  } catch (e) { /* оставим как есть, попробуем в следующий тик */ }
+}
+var timer;
+if (!FINISHED) { timer = setInterval(refresh, 2500); refresh(); }
+else { document.getElementById('run-status').innerHTML = ' ' + runStatusPill("{{ run.status }}"); }
+</script>
+{% endblock %}

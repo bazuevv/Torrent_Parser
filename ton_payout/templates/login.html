@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Вход — TON Payout{% endblock %}
+{% block content %}
+<div class="panel" style="max-width: 380px; margin: 60px auto;">
+  <h1>💸 TON Payout</h1>
+  <p class="muted">Панель управления рассылкой. Требуется вход.</p>
+  <form method="post" action="{{ url_for('login') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <div style="margin-bottom: 12px;">
+      <label>Логин</label>
+      <input name="username" autocomplete="username" style="width:100%;" autofocus>
+    </div>
+    <div style="margin-bottom: 16px;">
+      <label>Пароль</label>
+      <input name="password" type="password" autocomplete="current-password" style="width:100%;">
+    </div>
+    <button class="btn" type="submit" style="width:100%;">Войти</button>
+  </form>
+</div>
+{% endblock %}
