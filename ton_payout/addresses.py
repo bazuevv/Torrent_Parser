@@ -19,7 +19,12 @@ from __future__ import annotations
 
 import threading
 
-from ton_core import NetworkGlobalID, WalletV4Config
+from ton_core import (
+    NetworkGlobalID,
+    PrivateKey,
+    WalletV4Config,
+    mnemonic_to_private_key,
+)
 from tonutils.clients import ToncenterClient
 from tonutils.contracts import WalletV4R2
 
@@ -33,16 +38,16 @@ class AddressDeriverError(Exception):
 
 
 _lock = threading.Lock()
-_client: ToncenterClient | None = None   # неподключённый клиент, только для offline-вычислений
-_mnemonic_words: list[str] | None = None
+_client: ToncenterClient | None = None       # неподключённый клиент, только для offline-вычислений
+_private_key: PrivateKey | None = None       # ключ master-сида (PBKDF2 считается один раз)
 
 
 def _ensure_ready() -> None:
-    global _client, _mnemonic_words
-    if _client is not None:
+    global _client, _private_key
+    if _private_key is not None:
         return
     with _lock:
-        if _client is not None:
+        if _private_key is not None:
             return
         mnemonic = (config.TON_MASTER_MNEMONIC or "").strip()
         if not mnemonic or mnemonic.startswith("word1"):
@@ -61,9 +66,12 @@ def _ensure_ready() -> None:
                if config.TON_NETWORK.lower() == "mainnet"
                else NetworkGlobalID.TESTNET)
         # Конструктор клиента в сеть не ходит; используется только как контейнер
-        # для offline-вычисления адреса (from_mnemonic не обращается к сети).
+        # для offline-вычисления адреса (from_private_key не обращается к сети).
         _client = ToncenterClient(network=net)
-        _mnemonic_words = words
+        # PBKDF2 (дорого) выполняется ОДИН раз: ключ master-сида один для всех id,
+        # от id зависит только subwallet_id в конфиге (дешёвое вычисление адреса).
+        _, priv_bytes = mnemonic_to_private_key(words)
+        _private_key = PrivateKey(priv_bytes)
 
 
 def derive_address(subwallet_id: int) -> str:
@@ -80,7 +88,7 @@ def derive_address(subwallet_id: int) -> str:
         )
     _ensure_ready()
     cfg = WalletV4Config(subwallet_id=subwallet_id)
-    wallet, _, _, _ = WalletV4R2.from_mnemonic(_client, _mnemonic_words, config=cfg)
+    wallet = WalletV4R2.from_private_key(_client, _private_key, config=cfg)
     return wallet.address.to_str(is_bounceable=False)
 
 
