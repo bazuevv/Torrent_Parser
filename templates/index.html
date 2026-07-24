@@ -2117,7 +2117,7 @@ function tonOnOpen() {
       return;
     }
     _tonCsrf = d.csrf;
-    document.getElementById('ton-net').textContent = 'Сеть: ' + d.network;
+    document.getElementById('ton-net').textContent = 'Сеть: ' + tonNetLabel(d.network);
     tonShow('app');
     tonLoadRecipients();
     tonLoadRuns();
@@ -2306,7 +2306,7 @@ function tonLoadRuns() {
       '<tr style="cursor:pointer" onclick="tonShowRun(' + run.id + ')">'
       + '<td style="color:var(--muted)">' + run.id + '</td>'
       + '<td class="ton-mono">' + escHtml(run.started_at || '') + '</td>'
-      + '<td>' + escHtml(run.mode) + '</td>'
+      + '<td>' + escHtml(tonModeLabel(run.mode)) + '</td>'
       + '<td>' + (Number(run.dry_run) ? '<span class="ton-pill">dry-run</span>' : '<span class="ton-pill">боевой</span>') + '</td>'
       + '<td>' + run.total_recipients + '</td>'
       + '<td class="ton-mono">' + tonAmt(run.total_amount) + '</td>'
@@ -2320,11 +2320,11 @@ function tonWalletInfo() {
   box.textContent = 'Загрузка…';
   tonFetch('/api/ton/wallet-info').then(({ j }) => {
     if (!j.ok) { box.innerHTML = '<span class="ton-pill err">' + escHtml(j.error || 'Ошибка') + '</span>'; return; }
-    let html = '<div style="color:var(--muted);margin-bottom:8px">Сеть: ' + escHtml(j.network) + '</div>';
+    let html = '<div style="color:var(--muted);margin-bottom:8px">Сеть: ' + escHtml(tonNetLabel(j.network)) + '</div>';
     for (const mode in j.wallets) {
       const w = j.wallets[mode];
-      html += '<div style="margin-bottom:10px"><span class="ton-pill">' + mode + '</span> '
-        + '<b>' + escHtml(w.balance) + ' TON</b> <span class="ton-pill">' + escHtml(w.state) + '</span>'
+      html += '<div style="margin-bottom:10px"><span class="ton-pill">' + escHtml(tonModeLabel(mode)) + '</span> '
+        + '<b>' + escHtml(w.balance) + ' TON</b> ' + tonUwStatePill(w.state)
         + '<div class="ton-addr">' + escHtml(w.address) + '</div></div>';
     }
     box.innerHTML = html;
@@ -2346,6 +2346,13 @@ function tonUwStatePill(state) {
     frozen:  ['err',  'заморожен'],
   }[state] || ['', state];
   return '<span class="ton-pill ' + m[0] + '">' + m[1] + '</span>';
+}
+
+function tonModeLabel(mode) {
+  return { highload: 'пакетный (highload)', sequential: 'последовательный (sequential)' }[mode] || mode;
+}
+function tonNetLabel(net) {
+  return { mainnet: 'основная (mainnet)', testnet: 'тестовая (testnet)' }[net] || net;
 }
 
 function tonUserWallet() {
