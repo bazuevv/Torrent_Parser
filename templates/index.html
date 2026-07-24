@@ -921,6 +921,35 @@
         <button class="btn btn-clear" style="margin-top:10px" onclick="tonWalletInfo()">Обновить баланс</button>
       </div>
 
+      <!-- Адреса пользователей -->
+      <div class="card">
+        <div class="card-title">Адреса пользователей</div>
+        <p style="color:var(--muted);font-size:12px;margin-top:0">
+          Адрес выводится из master-сида по <b>subwallet_id = id пользователя</b> (кошелёк v4R2).
+          Баланс и состояние — запросом в сеть. Пополнения на такие адреса в обычном
+          кошельке не видны (нестандартный subwallet_id).
+        </p>
+        <div class="ton-row">
+          <div style="max-width:190px">
+            <label class="ton-lbl">Искать по</label>
+            <select class="settings-select" id="ton-uw-type" style="width:100%"
+                    onchange="tonUwPlaceholder()">
+              <option value="username">username</option>
+              <option value="girl_id">id пользователя (girls.id)</option>
+              <option value="subwallet_id">subwallet_id (любой)</option>
+            </select>
+          </div>
+          <div style="flex:2">
+            <label class="ton-lbl">Значение</label>
+            <input class="settings-input" id="ton-uw-value" style="width:100%"
+                   placeholder="напр. girl_of_yourdreams"
+                   onkeydown="if(event.key==='Enter')tonUserWallet()">
+          </div>
+          <div style="flex:0"><button class="btn" onclick="tonUserWallet()">Показать</button></div>
+        </div>
+        <div id="ton-uw-result" style="margin-top:12px"></div>
+      </div>
+
       <!-- Сводка + запуск -->
       <div class="card">
         <div class="card-title">Запустить рассылку</div>
@@ -2300,6 +2329,65 @@ function tonWalletInfo() {
     }
     box.innerHTML = html;
   }).catch(() => {});
+}
+
+function tonUwPlaceholder() {
+  const t = document.getElementById('ton-uw-type').value;
+  const inp = document.getElementById('ton-uw-value');
+  inp.placeholder = t === 'username' ? 'напр. girl_of_yourdreams'
+    : (t === 'girl_id' ? 'напр. 13196' : 'напр. 698983191');
+}
+
+function tonUwStatePill(state) {
+  const m = {
+    active:  ['ok',   'активен'],
+    uninit:  ['warn', 'не развёрнут (есть баланс)'],
+    nonexist:['',     'пусто (нет пополнений)'],
+    frozen:  ['err',  'заморожен'],
+  }[state] || ['', state];
+  return '<span class="ton-pill ' + m[0] + '">' + m[1] + '</span>';
+}
+
+function tonUserWallet() {
+  const type = document.getElementById('ton-uw-type').value;
+  const value = document.getElementById('ton-uw-value').value.trim();
+  const box = document.getElementById('ton-uw-result');
+  if (!value) { box.innerHTML = '<span class="ton-pill err">Введите значение</span>'; return; }
+  box.innerHTML = '<span class="muted">Загрузка…</span>';
+  tonFetch('/api/ton/user-wallet?' + type + '=' + encodeURIComponent(value)).then(({ j }) => {
+    if (!j.ok) { box.innerHTML = '<span class="ton-pill err">' + escHtml(j.error || 'Ошибка') + '</span>'; return; }
+    const net = j.network === 'mainnet' ? '' : 'testnet.';
+    const explorer = 'https://' + net + 'tonviewer.com/' + encodeURIComponent(j.address);
+    let bal;
+    if (j.balance !== undefined) {
+      bal = '<b>' + escHtml(j.balance) + ' TON</b> ' + tonUwStatePill(j.state);
+    } else {
+      bal = '<span class="ton-pill err">баланс: ' + escHtml(j.balance_error || 'нет данных') + '</span>';
+    }
+    box.innerHTML =
+      '<div style="margin-bottom:6px">'
+        + (j.username ? '<b>' + escHtml(j.username) + '</b> · ' : '')
+        + '<span class="muted">subwallet_id ' + escHtml(String(j.subwallet_id)) + '</span></div>'
+      + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
+        + '<span class="ton-addr">' + escHtml(j.address) + '</span>'
+        + '<button class="btn btn-clear" style="padding:2px 8px;font-size:12px" '
+          + 'onclick="tonCopy(this,\'' + escHtml(j.address) + '\')">копировать</button>'
+        + '<a class="btn btn-clear" style="padding:2px 8px;font-size:12px;text-decoration:none" '
+          + 'href="' + explorer + '" target="_blank" rel="noopener">эксплорер ↗</a>'
+      + '</div>'
+      + '<div>' + bal + '</div>';
+  }).catch(() => { box.innerHTML = '<span class="ton-pill err">Ошибка запроса</span>'; });
+}
+
+function tonCopy(btn, text) {
+  const done = () => { const t = btn.textContent; btn.textContent = 'скопировано'; setTimeout(() => btn.textContent = t, 1200); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => done());
+  } else {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta); done();
+  }
 }
 
 {% if admin %}
