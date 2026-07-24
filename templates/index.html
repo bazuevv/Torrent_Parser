@@ -673,6 +673,7 @@
     {% if admin %}
     <button class="tab-btn" id="tab-btn-transcode" onclick="switchTab('transcode')">Перекодирование</button>
     <button class="tab-btn" id="tab-btn-settings"  onclick="switchTab('settings')">Настройки</button>
+    <button class="tab-btn" id="tab-btn-transfers" onclick="switchTab('transfers')">💸 Переводы</button>
     {% endif %}
   </div>
 
@@ -849,6 +850,155 @@
       <div style="margin-top:20px;display:flex;gap:10px;align-items:center">
         <button class="btn" id="settings-save-btn" onclick="saveSettings()">Сохранить</button>
         <span id="settings-status" style="font-size:13px"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Переводы (рассылка TON) -->
+  <div class="tab-panel" id="tab-transfers">
+    <style>
+      .ton-addr { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all; }
+      .ton-mono { font-family: ui-monospace, Menlo, monospace; }
+      .ton-pill { display:inline-block; padding:2px 9px; border-radius:20px; font-size:12px;
+                  background: var(--surface2); color: var(--muted); }
+      .ton-pill.ok   { background: rgba(34,197,94,.15);  color: var(--green); }
+      .ton-pill.warn { background: rgba(234,179,8,.15);   color: var(--yellow); }
+      .ton-pill.err  { background: rgba(239,68,68,.15);   color: var(--red); }
+      .ton-stat { display:flex; gap:26px; flex-wrap:wrap; }
+      .ton-stat .k { color: var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
+      .ton-stat .v { font-size:19px; font-weight:700; }
+      .ton-row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+      .ton-row > div { flex:1; min-width:110px; }
+      .ton-lbl { font-size:12px; color:var(--muted); display:block; margin-bottom:4px; }
+      .ton-msg { padding:9px 12px; border-radius:8px; margin:8px 0; font-size:13px; }
+      .ton-msg.ok  { background: rgba(34,197,94,.12); border:1px solid var(--green); }
+      .ton-msg.err { background: rgba(239,68,68,.12); border:1px solid var(--red); }
+      .ton-warn { background: rgba(234,179,8,.1); border:1px solid var(--yellow);
+                  border-radius:8px; padding:10px 13px; font-size:13px; margin-bottom:12px; }
+      #tab-transfers table td, #tab-transfers table th { vertical-align: middle; }
+      .ton-edit summary { cursor:pointer; color:var(--muted); font-size:12px; }
+    </style>
+
+    <!-- Экран входа -->
+    <div id="ton-login" style="display:none">
+      <div class="card" style="max-width:400px;margin:0 auto">
+        <div class="card-title">💸 Переводы — вход</div>
+        <p style="color:var(--muted);font-size:13px">Раздел управляет реальными переводами. Требуется логин и пароль.</p>
+        <div id="ton-login-msg"></div>
+        <div style="margin-bottom:10px">
+          <label class="ton-lbl">Логин</label>
+          <input class="settings-input" id="ton-user" style="width:100%" autocomplete="username">
+        </div>
+        <div style="margin-bottom:14px">
+          <label class="ton-lbl">Пароль</label>
+          <input class="settings-input" id="ton-pass" type="password" style="width:100%"
+                 autocomplete="current-password" onkeydown="if(event.key==='Enter')tonLogin()">
+        </div>
+        <button class="btn" onclick="tonLogin()">Войти</button>
+      </div>
+    </div>
+
+    <!-- Нет доступа (не admin-eligible) -->
+    <div id="ton-denied" style="display:none">
+      <div class="card" style="max-width:500px;margin:0 auto">
+        <div class="card-title">Доступ ограничен</div>
+        <p style="color:var(--muted)">Раздел «Переводы» доступен только с localhost или Разрешённых IP.</p>
+      </div>
+    </div>
+
+    <!-- Управление (после входа) -->
+    <div id="ton-app" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <span class="ton-pill" id="ton-net"></span>
+        <span style="flex:1"></span>
+        <button class="btn btn-clear" onclick="tonLogout()">Выйти из раздела</button>
+      </div>
+
+      <!-- Кошелёк -->
+      <div class="card">
+        <div class="card-title">Кошелёк-отправитель</div>
+        <div id="ton-wallet" style="color:var(--muted);font-size:13px">Нажмите «Обновить баланс».</div>
+        <button class="btn btn-clear" style="margin-top:10px" onclick="tonWalletInfo()">Обновить баланс</button>
+      </div>
+
+      <!-- Сводка + запуск -->
+      <div class="card">
+        <div class="card-title">Запустить рассылку</div>
+        <div class="ton-stat" style="margin-bottom:14px">
+          <div><div class="k">Активных получателей</div><div class="v" id="ton-active">—</div></div>
+          <div><div class="k">Сумма к рассылке</div><div class="v" id="ton-total">—</div></div>
+        </div>
+        <div id="ton-running-warn" class="ton-warn" style="display:none">Сейчас уже выполняется рассылка.</div>
+        <div class="ton-row">
+          <div style="max-width:280px">
+            <label class="ton-lbl">Режим</label>
+            <select class="settings-select" id="ton-mode" style="width:100%">
+              <option value="highload">highload — все одной транзакцией (быстро, дёшево)</option>
+              <option value="sequential">sequential — по одному (надёжно, медленно)</option>
+            </select>
+          </div>
+          <div style="max-width:200px">
+            <label class="ton-lbl">Тип запуска</label>
+            <label style="font-size:13px;color:var(--text)">
+              <input type="checkbox" id="ton-dry" checked> Пробный прогон (dry-run)
+            </label>
+          </div>
+          <div style="flex:0">
+            <button class="btn" id="ton-run-btn" onclick="tonRun()">Запустить</button>
+          </div>
+        </div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:0">
+          Dry-run проверяет баланс и пишет план, но <b>денег не отправляет</b>. Снимите галочку для боевой отправки.
+        </p>
+        <div id="ton-run-msg"></div>
+      </div>
+
+      <!-- Текущий/последний запуск -->
+      <div class="card" id="ton-run-card" style="display:none">
+        <div class="card-title">Запуск <span id="ton-run-title"></span> <span id="ton-run-status"></span></div>
+        <div id="ton-run-meta" style="color:var(--muted);font-size:12px;margin-bottom:10px"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Адрес</th><th>Сумма</th><th>Коммент.</th><th>Статус</th><th>Хеш / ошибка</th></tr></thead>
+            <tbody id="ton-run-items"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Получатели -->
+      <div class="card">
+        <div class="card-title">Получатели</div>
+        <div id="ton-rcpt-msg"></div>
+        <div class="ton-row" style="margin-bottom:14px">
+          <div style="flex:2"><label class="ton-lbl">Адрес (UQ… / EQ…)</label>
+            <input class="settings-input" id="ton-add-addr" placeholder="UQ..." style="width:100%"></div>
+          <div style="max-width:130px"><label class="ton-lbl">Сумма, TON</label>
+            <input class="settings-input" id="ton-add-amount" placeholder="1.5" style="width:100%"></div>
+          <div style="flex:2"><label class="ton-lbl">Комментарий</label>
+            <input class="settings-input" id="ton-add-comment" placeholder="необязательно" style="width:100%"></div>
+          <div style="max-width:90px"><label class="ton-lbl">Активен</label>
+            <input type="checkbox" id="ton-add-active" checked></div>
+          <div style="flex:0"><button class="btn" onclick="tonAddRecipient()">Добавить</button></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Адрес</th><th>Сумма</th><th>Коммент.</th><th>Статус</th><th></th></tr></thead>
+            <tbody id="ton-rcpt-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- История -->
+      <div class="card">
+        <div class="card-title">История рассылок
+          <button class="btn btn-clear" style="float:right;padding:4px 10px;font-size:12px" onclick="tonLoadRuns()">Обновить</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Начат</th><th>Режим</th><th>Тип</th><th>Получателей</th><th>Сумма</th><th>Статус</th></tr></thead>
+            <tbody id="ton-runs-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -1455,6 +1605,7 @@ function switchTab(name) {
   if (name === 'girls')     loadGirls(1);
   if (name === 'transcode') loadTranscodeLog(1);
   if (name === 'settings')  loadSettings();
+  if (name === 'transfers') tonOnOpen();
 }
 
 // ── Settings ───────────────────────────────────────────────────────────────
@@ -1896,6 +2047,261 @@ function debounceGirlsSearch() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 loadVideos(1);
+// ── Переводы (рассылка TON) ─────────────────────────────────────────────────
+let _tonCsrf = null;
+let _tonRunTimer = null;
+let _tonWaitTimer = null;
+let _tonLoaded = false;
+
+function tonShow(which) {
+  document.getElementById('ton-login').style.display  = which === 'login'  ? 'block' : 'none';
+  document.getElementById('ton-denied').style.display = which === 'denied' ? 'block' : 'none';
+  document.getElementById('ton-app').style.display    = which === 'app'    ? 'block' : 'none';
+}
+
+function tonMsg(elId, text, kind) {
+  const el = document.getElementById(elId);
+  if (!text) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="ton-msg ' + (kind || 'ok') + '">' + escHtml(text) + '</div>';
+}
+
+async function tonFetch(url, opts) {
+  opts = opts || {};
+  opts.headers = opts.headers || {};
+  if (opts.method === 'POST') {
+    opts.headers['Content-Type'] = 'application/json';
+    if (_tonCsrf) opts.headers['X-TON-CSRF'] = _tonCsrf;
+  }
+  const r = await fetch(url, opts);
+  let j = {};
+  try { j = await r.json(); } catch (e) {}
+  if (r.status === 401 && j.need_auth) { tonShow('login'); throw new Error('need_auth'); }
+  return { status: r.status, ok: r.ok, j };
+}
+
+function tonOnOpen() {
+  fetch('/api/ton/access').then(r => r.json()).then(d => {
+    if (!d.admin) { tonShow('denied'); return; }
+    if (!d.authed) {
+      tonShow('login');
+      if (!d.password_configured) tonMsg('ton-login-msg', 'Пароль раздела не настроен (WEB_PASSWORD в ton_payout/config_secrets.py).', 'err');
+      return;
+    }
+    _tonCsrf = d.csrf;
+    document.getElementById('ton-net').textContent = 'Сеть: ' + d.network;
+    tonShow('app');
+    tonLoadRecipients();
+    tonLoadRuns();
+    _tonLoaded = true;
+  }).catch(() => {});
+}
+
+function tonLogin() {
+  const username = document.getElementById('ton-user').value;
+  const password = document.getElementById('ton-pass').value;
+  tonMsg('ton-login-msg', '');
+  tonFetch('/api/ton/login', { method: 'POST', body: JSON.stringify({ username, password }) })
+    .then(({ status, j }) => {
+      if (status === 200 && j.ok) {
+        _tonCsrf = j.csrf;
+        document.getElementById('ton-pass').value = '';
+        tonOnOpen();
+      } else {
+        tonMsg('ton-login-msg', j.error || 'Ошибка входа', 'err');
+      }
+    }).catch(() => {});
+}
+
+function tonLogout() {
+  tonFetch('/api/ton/logout', { method: 'POST' }).then(() => {
+    _tonCsrf = null;
+    if (_tonRunTimer) clearInterval(_tonRunTimer);
+    if (_tonWaitTimer) clearInterval(_tonWaitTimer);
+    tonShow('login');
+  }).catch(() => {});
+}
+
+function tonAmt(s) { return Number(s).toFixed(4); }
+function tonTrim(s) { return String(s).indexOf('.') < 0 ? s : String(s).replace(/0+$/, '').replace(/\.$/, ''); }
+
+function tonStatusPill(s) {
+  const m = { sent:['ok','отправлено'], pending:['warn','в очереди'], skipped:['','dry-run'],
+              failed:['err','ошибка'] }[s] || ['', s];
+  return '<span class="ton-pill ' + m[0] + '">' + m[1] + '</span>';
+}
+function tonRunPill(s) {
+  const m = { done:['ok','выполнен'], running:['warn','выполняется'],
+              partial:['warn','частично'], error:['err','ошибка'] }[s] || ['', s];
+  return '<span class="ton-pill ' + m[0] + '">' + m[1] + '</span>';
+}
+
+function tonLoadRecipients() {
+  tonFetch('/api/ton/recipients').then(({ j }) => {
+    if (!j.ok) { tonMsg('ton-rcpt-msg', j.error || 'Ошибка', 'err'); return; }
+    document.getElementById('ton-active').textContent = j.active_count;
+    document.getElementById('ton-total').textContent = j.total_active + ' TON';
+    document.getElementById('ton-running-warn').style.display = j.payout_running ? 'block' : 'none';
+    const body = document.getElementById('ton-rcpt-body');
+    if (!j.recipients.length) {
+      body.innerHTML = '<tr><td colspan="6" style="color:var(--muted)">Список пуст.</td></tr>';
+      return;
+    }
+    body.innerHTML = j.recipients.map(r => {
+      const active = Number(r.is_active) === 1;
+      return '<tr>'
+        + '<td style="color:var(--muted)">' + r.id + '</td>'
+        + '<td class="ton-addr">' + escHtml(r.address)
+          + '<details class="ton-edit"><summary>изменить</summary>'
+          + '<div class="ton-row" style="margin-top:6px">'
+          + '<div style="flex:2"><input class="settings-input" style="width:100%" id="ton-e-addr-' + r.id + '" value="' + escHtml(r.address) + '"></div>'
+          + '<div style="max-width:110px"><input class="settings-input" style="width:100%" id="ton-e-amount-' + r.id + '" value="' + escHtml(tonTrim(r.amount)) + '"></div>'
+          + '<div style="flex:2"><input class="settings-input" style="width:100%" id="ton-e-comment-' + r.id + '" value="' + escHtml(r.comment || '') + '"></div>'
+          + '<div style="max-width:80px"><label style="font-size:12px"><input type="checkbox" id="ton-e-active-' + r.id + '"' + (active ? ' checked' : '') + '> вкл</label></div>'
+          + '<div style="flex:0"><button class="btn" style="padding:4px 10px;font-size:12px" onclick="tonEditRecipient(' + r.id + ')">Сохранить</button></div>'
+          + '</div></details>'
+        + '</td>'
+        + '<td class="ton-mono">' + tonAmt(r.amount) + '</td>'
+        + '<td style="color:var(--muted)">' + escHtml(r.comment || '—') + '</td>'
+        + '<td>' + (active ? '<span class="ton-pill ok">активен</span>' : '<span class="ton-pill">выключен</span>') + '</td>'
+        + '<td style="white-space:nowrap;text-align:right">'
+          + '<button class="btn btn-clear" style="padding:4px 9px;font-size:12px" onclick="tonToggle(' + r.id + ')">' + (active ? 'Выключить' : 'Включить') + '</button> '
+          + '<button class="btn btn-stop" style="padding:4px 9px;font-size:12px" onclick="tonDelete(' + r.id + ',\'' + escHtml(r.address).replace(/'/g, "\\'") + '\')">Удалить</button>'
+        + '</td></tr>';
+    }).join('');
+  }).catch(() => {});
+}
+
+function tonAddRecipient() {
+  const body = {
+    address: document.getElementById('ton-add-addr').value.trim(),
+    amount:  document.getElementById('ton-add-amount').value.trim(),
+    comment: document.getElementById('ton-add-comment').value.trim(),
+    is_active: document.getElementById('ton-add-active').checked,
+  };
+  tonFetch('/api/ton/recipients/add', { method: 'POST', body: JSON.stringify(body) }).then(({ j }) => {
+    if (j.ok) {
+      document.getElementById('ton-add-addr').value = '';
+      document.getElementById('ton-add-amount').value = '';
+      document.getElementById('ton-add-comment').value = '';
+      tonMsg('ton-rcpt-msg', 'Получатель добавлен.', 'ok');
+      tonLoadRecipients();
+    } else {
+      tonMsg('ton-rcpt-msg', j.error || 'Ошибка', 'err');
+    }
+  }).catch(() => {});
+}
+
+function tonEditRecipient(id) {
+  const body = {
+    address: document.getElementById('ton-e-addr-' + id).value.trim(),
+    amount:  document.getElementById('ton-e-amount-' + id).value.trim(),
+    comment: document.getElementById('ton-e-comment-' + id).value.trim(),
+    is_active: document.getElementById('ton-e-active-' + id).checked,
+  };
+  tonFetch('/api/ton/recipients/' + id + '/edit', { method: 'POST', body: JSON.stringify(body) }).then(({ j }) => {
+    if (j.ok) { tonMsg('ton-rcpt-msg', 'Сохранено.', 'ok'); tonLoadRecipients(); }
+    else { tonMsg('ton-rcpt-msg', j.error || 'Ошибка', 'err'); }
+  }).catch(() => {});
+}
+
+function tonToggle(id) {
+  tonFetch('/api/ton/recipients/' + id + '/toggle', { method: 'POST' })
+    .then(() => tonLoadRecipients()).catch(() => {});
+}
+
+function tonDelete(id, addr) {
+  if (!confirm('Удалить получателя ' + addr + '?')) return;
+  tonFetch('/api/ton/recipients/' + id + '/delete', { method: 'POST' })
+    .then(({ j }) => { if (j.ok) { tonMsg('ton-rcpt-msg', 'Удалён.', 'ok'); tonLoadRecipients(); } })
+    .catch(() => {});
+}
+
+function tonRun() {
+  const mode = document.getElementById('ton-mode').value;
+  const dry = document.getElementById('ton-dry').checked;
+  if (!dry && !confirm('БОЕВАЯ отправка: реальные деньги уйдут на все активные адреса. Продолжить?')) return;
+  document.getElementById('ton-run-btn').disabled = true;
+  tonMsg('ton-run-msg', dry ? 'Пробный прогон запущен…' : 'Рассылка запущена…', 'ok');
+  tonFetch('/api/ton/run', { method: 'POST', body: JSON.stringify({ mode, dry_run: dry }) }).then(({ j }) => {
+    document.getElementById('ton-run-btn').disabled = false;
+    if (!j.ok) { tonMsg('ton-run-msg', j.error || 'Ошибка запуска', 'err'); return; }
+    tonWatchRun(j.after);
+  }).catch(() => { document.getElementById('ton-run-btn').disabled = false; });
+}
+
+function tonWatchRun(after) {
+  if (_tonWaitTimer) clearInterval(_tonWaitTimer);
+  _tonWaitTimer = setInterval(() => {
+    tonFetch('/api/ton/runs/latest?after=' + after).then(({ j }) => {
+      if (j.ok && j.ready) {
+        clearInterval(_tonWaitTimer);
+        tonShowRun(j.run_id);
+        tonLoadRuns();
+      }
+    }).catch(() => {});
+  }, 1500);
+}
+
+function tonShowRun(runId) {
+  document.getElementById('ton-run-card').style.display = 'block';
+  if (_tonRunTimer) clearInterval(_tonRunTimer);
+  const tick = () => {
+    tonFetch('/api/ton/runs/' + runId).then(({ j }) => {
+      if (!j.ok) return;
+      document.getElementById('ton-run-title').textContent = '#' + j.run.id;
+      document.getElementById('ton-run-status').innerHTML = tonRunPill(j.run.status);
+      let meta = 'Кошелёк: <span class="ton-addr">' + escHtml(j.run.wallet_address || '—') + '</span>';
+      if (j.run.tx_hash) meta += '<br>Хеш: <span class="ton-addr">' + escHtml(j.run.tx_hash) + '</span>';
+      if (j.run.error_message) meta += '<br><span style="color:var(--red)">' + escHtml(j.run.error_message) + '</span>';
+      document.getElementById('ton-run-meta').innerHTML = meta;
+      document.getElementById('ton-run-items').innerHTML = j.items.map(it =>
+        '<tr><td class="ton-addr">' + escHtml(it.address) + '</td>'
+        + '<td class="ton-mono">' + tonAmt(it.amount) + '</td>'
+        + '<td style="color:var(--muted)">' + escHtml(it.comment || '—') + '</td>'
+        + '<td>' + tonStatusPill(it.status) + '</td>'
+        + '<td class="ton-addr" style="color:var(--muted)">' + escHtml(it.tx_hash || it.error_message || '') + '</td></tr>'
+      ).join('');
+      if (j.finished) { clearInterval(_tonRunTimer); tonLoadRecipients(); tonLoadRuns(); }
+    }).catch(() => {});
+  };
+  _tonRunTimer = setInterval(tick, 2500);
+  tick();
+}
+
+function tonLoadRuns() {
+  tonFetch('/api/ton/runs').then(({ j }) => {
+    if (!j.ok) return;
+    const body = document.getElementById('ton-runs-body');
+    if (!j.runs.length) { body.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Запусков ещё не было.</td></tr>'; return; }
+    body.innerHTML = j.runs.map(run =>
+      '<tr style="cursor:pointer" onclick="tonShowRun(' + run.id + ')">'
+      + '<td style="color:var(--muted)">' + run.id + '</td>'
+      + '<td class="ton-mono">' + escHtml(run.started_at || '') + '</td>'
+      + '<td>' + escHtml(run.mode) + '</td>'
+      + '<td>' + (Number(run.dry_run) ? '<span class="ton-pill">dry-run</span>' : '<span class="ton-pill">боевой</span>') + '</td>'
+      + '<td>' + run.total_recipients + '</td>'
+      + '<td class="ton-mono">' + tonAmt(run.total_amount) + '</td>'
+      + '<td>' + tonRunPill(run.status) + '</td></tr>'
+    ).join('');
+  }).catch(() => {});
+}
+
+function tonWalletInfo() {
+  const box = document.getElementById('ton-wallet');
+  box.textContent = 'Загрузка…';
+  tonFetch('/api/ton/wallet-info').then(({ j }) => {
+    if (!j.ok) { box.innerHTML = '<span class="ton-pill err">' + escHtml(j.error || 'Ошибка') + '</span>'; return; }
+    let html = '<div style="color:var(--muted);margin-bottom:8px">Сеть: ' + escHtml(j.network) + '</div>';
+    for (const mode in j.wallets) {
+      const w = j.wallets[mode];
+      html += '<div style="margin-bottom:10px"><span class="ton-pill">' + mode + '</span> '
+        + '<b>' + escHtml(w.balance) + ' TON</b> <span class="ton-pill">' + escHtml(w.state) + '</span>'
+        + '<div class="ton-addr">' + escHtml(w.address) + '</div></div>';
+    }
+    box.innerHTML = html;
+  }).catch(() => {});
+}
+
 {% if admin %}
 connectSSE();
 pollStatus();
