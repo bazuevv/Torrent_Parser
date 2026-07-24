@@ -4,3 +4,4 @@ lxml
 mysql-connector-python==9.3.0
 flask==3.1.1
 gunicorn==23.0.0
+tonutils>=2.1.1

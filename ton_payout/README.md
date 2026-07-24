@@ -63,6 +63,37 @@ venv/bin/gunicorn -b 127.0.0.1:8091 ton_payout.web:app
 
 Вход — по `WEB_USERNAME` / `WEB_PASSWORD` из `config_secrets.py`.
 
+## Встроенная вкладка «Переводы» (основное приложение на :5000)
+
+Помимо отдельной панели, управление рассылкой встроено в основное приложение
+Torrent_Parser как вкладка **«Переводы»** (`web.py`, эндпоинты `/api/ton/*`).
+
+Модель доступа к вкладке:
+1. быть admin-eligible — заходить с **localhost или Разрешённого IP** (та же
+   проверка, что и у остального админ-функционала приложения);
+2. **плюс** войти по логину/паролю (`WEB_USERNAME` / `WEB_PASSWORD`) — пароль
+   спрашивается **всегда**, в том числе с localhost.
+
+Изменяющие действия (добавить получателя, запустить рассылку) дополнительно
+защищены CSRF-токеном сессии. Запуск рассылки уходит в тот же процесс
+`ton_payout.run`, что и cron.
+
+Чтобы включить вкладку:
+```bash
+cd /path/to/Torrent_Parser
+venv/bin/pip install -r ton_payout/requirements.txt   # ставит tonutils в venv приложения
+cp ton_payout/config_secrets.example.py ton_payout/config_secrets.py
+chmod 600 ton_payout/config_secrets.py
+$EDITOR ton_payout/config_secrets.py   # WEB_USERNAME, WEB_PASSWORD, SECRET_KEY, TON_MNEMONIC
+./restart.sh                           # перезапуск Flask (иначе правки не подхватятся)
+```
+Секреты можно держать и в корневом `config_secrets.py` — загрузчик
+`ton_payout/config.py` читает оба файла (свой имеет приоритет).
+
+Если `WEB_PASSWORD` не задан, вкладка показывает сообщение и вход невозможен.
+Если `tonutils` не установлен в venv, управление получателями и историей всё
+равно работает, но баланс кошелька и запуск рассылки — нет.
+
 ## Запуск по расписанию (раз в месяц)
 
 Cron, 3:00 первого числа каждого месяца (секреты берутся из
