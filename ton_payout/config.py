@@ -50,10 +50,15 @@ DB_NAME     = _secret("DB_NAME", "torrent_parser")
 DB_USER     = _secret("DB_USER", "torrent")
 DB_PASSWORD = _secret("DB_PASSWORD")
 
-# TON-кошелёк
+# TON-кошелёк (рассылка)
 TON_MNEMONIC       = _secret("TON_MNEMONIC")
 TON_NETWORK        = _secret("TON_NETWORK", "mainnet")
 TONCENTER_API_KEY  = _secret("TONCENTER_API_KEY")
+
+# Master-сид для детерминированного вывода адресов пользователей (модель A):
+# адрес = WalletV4R2(subwallet_id = id пользователя). Из одного сида — сколько
+# угодно реальных адресов. Держателю сида принадлежат ключи (кастодиальная модель).
+TON_MASTER_MNEMONIC = _secret("TON_MASTER_MNEMONIC")
 
 # Веб-интерфейс
 WEB_USERNAME = _secret("WEB_USERNAME", "admin")

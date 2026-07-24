@@ -1,38 +1,36 @@
 #!/usr/bin/env python3
-"""Заполняет girls.ton_address случайными TON-адресами — для демонстрации того,
-как выглядит заполненное поле адреса в профиле (вместо «Unknown»).
+"""Заполняет girls.ton_address РЕАЛЬНЫМИ TON-адресами (модель A).
 
-Адреса генерируются в корректном user-friendly формате (UQ…, 48 символов,
-с валидной CRC16) через ton_core, но НЕ привязаны к реальным кошелькам:
-это тестовые значения ТОЛЬКО для внешнего вида. Отправлять на них ничего нельзя.
+Адрес каждой записи выводится детерминированно из master-сида
+(TON_MASTER_MNEMONIC) с subwallet_id = girls.id. Свойства:
+  * один и тот же id всегда даёт один и тот же адрес (обратная совместимость:
+    существующие записи можно безопасно пере-вывести — адрес не изменится);
+  * ключами от всех адресов владеет держатель master-сида (кастодиально),
+    поэтому на эти адреса можно реально принимать и с них выводить средства.
 
-Примеры (из корня репозитория, тем же venv, где установлен tonutils/ton_core):
-    venv/bin/python3 gen_ton_addresses.py --dry-run    # показать план, ничего не писать
+Master-сид задаётся в ton_payout/config_secrets.py (или env TON_MASTER_MNEMONIC).
+
+Примеры (из корня репозитория, venv с установленным tonutils):
+    venv/bin/python3 gen_ton_addresses.py --dry-run    # показать план, не писать
     venv/bin/python3 gen_ton_addresses.py              # заполнить только пустые (NULL)
-    venv/bin/python3 gen_ton_addresses.py --overwrite  # перегенерировать всем
+    venv/bin/python3 gen_ton_addresses.py --overwrite  # пере-вывести всем (идемпотентно)
     venv/bin/python3 gen_ton_addresses.py --limit 10   # не больше 10 записей
     venv/bin/python3 gen_ton_addresses.py --clear      # очистить все адреса (вернуть NULL)
 """
 
 import argparse
-import os
 import sys
 
 import db
-from ton_core import Address
-
-
-def random_ton_address() -> str:
-    """Случайный адрес в user-friendly non-bounceable формате (UQ…)."""
-    return Address((0, os.urandom(32))).to_str(is_bounceable=False)
+from ton_payout.addresses import AddressDeriverError, derive_address
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Генерация случайных TON-адресов в girls.ton_address (демо UI)."
+        description="Детерминированный вывод реальных TON-адресов в girls.ton_address (модель A)."
     )
     p.add_argument("--overwrite", action="store_true",
-                   help="перегенерировать адрес и у тех, у кого он уже задан")
+                   help="пере-вывести адрес и у тех, у кого он уже задан (идемпотентно)")
     p.add_argument("--clear", action="store_true",
                    help="очистить ton_address у всех (вернуть NULL) и выйти")
     p.add_argument("--limit", type=int, default=0,
@@ -76,13 +74,20 @@ def main(argv: list[str] | None = None) -> int:
 
     upd = conn.cursor()
     count = 0
-    for r in rows:
-        addr = random_ton_address()
-        if args.dry_run:
-            print(f"[dry-run] #{r['id']} {r['username']} -> {addr}")
-        else:
-            upd.execute("UPDATE girls SET ton_address = %s WHERE id = %s", (addr, r["id"]))
-            count += 1
+    try:
+        for r in rows:
+            addr = derive_address(int(r["id"]))  # subwallet_id = girls.id
+            if args.dry_run:
+                print(f"[dry-run] #{r['id']} {r['username']} -> {addr}")
+            else:
+                upd.execute("UPDATE girls SET ton_address = %s WHERE id = %s", (addr, r["id"]))
+                count += 1
+    except AddressDeriverError as e:
+        upd.close()
+        conn.close()
+        print(f"Ошибка: {e}", file=sys.stderr)
+        return 1
+
     if not args.dry_run:
         conn.commit()
     upd.close()
