@@ -1,23 +1,44 @@
+import importlib.util
 import os
 
 # ── Секреты ───────────────────────────────────────────────────────────────────
-# Пароли, мнемоника и хосты НЕ хранятся в этом файле (он в git). Значения берутся:
-#   1) из переменной окружения с тем же именем (напр. TON_MNEMONIC),
-#   2) иначе из модуля config_secrets.py (он в .gitignore),
-#   3) иначе — безопасная заглушка.
-# Реальные значения держите в ton_payout/config_secrets.py (см. config_secrets.example.py).
-try:
-    import config_secrets as _secrets
-except ImportError:
-    _secrets = None
+# Пароли, мнемоника и хосты НЕ хранятся в этом файле (он в git). Значения берутся
+# по приоритету:
+#   1) переменная окружения с тем же именем (напр. TON_MNEMONIC),
+#   2) ton_payout/config_secrets.py (свои секреты рассылки),
+#   3) корневой config_secrets.py проекта (общие DB-креды),
+#   4) безопасная заглушка.
+# Файлы config_secrets.py грузятся по АБСОЛЮТНОМУ пути (importlib), поэтому
+# находятся независимо от рабочей директории — что при запуске standalone
+# (`python3 -m ton_payout.web`), что при импорте из корневого web.py на :5000.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_HERE)
+
+
+def _load_secrets(path: str):
+    if not os.path.exists(path):
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location(f"_secrets_{abs(hash(path))}", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+# ton_payout-локальные секреты имеют приоритет над корневыми
+_ton_secrets = _load_secrets(os.path.join(_HERE, "config_secrets.py"))
+_root_secrets = _load_secrets(os.path.join(_ROOT, "config_secrets.py"))
 
 
 def _secret(name: str, default: str = "") -> str:
     env = os.getenv(name)
     if env is not None:
         return env
-    if _secrets is not None and hasattr(_secrets, name):
-        return str(getattr(_secrets, name))
+    for source in (_ton_secrets, _root_secrets):
+        if source is not None and hasattr(source, name):
+            return str(getattr(source, name))
     return default
 
 

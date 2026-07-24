@@ -1,8 +1,10 @@
 import os
 import re
+import hmac
 import time
 import queue
 import signal
+import secrets
 import threading
 import collections
 import subprocess
@@ -11,13 +13,21 @@ from datetime import datetime
 import requests as _req
 
 from urllib.parse import quote
-from flask import Flask, render_template, jsonify, Response, request
+from flask import Flask, render_template, jsonify, Response, request, session
 
 import db
 import config
 import qb
 
+# Модуль рассылки TON (вкладка «Переводы»). db/config не тянут tonutils —
+# импортируются безопасно; payout_core (с tonutils) грузится лениво в /api/ton/wallet-info.
+from ton_payout import db as ton_db
+from ton_payout import config as ton_config
+
 app = Flask(__name__)
+# Секрет для подписи cookie-сессий (нужен вкладке «Переводы»). Берётся из
+# секретов ton_payout; если не задан — эфемерный (сессии сбросятся при рестарте).
+app.secret_key = ton_config.SECRET_KEY or secrets.token_hex(32)
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_PYTHON = os.path.join(PROJECT_DIR, "venv", "bin", "python3")
@@ -1033,6 +1043,86 @@ def api_settings_post():
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ── Вкладка «Переводы» (рассылка TON) ─────────────────────────────────────────
+# Модель доступа:
+#   1) быть admin-eligible: localhost ИЛИ Разрешённый IP (та же проверка
+#      _settings_allowed(), что и у остального админ-функционала);
+#   2) плюс войти по логину/паролю (WEB_USERNAME/WEB_PASSWORD из ton_payout) —
+#      пароль спрашивается ВСЕГДА, в т.ч. с localhost.
+# Изменяющие состояние POST-эндпоинты дополнительно требуют CSRF-токен
+# (заголовок X-TON-CSRF), выдаваемый после входа в /api/ton/access.
+
+def _ton_admin() -> bool:
+    """Клиент на доверенной сети (localhost или Разрешённый IP)."""
+    return _settings_allowed()
+
+
+def _ton_authed() -> bool:
+    return bool(session.get("ton_authed"))
+
+
+def _ton_csrf() -> str:
+    token = session.get("ton_csrf")
+    if not token:
+        token = secrets.token_hex(16)
+        session["ton_csrf"] = token
+    return token
+
+
+def _ton_guard(require_csrf: bool = False):
+    """Возвращает (ошибочный Response, код) либо None, если доступ разрешён."""
+    if not _ton_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    if not _ton_authed():
+        return jsonify({"ok": False, "error": "Требуется вход", "need_auth": True}), 401
+    if require_csrf:
+        sent = request.headers.get("X-TON-CSRF", "")
+        if not hmac.compare_digest(sent, session.get("ton_csrf", "")):
+            return jsonify({"ok": False, "error": "Неверный CSRF-токен"}), 400
+    return None
+
+
+@app.get("/api/ton/access")
+def api_ton_access():
+    """Состояние доступа к вкладке для фронтенда."""
+    admin = _ton_admin()
+    authed = admin and _ton_authed()
+    resp = {
+        "admin": admin,
+        "authed": authed,
+        "username": ton_config.WEB_USERNAME if authed else None,
+        "network": ton_config.TON_NETWORK,
+        "password_configured": bool(ton_config.WEB_PASSWORD),
+    }
+    if authed:
+        resp["csrf"] = _ton_csrf()
+    return jsonify(resp)
+
+
+@app.post("/api/ton/login")
+def api_ton_login():
+    if not _ton_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    if not ton_config.WEB_PASSWORD:
+        return jsonify({"ok": False, "error": "Пароль вкладки не настроен (WEB_PASSWORD)."}), 503
+    body = request.get_json(silent=True) or {}
+    username = str(body.get("username", ""))
+    password = str(body.get("password", ""))
+    ok_user = hmac.compare_digest(username, ton_config.WEB_USERNAME)
+    ok_pass = hmac.compare_digest(password, ton_config.WEB_PASSWORD)
+    if ok_user and ok_pass:
+        session["ton_authed"] = True
+        return jsonify({"ok": True, "csrf": _ton_csrf()})
+    return jsonify({"ok": False, "error": "Неверный логин или пароль"}), 401
+
+
+@app.post("/api/ton/logout")
+def api_ton_logout():
+    session.pop("ton_authed", None)
+    session.pop("ton_csrf", None)
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
