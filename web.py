@@ -14,7 +14,10 @@ from decimal import Decimal, InvalidOperation
 import requests as _req
 
 from urllib.parse import quote
-from flask import Flask, render_template, jsonify, Response, request, session
+from flask import (
+    Flask, render_template, jsonify, Response, request, session,
+    send_from_directory,
+)
 
 import db
 import config
@@ -35,6 +38,9 @@ VENV_PYTHON = os.path.join(PROJECT_DIR, "venv", "bin", "python3")
 VIDEOS_DIR = "/home/ubuntu/Videos"
 VIDEOS_BT_DIR = "/home/ubuntu/Videos/Bittorrent"
 VIDEOS_DL_DIR = "/home/ubuntu/Downloads"
+# Каталог скачанного медиа (media_downloader.py сохраняет сюда под basename).
+# Совпадает с DATA_DIR загрузчика (env MEDIA_DATA_DIR или data/ в корне проекта).
+MEDIA_DATA_DIR = os.environ.get("MEDIA_DATA_DIR") or os.path.join(PROJECT_DIR, "data")
 
 _allowed_ips_cache: set[str] = set()
 _allowed_ips_ts: float = 0.0
@@ -270,6 +276,24 @@ def girl_profile(username: str):
     except Exception:
         pass
     return render_template("girl_profile.html", girl=girl, profile=profile)
+
+
+@app.get("/media/<path:filename>")
+def serve_media(filename: str):
+    """Отдаёт скачанное медиа из data/. send_from_directory защищает от
+    path traversal и сам выставляет Content-Type по расширению."""
+    return send_from_directory(MEDIA_DATA_DIR, filename, max_age=86400)
+
+
+@app.template_global()
+def media_src(value: str | None) -> str:
+    """URL для media_items: http(s) — как есть (не скачано, remote CDN),
+    иначе локальное имя файла — через маршрут отдачи /media/<файл>."""
+    if not value:
+        return ""
+    if value.startswith("http://") or value.startswith("https://"):
+        return value
+    return "/media/" + quote(value)
 
 
 @app.get("/api/status")
