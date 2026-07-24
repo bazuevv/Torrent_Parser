@@ -1520,5 +1520,120 @@ async def _ton_address_balance(address: str) -> dict:
         await client.close()
 
 
+# ── Переводы: перемещение средств между своими кошельками ─────────────────────
+
+_TON_OWN_WALLETS = ("sequential", "highload", "v5")
+
+
+@app.post("/api/ton/transfer")
+def api_ton_transfer():
+    """Перевод с одного своего кошелька (TON_MNEMONIC) на другой свой кошелёк
+    или на произвольный адрес. dry_run=True — только расчёт, без отправки."""
+    guard = _ton_guard(require_csrf=True)
+    if guard:
+        return guard
+
+    body = request.get_json(silent=True) or {}
+    src = str(body.get("from", ""))
+    dst = str(body.get("to", "")).strip()
+    send_all = bool(body.get("all", False))
+    dry_run = bool(body.get("dry_run", True))
+    comment = str(body.get("comment", "")).strip() or None
+
+    if src not in _TON_OWN_WALLETS:
+        return jsonify({"ok": False, "error": "Неизвестный кошелёк-источник"}), 400
+    if not dst:
+        return jsonify({"ok": False, "error": "Укажите получателя"}), 400
+
+    amount = None
+    if not send_all:
+        try:
+            amount = _ton_parse_amount(body.get("amount", ""))
+        except ValueError as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+
+    try:
+        import asyncio
+        res = asyncio.run(_ton_do_transfer(src, dst, amount, send_all, comment, dry_run))
+        return jsonify({"ok": True, **res})
+    except Exception as e:  # noqa: BLE001 — сбой сети/недостаток средств/невалидный адрес
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict:
+    from ton_core import Address, NetworkGlobalID, SendMode, to_nano
+    from tonutils.clients import ToncenterClient
+    from tonutils.contracts import (
+        TONTransferBuilder,
+        WalletHighloadV3R1,
+        WalletV4R2,
+        WalletV5R1,
+    )
+
+    from ton_payout.payout_core import NANO, _resolve_mnemonic
+
+    cls_map = {"sequential": WalletV4R2, "highload": WalletHighloadV3R1, "v5": WalletV5R1}
+    mnemonic = _resolve_mnemonic()
+    net_str = "mainnet" if ton_config.TON_NETWORK.lower() == "mainnet" else "testnet"
+    network = NetworkGlobalID.MAINNET if net_str == "mainnet" else NetworkGlobalID.TESTNET
+    client = ToncenterClient(network=network,
+                             api_key=ton_config.TONCENTER_API_KEY or None, rps_limit=1)
+    await client.connect()
+    try:
+        src_wallet, _, _, _ = cls_map[src].from_mnemonic(client, mnemonic)
+        src_address = src_wallet.address.to_str(is_bounceable=False)
+
+        # Получатель: имя своего кошелька или произвольный адрес
+        if dst in cls_map:
+            dst_wallet, _, _, _ = cls_map[dst].from_mnemonic(client, mnemonic)
+            dst_address = dst_wallet.address.to_str(is_bounceable=False)
+            dst_label = dst
+        else:
+            dst_address = Address(dst).to_str(is_bounceable=False)  # валидация формата
+            dst_label = "custom"
+
+        if dst_address == src_address:
+            raise ValueError("Источник и получатель совпадают")
+
+        await src_wallet.refresh()
+        src_balance = Decimal(src_wallet.balance) / NANO
+
+        if send_all:
+            send_mode = int(SendMode.CARRY_ALL_REMAINING_BALANCE) | int(SendMode.IGNORE_ERRORS)
+            amt_nano = 0
+            amount_label = "весь баланс"
+        else:
+            if src_balance < amount:
+                raise ValueError(
+                    f"Недостаточно средств: на {src} {src_balance:.4f} TON, "
+                    f"нужно {amount:.4f} TON + комиссия"
+                )
+            send_mode = int(SendMode.DEFAULT)
+            amt_nano = to_nano(amount)
+            amount_label = f"{amount:.4f}"
+
+        builder = TONTransferBuilder(
+            destination=Address(dst_address), amount=amt_nano,
+            body=comment, send_mode=send_mode,
+        )
+        result = {
+            "from": src, "from_address": src_address,
+            "to": dst_label, "to_address": dst_address,
+            "src_balance": f"{src_balance:.4f}",
+            "amount": amount_label, "dry_run": dry_run, "network": net_str,
+        }
+        if dry_run:
+            ext = await src_wallet.build_external_message([builder])  # собрать+подписать, НЕ слать
+            result["hash"] = ext.normalized_hash
+            result["note"] = "Пробный расчёт — средства НЕ отправлены."
+        else:
+            ext = await src_wallet.batch_transfer_message([builder])  # собрать+подписать+отправить
+            result["hash"] = ext.normalized_hash
+            result["note"] = "Отправлено. Подтверждение — по хешу в эксплорере (через ~10–30 c)."
+        return result
+    finally:
+        await client.close()
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
