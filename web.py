@@ -252,7 +252,7 @@ def index():
 def girl_profile(username: str):
     conn = db.get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT username, created_at FROM girls WHERE username = %s LIMIT 1", (username,))
+    cursor.execute("SELECT username, created_at, ton_address FROM girls WHERE username = %s LIMIT 1", (username,))
     girl = cursor.fetchone()
     cursor.close()
     conn.close()

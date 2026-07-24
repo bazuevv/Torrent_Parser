@@ -126,6 +126,7 @@ def init_db():
         "ALTER TABLE girls ADD COLUMN lg_views VARCHAR(50) DEFAULT NULL",
         "ALTER TABLE girls ADD COLUMN subscribers VARCHAR(50) DEFAULT NULL",
         "ALTER TABLE girls ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1",
+        "ALTER TABLE girls ADD COLUMN ton_address VARCHAR(70) DEFAULT NULL",
         "ALTER TABLE girl_media ADD COLUMN full_url TEXT AFTER thumb",
         """CREATE TABLE IF NOT EXISTS girl_media (
             id         INT AUTO_INCREMENT PRIMARY KEY,
