@@ -2323,9 +2323,14 @@ function tonWalletInfo() {
     let html = '<div style="color:var(--muted);margin-bottom:8px">Сеть: ' + escHtml(tonNetLabel(j.network)) + '</div>';
     for (const mode in j.wallets) {
       const w = j.wallets[mode];
-      html += '<div style="margin-bottom:10px"><span class="ton-pill">' + escHtml(tonModeLabel(mode)) + '</span> '
-        + '<b>' + escHtml(w.balance) + ' TON</b> ' + tonUwStatePill(w.state)
-        + '<div class="ton-addr">' + escHtml(w.address) + '</div></div>';
+      let line = '<div style="margin-bottom:10px"><span class="ton-pill">' + escHtml(tonModeLabel(mode)) + '</span> ';
+      if (w.balance !== null && w.balance !== undefined) {
+        line += '<b>' + escHtml(w.balance) + ' TON</b> ' + tonUwStatePill(w.state);
+      } else {
+        line += '<span class="ton-pill err">баланс: ' + escHtml(w.error || 'нет данных') + '</span>';
+      }
+      line += '<div class="ton-addr">' + escHtml(w.address) + '</div></div>';
+      html += line;
     }
     box.innerHTML = html;
   }).catch(() => {});
@@ -2349,7 +2354,11 @@ function tonUwStatePill(state) {
 }
 
 function tonModeLabel(mode) {
-  return { highload: 'пакетный (highload)', sequential: 'последовательный (sequential)' }[mode] || mode;
+  return {
+    highload: 'пакетный (highload)',
+    sequential: 'последовательный (sequential)',
+    v5: 'обычный (v5)',
+  }[mode] || mode;
 }
 function tonNetLabel(net) {
   return { mainnet: 'основная (mainnet)', testnet: 'тестовая (testnet)' }[net] || net;

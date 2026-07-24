@@ -1385,7 +1385,7 @@ def api_ton_wallet_info():
 async def _ton_wallet_overview() -> dict:
     from ton_core import NetworkGlobalID
     from tonutils.clients import ToncenterClient
-    from tonutils.contracts import WalletHighloadV3R1, WalletV4R2
+    from tonutils.contracts import WalletHighloadV3R1, WalletV4R2, WalletV5R1
 
     from ton_payout.payout_core import NANO, _resolve_mnemonic
 
@@ -1397,14 +1397,26 @@ async def _ton_wallet_overview() -> dict:
     await client.connect()
     out = {"network": net_str, "wallets": {}}
     try:
-        for mode, cls in (("sequential", WalletV4R2), ("highload", WalletHighloadV3R1)):
+        # sequential/highload — кошельки режимов рассылки; v5 — «обычный»
+        # современный кошелёк (то, что показывает телефон при импорте сида).
+        # Адрес считается офлайн всегда; баланс — best-effort (429/сбой сети по
+        # одному кошельку не обнуляет остальные).
+        for mode, cls in (("sequential", WalletV4R2),
+                          ("highload", WalletHighloadV3R1),
+                          ("v5", WalletV5R1)):
             wallet, _, _, _ = cls.from_mnemonic(client, mnemonic)
-            await wallet.refresh()
-            out["wallets"][mode] = {
+            entry = {
                 "address": wallet.address.to_str(is_bounceable=False),
-                "balance": f"{Decimal(wallet.balance) / NANO:.4f}",
-                "state": wallet.state.value,
+                "balance": None,
+                "state": None,
             }
+            try:
+                await wallet.refresh()
+                entry["balance"] = f"{Decimal(wallet.balance) / NANO:.4f}"
+                entry["state"] = wallet.state.value
+            except Exception as e:  # noqa: BLE001 — адрес всё равно показываем
+                entry["error"] = str(e)
+            out["wallets"][mode] = entry
     finally:
         await client.close()
     return out
