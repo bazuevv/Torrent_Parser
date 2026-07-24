@@ -1601,33 +1601,39 @@ async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict
         delay = 0.0 if has_key else 1.2
         fee_est = Decimal("0.005")  # грубая оценка комиссии простого перевода (точного API нет)
 
-        await src_wallet.refresh()
-        src_balance = Decimal(src_wallet.balance) / NANO
-
         if send_all:
             send_mode = int(SendMode.CARRY_ALL_REMAINING_BALANCE) | int(SendMode.IGNORE_ERRORS)
             amt_nano = 0
             amount_label = "весь баланс"
-            will_receive = max(src_balance - fee_est, Decimal(0))
-            src_after = Decimal(0)
             mode_label = "весь баланс (carry-all)"
         else:
-            if src_balance < amount:
-                raise ValueError(
-                    f"Недостаточно средств: на {src} {src_balance:.4f} TON, "
-                    f"нужно {amount:.4f} TON + комиссия"
-                )
             send_mode = int(SendMode.DEFAULT)
             amt_nano = to_nano(amount)
             amount_label = f"{amount:.4f}"
-            will_receive = amount
-            src_after = src_balance - amount - fee_est
             mode_label = "обычный (комиссия отдельно)"
 
         builder = TONTransferBuilder(
             destination=Address(dst_address), amount=amt_nano,
             body=comment, send_mode=send_mode,
         )
+        # Сборка+подпись сама делает refresh кошелька — актуальный баланс берём
+        # отсюда, отдельный refresh не делаем (меньше запросов к Toncenter).
+        ext = await src_wallet.build_external_message([builder])
+        src_balance = Decimal(src_wallet.balance) / NANO
+
+        if not send_all and src_balance < amount:
+            raise ValueError(
+                f"Недостаточно средств: на {src} {src_balance:.4f} TON, "
+                f"нужно {amount:.4f} TON + комиссия"
+            )
+
+        if send_all:
+            will_receive = max(src_balance - fee_est, Decimal(0))
+            src_after = Decimal(0)
+        else:
+            will_receive = amount
+            src_after = src_balance - amount - fee_est
+
         result = {
             "from": src, "from_address": src_address,
             "to": dst_label, "to_address": dst_address,
@@ -1641,28 +1647,39 @@ async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict
             # Отправляем в non-bounceable форме (UQ): средства доходят даже на
             # ещё не развёрнутый (nonexist) адрес и не «отбиваются» обратно.
             "bounceable": False,
+            "hash": ext.normalized_hash,
         }
-        if dry_run:
-            if delay:
-                await asyncio.sleep(delay)
-            ext = await src_wallet.build_external_message([builder])  # собрать+подписать, НЕ слать
-            result["hash"] = ext.normalized_hash
-            result["note"] = "Пробный расчёт — средства НЕ отправлены."
-        else:
-            ext = await src_wallet.batch_transfer_message([builder])  # собрать+подписать+отправить
-            result["hash"] = ext.normalized_hash
-            result["note"] = "Отправлено. Подтверждение — по хешу в эксплорере (через ~10–30 c)."
 
-        # Текущий баланс и состояние получателя — best-effort (доп. запрос в сеть)
-        try:
+        if dry_run:
+            result["note"] = "Пробный расчёт — средства НЕ отправлены."
+            # Баланс/состояние получателя — только в предпросмотре (доп. запрос).
+            try:
+                if delay:
+                    await asyncio.sleep(delay)
+                dst_acc = await WalletV4R2.from_address(client, Address(dst_address))
+                await dst_acc.refresh()
+                result["dst_balance"] = f"{Decimal(dst_acc.balance) / NANO:.4f}"
+                result["dst_state"] = dst_acc.state.value
+            except Exception as e:  # noqa: BLE001 — не критично, адрес уже показан
+                result["dst_info_error"] = str(e)
+        else:
+            # Пауза перед sendBoc: build уже сделал refresh (запрос №1), саму
+            # отправку разносим по времени, иначе публичный Toncenter (без ключа,
+            # ~1 запрос/с) отдаёт 429 на sendBoc. build+send делаем вручную —
+            # это то же, что batch_transfer_message, но с задержкой между ними.
             if delay:
                 await asyncio.sleep(delay)
-            dst_acc = await WalletV4R2.from_address(client, Address(dst_address))
-            await dst_acc.refresh()
-            result["dst_balance"] = f"{Decimal(dst_acc.balance) / NANO:.4f}"
-            result["dst_state"] = dst_acc.state.value
-        except Exception as e:  # noqa: BLE001 — не критично, адрес получателя уже показан
-            result["dst_info_error"] = str(e)
+            try:
+                await client.send_message(ext.as_hex)
+            except Exception as e:  # noqa: BLE001
+                # 429 на sendBoc — повтор безопасен: тот же подписанный BOC имеет
+                # один seqno и применится в сети только один раз (двойной отправки нет).
+                if "429" in str(e):
+                    await asyncio.sleep(max(delay, 2.0))
+                    await client.send_message(ext.as_hex)
+                else:
+                    raise
+            result["note"] = "Отправлено. Подтверждение — по хешу в эксплорере (через ~10–30 c)."
 
         return result
     finally:
