@@ -1410,5 +1410,94 @@ async def _ton_wallet_overview() -> dict:
     return out
 
 
+# ── Переводы: адрес и баланс конкретного пользователя ─────────────────────────
+
+@app.get("/api/ton/user-wallet")
+def api_ton_user_wallet():
+    """Адрес пользователя (v4R2, subwallet_id) + баланс/состояние из сети.
+
+    Ровно один из параметров: username, girl_id или subwallet_id.
+    balance=0 — не запрашивать баланс (только вывести адрес, быстро).
+    """
+    guard = _ton_guard()
+    if guard:
+        return guard
+
+    username = request.args.get("username", "").strip()
+    girl_id = request.args.get("girl_id", type=int)
+    subwallet_id = request.args.get("subwallet_id", type=int)
+    with_balance = request.args.get("balance", "1") != "0"
+
+    resolved_username = None
+    if subwallet_id is not None:
+        sub = subwallet_id
+    elif girl_id is not None:
+        row = _ton_girl_row("id", girl_id)
+        if not row:
+            return jsonify({"ok": False, "error": f"Пользователь с id={girl_id} не найден"}), 404
+        sub, resolved_username = int(row["id"]), row["username"]
+    elif username:
+        row = _ton_girl_row("username", username)
+        if not row:
+            return jsonify({"ok": False, "error": f"Пользователь «{username}» не найден"}), 404
+        sub, resolved_username = int(row["id"]), row["username"]
+    else:
+        return jsonify({"ok": False, "error": "Укажите username, girl_id или subwallet_id"}), 400
+
+    try:
+        from ton_payout.addresses import derive_address
+        address = derive_address(sub)
+    except Exception as e:  # нет сида / id вне диапазона / tonutils не установлен
+        return jsonify({"ok": False, "error": f"Не удалось вывести адрес: {e}"}), 400
+
+    resp = {"ok": True, "subwallet_id": sub, "username": resolved_username,
+            "address": address, "network": ton_config.TON_NETWORK}
+
+    if with_balance:
+        try:
+            import asyncio
+            resp.update(asyncio.run(_ton_address_balance(address)))
+        except Exception as e:  # сеть/лимиты — адрес всё равно вернём
+            resp["balance_error"] = str(e)
+
+    return jsonify(resp)
+
+
+def _ton_girl_row(field: str, value):
+    """Возвращает {id, username} по id или username (whitelist поля)."""
+    if field not in ("id", "username"):
+        return None
+    conn = db.get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(f"SELECT id, username FROM girls WHERE {field} = %s LIMIT 1", (value,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row
+
+
+async def _ton_address_balance(address: str) -> dict:
+    from ton_core import Address, NetworkGlobalID
+    from tonutils.clients import ToncenterClient
+    from tonutils.contracts import WalletV4R2
+
+    from ton_payout.payout_core import NANO
+
+    net_str = "mainnet" if ton_config.TON_NETWORK.lower() == "mainnet" else "testnet"
+    network = NetworkGlobalID.MAINNET if net_str == "mainnet" else NetworkGlobalID.TESTNET
+    client = ToncenterClient(network=network,
+                             api_key=ton_config.TONCENTER_API_KEY or None, rps_limit=1)
+    await client.connect()
+    try:
+        wallet = await WalletV4R2.from_address(client, Address(address))
+        await wallet.refresh()
+        return {
+            "balance": f"{Decimal(wallet.balance) / NANO:.4f}",
+            "state": wallet.state.value,
+        }
+    finally:
+        await client.close()
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
