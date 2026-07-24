@@ -1389,27 +1389,36 @@ async def _ton_wallet_overview() -> dict:
 
     from ton_payout.payout_core import NANO, _resolve_mnemonic
 
+    import asyncio
+
     mnemonic = _resolve_mnemonic()
     net_str = "mainnet" if ton_config.TON_NETWORK.lower() == "mainnet" else "testnet"
     network = NetworkGlobalID.MAINNET if net_str == "mainnet" else NetworkGlobalID.TESTNET
+    has_key = bool(ton_config.TONCENTER_API_KEY)
     client = ToncenterClient(network=network,
                              api_key=ton_config.TONCENTER_API_KEY or None, rps_limit=1)
     await client.connect()
+    # Без API-ключа публичный Toncenter даёт ~1 запрос/с — между запросами
+    # баланса делаем паузу, чтобы не ловить 429. С ключом лимит выше — паузы нет.
+    delay = 0.0 if has_key else 1.2
     out = {"network": net_str, "wallets": {}}
     try:
         # sequential/highload — кошельки режимов рассылки; v5 — «обычный»
         # современный кошелёк (то, что показывает телефон при импорте сида).
         # Адрес считается офлайн всегда; баланс — best-effort (429/сбой сети по
         # одному кошельку не обнуляет остальные).
-        for mode, cls in (("sequential", WalletV4R2),
-                          ("highload", WalletHighloadV3R1),
-                          ("v5", WalletV5R1)):
+        specs = (("sequential", WalletV4R2),
+                 ("highload", WalletHighloadV3R1),
+                 ("v5", WalletV5R1))
+        for i, (mode, cls) in enumerate(specs):
             wallet, _, _, _ = cls.from_mnemonic(client, mnemonic)
             entry = {
                 "address": wallet.address.to_str(is_bounceable=False),
                 "balance": None,
                 "state": None,
             }
+            if delay and i > 0:
+                await asyncio.sleep(delay)  # пауза между сетевыми запросами
             try:
                 await wallet.refresh()
                 entry["balance"] = f"{Decimal(wallet.balance) / NANO:.4f}"
