@@ -1561,6 +1561,8 @@ def api_ton_transfer():
 
 
 async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict:
+    import asyncio
+
     from ton_core import Address, NetworkGlobalID, SendMode, to_nano
     from tonutils.clients import ToncenterClient
     from tonutils.contracts import (
@@ -1595,6 +1597,10 @@ async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict
         if dst_address == src_address:
             raise ValueError("Источник и получатель совпадают")
 
+        has_key = bool(ton_config.TONCENTER_API_KEY)
+        delay = 0.0 if has_key else 1.2
+        fee_est = Decimal("0.005")  # грубая оценка комиссии простого перевода (точного API нет)
+
         await src_wallet.refresh()
         src_balance = Decimal(src_wallet.balance) / NANO
 
@@ -1602,6 +1608,9 @@ async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict
             send_mode = int(SendMode.CARRY_ALL_REMAINING_BALANCE) | int(SendMode.IGNORE_ERRORS)
             amt_nano = 0
             amount_label = "весь баланс"
+            will_receive = max(src_balance - fee_est, Decimal(0))
+            src_after = Decimal(0)
+            mode_label = "весь баланс (carry-all)"
         else:
             if src_balance < amount:
                 raise ValueError(
@@ -1611,6 +1620,9 @@ async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict
             send_mode = int(SendMode.DEFAULT)
             amt_nano = to_nano(amount)
             amount_label = f"{amount:.4f}"
+            will_receive = amount
+            src_after = src_balance - amount - fee_est
+            mode_label = "обычный (комиссия отдельно)"
 
         builder = TONTransferBuilder(
             destination=Address(dst_address), amount=amt_nano,
@@ -1621,8 +1633,18 @@ async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict
             "to": dst_label, "to_address": dst_address,
             "src_balance": f"{src_balance:.4f}",
             "amount": amount_label, "dry_run": dry_run, "network": net_str,
+            "comment": comment or "—",
+            "fee_estimate": f"{fee_est:.4f}",
+            "will_receive": f"{will_receive:.4f}",
+            "src_after": f"{max(src_after, Decimal(0)):.4f}",
+            "send_mode_label": mode_label,
+            # Отправляем в non-bounceable форме (UQ): средства доходят даже на
+            # ещё не развёрнутый (nonexist) адрес и не «отбиваются» обратно.
+            "bounceable": False,
         }
         if dry_run:
+            if delay:
+                await asyncio.sleep(delay)
             ext = await src_wallet.build_external_message([builder])  # собрать+подписать, НЕ слать
             result["hash"] = ext.normalized_hash
             result["note"] = "Пробный расчёт — средства НЕ отправлены."
@@ -1630,6 +1652,18 @@ async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict
             ext = await src_wallet.batch_transfer_message([builder])  # собрать+подписать+отправить
             result["hash"] = ext.normalized_hash
             result["note"] = "Отправлено. Подтверждение — по хешу в эксплорере (через ~10–30 c)."
+
+        # Текущий баланс и состояние получателя — best-effort (доп. запрос в сеть)
+        try:
+            if delay:
+                await asyncio.sleep(delay)
+            dst_acc = await WalletV4R2.from_address(client, Address(dst_address))
+            await dst_acc.refresh()
+            result["dst_balance"] = f"{Decimal(dst_acc.balance) / NANO:.4f}"
+            result["dst_state"] = dst_acc.state.value
+        except Exception as e:  # noqa: BLE001 — не критично, адрес получателя уже показан
+            result["dst_info_error"] = str(e)
+
         return result
     finally:
         await client.close()

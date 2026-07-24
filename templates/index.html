@@ -2504,13 +2504,27 @@ function tonTransfer() {
     if (!j.ok) { box.innerHTML = '<span class="ton-pill err">' + escHtml(j.error || 'Ошибка') + '</span>'; return; }
     const net = j.network === 'mainnet' ? '' : 'testnet.';
     const explorer = 'https://' + net + 'tonviewer.com/' + encodeURIComponent(j.to_address);
+    let dstInfo;
+    if (j.dst_balance !== undefined && j.dst_balance !== null) {
+      dstInfo = 'текущий баланс ' + escHtml(j.dst_balance) + ' TON ' + tonUwStatePill(j.dst_state);
+    } else {
+      dstInfo = '<span class="muted">баланс: ' + escHtml(j.dst_info_error || 'нет данных') + '</span>';
+    }
+    const amtSuffix = j.amount === 'весь баланс' ? '' : ' TON';
     box.innerHTML =
-      '<div class="ton-msg ' + (j.dry_run ? 'ok' : 'ok') + '" style="margin:0">'
+      '<div class="ton-msg ok" style="margin:0">'
       + (j.dry_run ? '🧪 ' : '✅ ') + escHtml(j.note) + '</div>'
-      + '<div style="margin-top:8px;font-size:13px">'
+      + '<div style="margin-top:8px;font-size:13px;line-height:1.75">'
       + '<div><span class="muted">откуда:</span> ' + escHtml(j.from) + ' <span class="ton-addr">' + escHtml(j.from_address) + '</span> <span class="muted">(баланс ' + escHtml(j.src_balance) + ' TON)</span></div>'
       + '<div><span class="muted">куда:</span> ' + escHtml(j.to) + ' <span class="ton-addr">' + escHtml(j.to_address) + '</span></div>'
-      + '<div><span class="muted">сумма:</span> ' + escHtml(j.amount) + (j.amount === 'весь баланс' ? '' : ' TON') + '</div>'
+      + '<div><span class="muted">получатель:</span> ' + dstInfo + '</div>'
+      + '<div><span class="muted">сумма:</span> ' + escHtml(j.amount) + amtSuffix
+        + ' &nbsp;→&nbsp; получит ≈ <b>' + escHtml(j.will_receive) + ' TON</b></div>'
+      + '<div><span class="muted">комиссия (оценка):</span> ~' + escHtml(j.fee_estimate) + ' TON'
+        + ' &nbsp;·&nbsp; <span class="muted">у источника останется ≈</span> ' + escHtml(j.src_after) + ' TON</div>'
+      + '<div><span class="muted">комментарий:</span> ' + escHtml(j.comment) + '</div>'
+      + '<div><span class="muted">режим:</span> ' + escHtml(j.send_mode_label)
+        + ' &nbsp;·&nbsp; <span class="muted">тип адреса:</span> ' + (j.bounceable ? 'bounceable' : 'non-bounceable (UQ)') + '</div>'
       + '<div><span class="muted">hash:</span> <span class="ton-addr">' + escHtml(j.hash) + '</span> '
         + '<a href="' + explorer + '" target="_blank" rel="noopener">эксплорер получателя ↗</a></div>'
       + '</div>';
