@@ -9,6 +9,7 @@ import threading
 import collections
 import subprocess
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 import requests as _req
 
@@ -1084,6 +1085,39 @@ def _ton_guard(require_csrf: bool = False):
     return None
 
 
+_ton_db_ready = False
+_ton_db_lock = threading.Lock()
+
+
+def _ton_ensure_db():
+    """Лениво создаёт таблицы рассылки (init_db) при первом обращении к данным.
+    Основное приложение init_db для ton_payout сам не вызывает."""
+    global _ton_db_ready
+    if _ton_db_ready:
+        return None
+    with _ton_db_lock:
+        if not _ton_db_ready:
+            try:
+                ton_db.init_db()
+                _ton_db_ready = True
+            except Exception as e:
+                return jsonify({"ok": False, "error": f"БД недоступна: {e}"}), 500
+    return None
+
+
+@app.before_request
+def _ton_ensure_db_before():
+    p = request.path
+    if p.startswith("/api/ton/") and p not in (
+        "/api/ton/access", "/api/ton/login", "/api/ton/logout", "/api/ton/wallet-info",
+    ):
+        # Инициализация нужна только тем, кто реально пройдёт guard — но безвредна
+        # и для остальных (при отсутствии доступа сначала отработает _ton_guard).
+        if _ton_admin() and _ton_authed():
+            return _ton_ensure_db()
+    return None
+
+
 @app.get("/api/ton/access")
 def api_ton_access():
     """Состояние доступа к вкладке для фронтенда."""
@@ -1123,6 +1157,233 @@ def api_ton_logout():
     session.pop("ton_authed", None)
     session.pop("ton_csrf", None)
     return jsonify({"ok": True})
+
+
+# ── Переводы: данные и действия ───────────────────────────────────────────────
+
+def _ton_ser(d: dict) -> dict:
+    """Сериализует строку БД для JSON: Decimal -> str, datetime -> ISO."""
+    out = {}
+    for k, v in d.items():
+        if isinstance(v, Decimal):
+            out[k] = str(v)
+        elif hasattr(v, "isoformat"):
+            out[k] = v.isoformat(sep=" ", timespec="seconds")
+        else:
+            out[k] = v
+    return out
+
+
+def _ton_parse_amount(raw) -> Decimal:
+    try:
+        amount = Decimal(str(raw).strip().replace(",", "."))
+    except (InvalidOperation, AttributeError):
+        raise ValueError(f"Некорректная сумма: {raw!r}")
+    if not (Decimal(0) < amount < Decimal(1_000_000)):
+        raise ValueError("Сумма вне допустимого диапазона (0 … 1 000 000).")
+    if -amount.as_tuple().exponent > 9:
+        raise ValueError("Слишком много знаков после запятой (максимум 9).")
+    return amount
+
+
+@app.get("/api/ton/recipients")
+def api_ton_recipients():
+    guard = _ton_guard()
+    if guard:
+        return guard
+    rows = [_ton_ser(r) for r in ton_db.list_recipients()]
+    active = [r for r in rows if int(r["is_active"])]
+    total = sum((Decimal(r["amount"]) for r in active), Decimal(0))
+    return jsonify({
+        "ok": True,
+        "recipients": rows,
+        "active_count": len(active),
+        "total_active": f"{total:.9f}".rstrip("0").rstrip("."),
+        "payout_running": ton_db.has_running_payout(),
+    })
+
+
+@app.post("/api/ton/recipients/add")
+def api_ton_recipient_add():
+    guard = _ton_guard(require_csrf=True)
+    if guard:
+        return guard
+    body = request.get_json(silent=True) or {}
+    address = str(body.get("address", "")).strip()
+    comment = str(body.get("comment", "")).strip()
+    is_active = bool(body.get("is_active", True))
+    if not address:
+        return jsonify({"ok": False, "error": "Адрес не может быть пустым"}), 400
+    try:
+        amount = _ton_parse_amount(body.get("amount", ""))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    try:
+        rid = ton_db.add_recipient(address, amount, comment or None, is_active)
+        return jsonify({"ok": True, "id": rid})
+    except Exception as e:  # напр. дубликат адреса (UNIQUE)
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.post("/api/ton/recipients/<int:rid>/edit")
+def api_ton_recipient_edit(rid: int):
+    guard = _ton_guard(require_csrf=True)
+    if guard:
+        return guard
+    if not ton_db.get_recipient(rid):
+        return jsonify({"ok": False, "error": "Получатель не найден"}), 404
+    body = request.get_json(silent=True) or {}
+    address = str(body.get("address", "")).strip()
+    comment = str(body.get("comment", "")).strip()
+    is_active = bool(body.get("is_active", True))
+    if not address:
+        return jsonify({"ok": False, "error": "Адрес не может быть пустым"}), 400
+    try:
+        amount = _ton_parse_amount(body.get("amount", ""))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    try:
+        ton_db.update_recipient(rid, address, amount, comment or None, is_active)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.post("/api/ton/recipients/<int:rid>/toggle")
+def api_ton_recipient_toggle(rid: int):
+    guard = _ton_guard(require_csrf=True)
+    if guard:
+        return guard
+    r = ton_db.get_recipient(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "Получатель не найден"}), 404
+    ton_db.set_recipient_active(rid, not int(r["is_active"]))
+    return jsonify({"ok": True})
+
+
+@app.post("/api/ton/recipients/<int:rid>/delete")
+def api_ton_recipient_delete(rid: int):
+    guard = _ton_guard(require_csrf=True)
+    if guard:
+        return guard
+    if not ton_db.get_recipient(rid):
+        return jsonify({"ok": False, "error": "Получатель не найден"}), 404
+    ton_db.delete_recipient(rid)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/ton/run")
+def api_ton_run():
+    guard = _ton_guard(require_csrf=True)
+    if guard:
+        return guard
+    body = request.get_json(silent=True) or {}
+    mode = str(body.get("mode", "highload"))
+    dry_run = bool(body.get("dry_run", True))
+    if mode not in ("sequential", "highload"):
+        return jsonify({"ok": False, "error": "Неизвестный режим"}), 400
+    if not dry_run and ton_db.has_running_payout():
+        return jsonify({"ok": False, "error": "Рассылка уже выполняется"}), 409
+    if not ton_db.list_recipients(active_only=True):
+        return jsonify({"ok": False, "error": "Нет активных получателей"}), 400
+
+    prev_max = 0
+    latest = ton_db.list_runs(1)
+    if latest:
+        prev_max = latest[0]["id"]
+
+    log_dir = os.path.join(PROJECT_DIR, "ton_payout", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, f"payout_{time.strftime('%Y%m%d_%H%M%S')}.log")
+    cmd = [VENV_PYTHON, "-m", "ton_payout.run",
+           "--mode", mode, "--triggered-by", "web"]
+    if dry_run:
+        cmd.append("--dry-run")
+    try:
+        logf = open(log_path, "w", encoding="utf-8")
+        subprocess.Popen(cmd, cwd=PROJECT_DIR, stdout=logf,
+                         stderr=subprocess.STDOUT, start_new_session=True)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Не удалось запустить: {e}"}), 500
+    return jsonify({"ok": True, "after": prev_max, "dry_run": dry_run})
+
+
+@app.get("/api/ton/runs")
+def api_ton_runs():
+    guard = _ton_guard()
+    if guard:
+        return guard
+    return jsonify({"ok": True, "runs": [_ton_ser(r) for r in ton_db.list_runs(100)]})
+
+
+@app.get("/api/ton/runs/latest")
+def api_ton_runs_latest():
+    guard = _ton_guard()
+    if guard:
+        return guard
+    after = request.args.get("after", 0, type=int)
+    latest = ton_db.list_runs(1)
+    if latest and latest[0]["id"] > after:
+        return jsonify({"ok": True, "ready": True, "run_id": latest[0]["id"]})
+    return jsonify({"ok": True, "ready": False})
+
+
+@app.get("/api/ton/runs/<int:run_id>")
+def api_ton_run_detail(run_id: int):
+    guard = _ton_guard()
+    if guard:
+        return guard
+    run = ton_db.get_run(run_id)
+    if not run:
+        return jsonify({"ok": False, "error": "Запуск не найден"}), 404
+    items = [_ton_ser(i) for i in ton_db.get_run_items(run_id)]
+    return jsonify({
+        "ok": True,
+        "run": _ton_ser(run),
+        "items": items,
+        "finished": run["status"] != "running",
+    })
+
+
+@app.get("/api/ton/wallet-info")
+def api_ton_wallet_info():
+    guard = _ton_guard()
+    if guard:
+        return guard
+    try:
+        import asyncio
+        info = asyncio.run(_ton_wallet_overview())
+        return jsonify({"ok": True, **info})
+    except Exception as e:  # tonutils не установлен / мнемоника не задана / сеть
+        return jsonify({"ok": False, "error": str(e)})
+
+
+async def _ton_wallet_overview() -> dict:
+    from ton_core import NetworkGlobalID
+    from tonutils.clients import ToncenterClient
+    from tonutils.contracts import WalletHighloadV3R1, WalletV4R2
+
+    from ton_payout.payout_core import NANO, _resolve_mnemonic
+
+    mnemonic = _resolve_mnemonic()
+    net_str = "mainnet" if ton_config.TON_NETWORK.lower() == "mainnet" else "testnet"
+    network = NetworkGlobalID.MAINNET if net_str == "mainnet" else NetworkGlobalID.TESTNET
+    client = ToncenterClient(network=network,
+                             api_key=ton_config.TONCENTER_API_KEY or None, rps_limit=1)
+    await client.connect()
+    out = {"network": net_str, "wallets": {}}
+    try:
+        for mode, cls in (("sequential", WalletV4R2), ("highload", WalletHighloadV3R1)):
+            wallet, _, _, _ = cls.from_mnemonic(client, mnemonic)
+            await wallet.refresh()
+            out["wallets"][mode] = {
+                "address": wallet.address.to_str(is_bounceable=False),
+                "balance": f"{Decimal(wallet.balance) / NANO:.4f}",
+                "state": wallet.state.value,
+            }
+    finally:
+        await client.close()
+    return out
 
 
 if __name__ == "__main__":
