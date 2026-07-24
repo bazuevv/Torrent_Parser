@@ -109,7 +109,7 @@
     /* ── TON-адрес в шапке (справа сверху) ── */
     .ton-wallet {
       position: absolute;
-      top: 16px;
+      bottom: 16px;
       right: 24px;
       display: flex;
       align-items: center;
@@ -420,10 +420,10 @@
     {% if profile and profile.media_items %}
     <div class="media-grid">
       {% for item in profile.media_items %}
-      <div class="media-item" data-url="{{ item.url }}" data-thumb="{{ item.thumb or '' }}" data-full="{{ item.full_url or item.thumb or '' }}" data-video="{{ 'true' if item.is_video else 'false' }}">
+      <div class="media-item" data-url="{{ item.url }}" data-thumb="{{ media_src(item.thumb) }}" data-full="{{ media_src(item.full_url or item.thumb) }}" data-video="{{ 'true' if item.is_video else 'false' }}">
           {% if item.is_video %}
             {% if item.thumb %}
-              <img src="{{ item.thumb }}" loading="lazy" alt="">
+              <img src="{{ media_src(item.thumb) }}" loading="lazy" alt="">
             {% else %}
               <div class="media-no-thumb">
                 <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -433,7 +433,7 @@
               <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
             </div>
           {% elif item.thumb %}
-            <img src="{{ item.thumb }}" loading="lazy" alt="">
+            <img src="{{ media_src(item.thumb) }}" loading="lazy" alt="">
           {% else %}
             <div class="media-no-thumb">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
