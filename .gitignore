@@ -9,6 +9,10 @@ venv/
 
 # Секреты (реальные значения — только на сервере/в окружении)
 config_secrets.py
+ton_payout/config_secrets.py
+
+# Логи и рантайм рассылки TON
+ton_payout/logs/
 
 # Syncthing-конфликты
 *.sync-conflict-*

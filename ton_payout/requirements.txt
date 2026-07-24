@@ -1,0 +1,11 @@
+# Зависимости веб-панели и рассылки TON.
+# Устанавливать в тот же venv, что и основной проект:
+#     venv/bin/pip install -r ton_payout/requirements.txt
+
+tonutils>=2.1.1              # TON SDK (кошельки, переводы, батч/highload)
+
+# Ниже — уже есть в корневом requirements.txt проекта; продублировано,
+# чтобы ton_payout можно было развернуть автономно.
+flask>=3.1.1
+gunicorn>=23.0.0
+mysql-connector-python>=9.3.0
