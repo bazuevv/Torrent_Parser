@@ -1607,7 +1607,11 @@ async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict
             amount_label = "весь баланс"
             mode_label = "весь баланс (carry-all)"
         else:
-            send_mode = int(SendMode.DEFAULT)
+            # ВАЖНО: SendMode.DEFAULT == 0 (без флагов). Кошелёк W5R1 (v5) требует
+            # флаг IGNORE_ERRORS (+2) у out-действий внешнего сообщения, иначе
+            # контракт отвергает с exit_code 137 и создаёт 0 действий (перевод не
+            # уходит). PAY_GAS_SEPARATELY (1) — комиссия сверх суммы перевода.
+            send_mode = int(SendMode.PAY_GAS_SEPARATELY) | int(SendMode.IGNORE_ERRORS)
             amt_nano = to_nano(amount)
             amount_label = f"{amount:.4f}"
             mode_label = "обычный (комиссия отдельно)"
