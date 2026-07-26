@@ -918,7 +918,10 @@
       <div class="card">
         <div class="card-title">Кошелёк-отправитель</div>
         <div id="ton-wallet" style="color:var(--muted);font-size:13px">Нажмите «Обновить баланс».</div>
-        <button class="btn btn-clear" style="margin-top:10px" onclick="tonWalletInfo()">Обновить баланс</button>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-clear" onclick="tonWalletInfo(false)">Обновить баланс TON</button>
+          <button class="btn btn-clear" onclick="tonWalletInfo(true)">TON + USDT</button>
+        </div>
       </div>
 
       <!-- Перевод между кошельками -->
@@ -929,6 +932,13 @@
           на произвольный адрес. Ключи у вас (сид казны) — деньги <b>реальные</b>. Начните с пробного расчёта.
         </p>
         <div class="ton-row">
+          <div style="max-width:150px">
+            <label class="ton-lbl">Актив</label>
+            <select class="settings-select" id="ton-tr-asset" style="width:100%" onchange="tonTrAssetChange()">
+              <option value="TON">TON</option>
+              <option value="USDT">USDT</option>
+            </select>
+          </div>
           <div style="max-width:210px">
             <label class="ton-lbl">Откуда</label>
             <select class="settings-select" id="ton-tr-from" style="width:100%">
@@ -953,10 +963,10 @@
         </div>
         <div class="ton-row" style="margin-top:8px">
           <div style="max-width:150px">
-            <label class="ton-lbl">Сумма, TON</label>
+            <label class="ton-lbl"><span id="ton-tr-amount-lbl">Сумма, TON</span></label>
             <input class="settings-input" id="ton-tr-amount" style="width:100%" placeholder="0.1">
           </div>
-          <div style="max-width:150px">
+          <div style="max-width:150px" id="ton-tr-all-wrap">
             <label class="ton-lbl">&nbsp;</label>
             <label style="font-size:13px;color:var(--text)">
               <input type="checkbox" id="ton-tr-all" onchange="tonTrAllChange()"> весь баланс
@@ -1002,6 +1012,12 @@
                    placeholder="напр. girl_of_yourdreams"
                    onkeydown="if(event.key==='Enter')tonUserWallet()">
           </div>
+          <div style="max-width:150px">
+            <label class="ton-lbl">&nbsp;</label>
+            <label style="font-size:13px;color:var(--text)">
+              <input type="checkbox" id="ton-uw-usdt"> с USDT
+            </label>
+          </div>
           <div style="flex:0"><button class="btn" onclick="tonUserWallet()">Показать</button></div>
         </div>
         <div id="ton-uw-result" style="margin-top:12px"></div>
@@ -1016,6 +1032,13 @@
         </div>
         <div id="ton-running-warn" class="ton-warn" style="display:none">Сейчас уже выполняется рассылка.</div>
         <div class="ton-row">
+          <div style="max-width:140px">
+            <label class="ton-lbl">Актив</label>
+            <select class="settings-select" id="ton-run-asset" style="width:100%" onchange="tonLoadRecipients()">
+              <option value="TON">TON</option>
+              <option value="USDT">USDT</option>
+            </select>
+          </div>
           <div style="max-width:280px">
             <label class="ton-lbl">Режим</label>
             <select class="settings-select" id="ton-mode" style="width:100%">
@@ -1060,6 +1083,11 @@
             <input class="settings-input" id="ton-add-addr" placeholder="UQ..." style="width:100%"></div>
           <div style="max-width:130px"><label class="ton-lbl">Сумма, TON</label>
             <input class="settings-input" id="ton-add-amount" placeholder="1.5" style="width:100%"></div>
+          <div style="max-width:110px"><label class="ton-lbl">Актив</label>
+            <select class="settings-select" id="ton-add-asset" style="width:100%">
+              <option value="TON">TON</option>
+              <option value="USDT">USDT</option>
+            </select></div>
           <div style="flex:2"><label class="ton-lbl">Комментарий</label>
             <input class="settings-input" id="ton-add-comment" placeholder="необязательно" style="width:100%"></div>
           <div style="max-width:90px"><label class="ton-lbl">Активен</label>
@@ -1068,7 +1096,7 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>Адрес</th><th>Сумма</th><th>Коммент.</th><th>Статус</th><th></th></tr></thead>
+            <thead><tr><th>#</th><th>Адрес</th><th>Сумма</th><th>Актив</th><th>Коммент.</th><th>Статус</th><th></th></tr></thead>
             <tbody id="ton-rcpt-body"></tbody>
           </table>
         </div>
@@ -1081,7 +1109,7 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>Начат</th><th>Режим</th><th>Тип</th><th>Получателей</th><th>Сумма</th><th>Статус</th></tr></thead>
+            <thead><tr><th>#</th><th>Начат</th><th>Актив</th><th>Режим</th><th>Тип</th><th>Получателей</th><th>Сумма</th><th>Статус</th></tr></thead>
             <tbody id="ton-runs-body"></tbody>
           </table>
         </div>
@@ -2224,16 +2252,20 @@ function tonRunPill(s) {
 function tonLoadRecipients() {
   tonFetch('/api/ton/recipients').then(({ j }) => {
     if (!j.ok) { tonMsg('ton-rcpt-msg', j.error || 'Ошибка', 'err'); return; }
-    document.getElementById('ton-active').textContent = j.active_count;
-    document.getElementById('ton-total').textContent = j.total_active + ' TON';
+    // Сводка «к рассылке» — по активу, выбранному в блоке запуска
+    const runAsset = (document.getElementById('ton-run-asset') || {}).value || 'TON';
+    const t = (j.totals_by_asset || {})[runAsset] || { count: j.active_count, total: j.total_active };
+    document.getElementById('ton-active').textContent = t.count;
+    document.getElementById('ton-total').textContent = t.total + ' ' + runAsset;
     document.getElementById('ton-running-warn').style.display = j.payout_running ? 'block' : 'none';
     const body = document.getElementById('ton-rcpt-body');
     if (!j.recipients.length) {
-      body.innerHTML = '<tr><td colspan="6" style="color:var(--muted)">Список пуст.</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Список пуст.</td></tr>';
       return;
     }
     body.innerHTML = j.recipients.map(r => {
       const active = Number(r.is_active) === 1;
+      const asset = r.asset || 'TON';
       return '<tr>'
         + '<td style="color:var(--muted)">' + r.id + '</td>'
         + '<td class="ton-addr">' + escHtml(r.address)
@@ -2241,12 +2273,17 @@ function tonLoadRecipients() {
           + '<div class="ton-row" style="margin-top:6px">'
           + '<div style="flex:2"><input class="settings-input" style="width:100%" id="ton-e-addr-' + r.id + '" value="' + escHtml(r.address) + '"></div>'
           + '<div style="max-width:110px"><input class="settings-input" style="width:100%" id="ton-e-amount-' + r.id + '" value="' + escHtml(tonTrim(r.amount)) + '"></div>'
+          + '<div style="max-width:100px"><select class="settings-select" style="width:100%" id="ton-e-asset-' + r.id + '">'
+            + '<option value="TON"' + (asset === 'TON' ? ' selected' : '') + '>TON</option>'
+            + '<option value="USDT"' + (asset === 'USDT' ? ' selected' : '') + '>USDT</option>'
+            + '</select></div>'
           + '<div style="flex:2"><input class="settings-input" style="width:100%" id="ton-e-comment-' + r.id + '" value="' + escHtml(r.comment || '') + '"></div>'
           + '<div style="max-width:80px"><label style="font-size:12px"><input type="checkbox" id="ton-e-active-' + r.id + '"' + (active ? ' checked' : '') + '> вкл</label></div>'
           + '<div style="flex:0"><button class="btn" style="padding:4px 10px;font-size:12px" onclick="tonEditRecipient(' + r.id + ')">Сохранить</button></div>'
           + '</div></details>'
         + '</td>'
-        + '<td class="ton-mono">' + tonAmt(r.amount) + '</td>'
+        + '<td class="ton-mono">' + (asset === 'USDT' ? Number(r.amount).toFixed(6) : tonAmt(r.amount)) + '</td>'
+        + '<td><span class="ton-pill">' + escHtml(asset) + '</span></td>'
         + '<td style="color:var(--muted)">' + escHtml(r.comment || '—') + '</td>'
         + '<td>' + (active ? '<span class="ton-pill ok">активен</span>' : '<span class="ton-pill">выключен</span>') + '</td>'
         + '<td style="white-space:nowrap;text-align:right">'
@@ -2261,6 +2298,7 @@ function tonAddRecipient() {
   const body = {
     address: document.getElementById('ton-add-addr').value.trim(),
     amount:  document.getElementById('ton-add-amount').value.trim(),
+    asset:   document.getElementById('ton-add-asset').value,
     comment: document.getElementById('ton-add-comment').value.trim(),
     is_active: document.getElementById('ton-add-active').checked,
   };
@@ -2281,6 +2319,7 @@ function tonEditRecipient(id) {
   const body = {
     address: document.getElementById('ton-e-addr-' + id).value.trim(),
     amount:  document.getElementById('ton-e-amount-' + id).value.trim(),
+    asset:   document.getElementById('ton-e-asset-' + id).value,
     comment: document.getElementById('ton-e-comment-' + id).value.trim(),
     is_active: document.getElementById('ton-e-active-' + id).checked,
   };
@@ -2304,11 +2343,12 @@ function tonDelete(id, addr) {
 
 function tonRun() {
   const mode = document.getElementById('ton-mode').value;
+  const asset = document.getElementById('ton-run-asset').value;
   const dry = document.getElementById('ton-dry').checked;
-  if (!dry && !confirm('БОЕВАЯ отправка: реальные деньги уйдут на все активные адреса. Продолжить?')) return;
+  if (!dry && !confirm('БОЕВАЯ отправка: реальные ' + asset + ' уйдут на все активные адреса с этим активом. Продолжить?')) return;
   document.getElementById('ton-run-btn').disabled = true;
   tonMsg('ton-run-msg', dry ? 'Пробный прогон запущен…' : 'Рассылка запущена…', 'ok');
-  tonFetch('/api/ton/run', { method: 'POST', body: JSON.stringify({ mode, dry_run: dry }) }).then(({ j }) => {
+  tonFetch('/api/ton/run', { method: 'POST', body: JSON.stringify({ mode, dry_run: dry, asset: asset }) }).then(({ j }) => {
     document.getElementById('ton-run-btn').disabled = false;
     if (!j.ok) { tonMsg('ton-run-msg', j.error || 'Ошибка запуска', 'err'); return; }
     tonWatchRun(j.after);
@@ -2358,24 +2398,25 @@ function tonLoadRuns() {
   tonFetch('/api/ton/runs').then(({ j }) => {
     if (!j.ok) return;
     const body = document.getElementById('ton-runs-body');
-    if (!j.runs.length) { body.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Запусков ещё не было.</td></tr>'; return; }
+    if (!j.runs.length) { body.innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Запусков ещё не было.</td></tr>'; return; }
     body.innerHTML = j.runs.map(run =>
       '<tr style="cursor:pointer" onclick="tonShowRun(' + run.id + ')">'
       + '<td style="color:var(--muted)">' + run.id + '</td>'
       + '<td class="ton-mono">' + escHtml(run.started_at || '') + '</td>'
+      + '<td><span class="ton-pill">' + escHtml(run.asset || 'TON') + '</span></td>'
       + '<td>' + escHtml(tonModeLabel(run.mode)) + '</td>'
       + '<td>' + (Number(run.dry_run) ? '<span class="ton-pill">dry-run</span>' : '<span class="ton-pill">боевой</span>') + '</td>'
       + '<td>' + run.total_recipients + '</td>'
-      + '<td class="ton-mono">' + tonAmt(run.total_amount) + '</td>'
+      + '<td class="ton-mono">' + ((run.asset === 'USDT') ? Number(run.total_amount).toFixed(6) : tonAmt(run.total_amount)) + '</td>'
       + '<td>' + tonRunPill(run.status) + '</td></tr>'
     ).join('');
   }).catch(() => {});
 }
 
-function tonWalletInfo() {
+function tonWalletInfo(withUsdt) {
   const box = document.getElementById('ton-wallet');
-  box.textContent = 'Загрузка…';
-  tonFetch('/api/ton/wallet-info').then(({ j }) => {
+  box.textContent = withUsdt ? 'Загрузка (TON + USDT, это дольше)…' : 'Загрузка…';
+  tonFetch('/api/ton/wallet-info' + (withUsdt ? '?usdt=1' : '')).then(({ j }) => {
     if (!j.ok) { box.innerHTML = '<span class="ton-pill err">' + escHtml(j.error || 'Ошибка') + '</span>'; return; }
     let html = '<div style="color:var(--muted);margin-bottom:8px">Сеть: ' + escHtml(tonNetLabel(j.network)) + '</div>';
     for (const mode in j.wallets) {
@@ -2386,7 +2427,16 @@ function tonWalletInfo() {
       } else {
         line += '<span class="ton-pill err">баланс: ' + escHtml(w.error || 'нет данных') + '</span>';
       }
-      line += '<div class="ton-addr">' + escHtml(w.address) + '</div></div>';
+      if (w.usdt_balance !== undefined) {
+        line += ' &nbsp;·&nbsp; <b>' + escHtml(w.usdt_balance) + ' USDT</b> ' + tonUwStatePill(w.usdt_state);
+      } else if (w.usdt_error) {
+        line += ' <span class="ton-pill err">USDT: ' + escHtml(w.usdt_error) + '</span>';
+      }
+      line += '<div class="ton-addr">' + escHtml(w.address) + '</div>';
+      if (w.usdt_wallet) {
+        line += '<div class="ton-addr" style="color:var(--muted)">USDT-кошелёк: ' + escHtml(w.usdt_wallet) + '</div>';
+      }
+      line += '</div>';
       html += line;
     }
     box.innerHTML = html;
@@ -2426,8 +2476,10 @@ function tonUserWallet() {
   const value = document.getElementById('ton-uw-value').value.trim();
   const box = document.getElementById('ton-uw-result');
   if (!value) { box.innerHTML = '<span class="ton-pill err">Введите значение</span>'; return; }
+  const withUsdt = document.getElementById('ton-uw-usdt').checked;
   box.innerHTML = '<span class="muted">Загрузка…</span>';
-  tonFetch('/api/ton/user-wallet?' + type + '=' + encodeURIComponent(value)).then(({ j }) => {
+  tonFetch('/api/ton/user-wallet?' + type + '=' + encodeURIComponent(value)
+           + (withUsdt ? '&usdt=1' : '')).then(({ j }) => {
     if (!j.ok) { box.innerHTML = '<span class="ton-pill err">' + escHtml(j.error || 'Ошибка') + '</span>'; return; }
     const net = j.network === 'mainnet' ? '' : 'testnet.';
     const explorer = 'https://' + net + 'tonviewer.com/' + encodeURIComponent(j.address);
@@ -2448,7 +2500,12 @@ function tonUserWallet() {
         + '<a class="btn btn-clear" style="padding:2px 8px;font-size:12px;text-decoration:none" '
           + 'href="' + explorer + '" target="_blank" rel="noopener">эксплорер ↗</a>'
       + '</div>'
-      + '<div>' + bal + '</div>';
+      + '<div>' + bal + '</div>'
+      + (j.usdt_balance !== undefined
+          ? '<div style="margin-top:6px"><b>' + escHtml(j.usdt_balance) + ' USDT</b> '
+            + tonUwStatePill(j.usdt_state)
+            + '<div class="ton-addr" style="color:var(--muted)">USDT-кошелёк: ' + escHtml(j.usdt_wallet) + '</div></div>'
+          : (j.usdt_error ? '<div style="margin-top:6px"><span class="ton-pill err">USDT: ' + escHtml(j.usdt_error) + '</span></div>' : ''));
   }).catch(() => { box.innerHTML = '<span class="ton-pill err">Ошибка запроса</span>'; });
 }
 
@@ -2474,7 +2531,20 @@ function tonTrAllChange() {
   amt.style.opacity = all ? '.4' : '1';
 }
 
+function tonTrAssetChange() {
+  const asset = document.getElementById('ton-tr-asset').value;
+  const isUsdt = asset === 'USDT';
+  document.getElementById('ton-tr-amount-lbl').textContent = 'Сумма, ' + asset;
+  document.getElementById('ton-tr-amount').placeholder = isUsdt ? '1.5' : '0.1';
+  // «весь баланс» — режим carry-all нативного TON, для джеттона недоступен
+  const allWrap = document.getElementById('ton-tr-all-wrap');
+  const allBox = document.getElementById('ton-tr-all');
+  allWrap.style.display = isUsdt ? 'none' : '';
+  if (isUsdt && allBox.checked) { allBox.checked = false; tonTrAllChange(); }
+}
+
 function tonTransfer() {
+  const asset = document.getElementById('ton-tr-asset').value;
   const from = document.getElementById('ton-tr-from').value;
   const toSel = document.getElementById('ton-tr-to').value;
   const to = toSel === 'custom' ? document.getElementById('ton-tr-addr').value.trim() : toSel;
@@ -2489,7 +2559,7 @@ function tonTransfer() {
   if (!all && !amount) { box.innerHTML = '<span class="ton-pill err">Укажите сумму или «весь баланс»</span>'; return; }
 
   if (!dry) {
-    const what = all ? 'ВЕСЬ баланс' : (amount + ' TON');
+    const what = all ? ('ВЕСЬ баланс ' + asset) : (amount + ' ' + asset);
     if (!confirm('РЕАЛЬНАЯ отправка: перевести ' + what + ' с «' + from + '» на «' + to + '». Продолжить?')) return;
   }
 
@@ -2498,7 +2568,7 @@ function tonTransfer() {
   box.innerHTML = '<span class="muted">' + (dry ? 'Расчёт…' : 'Отправка…') + '</span>';
   tonFetch('/api/ton/transfer', {
     method: 'POST',
-    body: JSON.stringify({ from: from, to: to, all: all, amount: amount, comment: comment, dry_run: dry }),
+    body: JSON.stringify({ from: from, to: to, all: all, amount: amount, comment: comment, dry_run: dry, asset: asset }),
   }).then(({ j }) => {
     btn.disabled = false;
     if (!j.ok) { box.innerHTML = '<span class="ton-pill err">' + escHtml(j.error || 'Ошибка') + '</span>'; return; }
@@ -2510,18 +2580,23 @@ function tonTransfer() {
     } else {
       dstInfo = '<span class="muted">баланс: ' + escHtml(j.dst_info_error || 'нет данных') + '</span>';
     }
-    const amtSuffix = j.amount === 'весь баланс' ? '' : ' TON';
+    const cur = j.asset || 'TON';
+    const amtSuffix = j.amount === 'весь баланс' ? '' : (' ' + cur);
+    const gasNote = cur === 'USDT'
+      ? ' <span class="muted">(газ в TON, баланс ' + escHtml(j.ton_balance || '') + ' TON)</span>' : '';
     box.innerHTML =
       '<div class="ton-msg ok" style="margin:0">'
       + (j.dry_run ? '🧪 ' : '✅ ') + escHtml(j.note) + '</div>'
       + '<div style="margin-top:8px;font-size:13px;line-height:1.75">'
-      + '<div><span class="muted">откуда:</span> ' + escHtml(j.from) + ' <span class="ton-addr">' + escHtml(j.from_address) + '</span> <span class="muted">(баланс ' + escHtml(j.src_balance) + ' TON)</span></div>'
+      + '<div><span class="ton-pill">' + escHtml(cur) + '</span></div>'
+      + '<div><span class="muted">откуда:</span> ' + escHtml(j.from) + ' <span class="ton-addr">' + escHtml(j.from_address) + '</span> <span class="muted">(баланс ' + escHtml(j.src_balance) + ' ' + escHtml(cur) + ')</span>' + gasNote + '</div>'
+      + (j.src_usdt_wallet ? '<div><span class="muted">USDT-кошелёк отправителя:</span> <span class="ton-addr">' + escHtml(j.src_usdt_wallet) + '</span></div>' : '')
       + '<div><span class="muted">куда:</span> ' + escHtml(j.to) + ' <span class="ton-addr">' + escHtml(j.to_address) + '</span></div>'
       + '<div><span class="muted">получатель:</span> ' + dstInfo + '</div>'
       + '<div><span class="muted">сумма:</span> ' + escHtml(j.amount) + amtSuffix
-        + ' &nbsp;→&nbsp; получит ≈ <b>' + escHtml(j.will_receive) + ' TON</b></div>'
-      + '<div><span class="muted">комиссия (оценка):</span> ~' + escHtml(j.fee_estimate) + ' TON'
-        + ' &nbsp;·&nbsp; <span class="muted">у источника останется ≈</span> ' + escHtml(j.src_after) + ' TON</div>'
+        + ' &nbsp;→&nbsp; получит ≈ <b>' + escHtml(j.will_receive) + ' ' + escHtml(cur) + '</b></div>'
+      + '<div><span class="muted">' + (cur === 'USDT' ? 'газ (оценка):' : 'комиссия (оценка):') + '</span> ~' + escHtml(j.fee_estimate) + ' TON'
+        + ' &nbsp;·&nbsp; <span class="muted">у источника останется ≈</span> ' + escHtml(j.src_after) + ' ' + escHtml(cur) + '</div>'
       + '<div><span class="muted">комментарий:</span> ' + escHtml(j.comment) + '</div>'
       + '<div><span class="muted">режим:</span> ' + escHtml(j.send_mode_label)
         + ' &nbsp;·&nbsp; <span class="muted">тип адреса:</span> ' + (j.bounceable ? 'bounceable' : 'non-bounceable (UQ)') + '</div>'
