@@ -39,6 +39,11 @@ def main(argv: list[str] | None = None) -> int:
              "highload — все одной транзакцией (быстро, дёшево). По умолчанию highload.",
     )
     parser.add_argument(
+        "--asset", choices=["TON", "USDT"], default="TON",
+        help="Какой актив рассылать: TON (нативная монета) или USDT (джеттон). "
+             "Рассылаются только получатели с этим активом. По умолчанию TON.",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Только проверки и запись плана, без реальной отправки денег.",
     )
@@ -56,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
                 mode=args.mode,
                 dry_run=args.dry_run,
                 triggered_by=args.triggered_by,
+                asset=args.asset,
             )
         )
     except PayoutError as e:

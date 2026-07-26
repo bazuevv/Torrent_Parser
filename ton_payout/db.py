@@ -40,6 +40,7 @@ def init_db() -> None:
             id         INT AUTO_INCREMENT PRIMARY KEY,
             address    VARCHAR(70)     NOT NULL,
             amount     DECIMAL(20,9)   NOT NULL,
+            asset      ENUM('TON','USDT') NOT NULL DEFAULT 'TON',
             comment    VARCHAR(500),
             is_active  TINYINT(1)      NOT NULL DEFAULT 1,
             created_at TIMESTAMP       DEFAULT CURRENT_TIMESTAMP,
@@ -56,6 +57,7 @@ def init_db() -> None:
             started_at       DATETIME        NOT NULL,
             finished_at      DATETIME,
             mode             ENUM('sequential','highload') NOT NULL,
+            asset            ENUM('TON','USDT') NOT NULL DEFAULT 'TON',
             network          ENUM('mainnet','testnet')     NOT NULL,
             dry_run          TINYINT(1)      NOT NULL DEFAULT 0,
             status           ENUM('running','done','error','partial') NOT NULL DEFAULT 'running',
@@ -77,6 +79,7 @@ def init_db() -> None:
             recipient_id  INT,
             address       VARCHAR(70)     NOT NULL,
             amount        DECIMAL(20,9)   NOT NULL,
+            asset         ENUM('TON','USDT') NOT NULL DEFAULT 'TON',
             comment       VARCHAR(500),
             status        ENUM('pending','sent','failed','skipped') NOT NULL DEFAULT 'pending',
             tx_hash       VARCHAR(100),
@@ -86,6 +89,18 @@ def init_db() -> None:
         """
     )
 
+    # Миграции для установок, созданных до появления мультивалютности.
+    # Выполняются ПОСЛЕ CREATE TABLE, иначе на чистой базе молча пропускаются.
+    for sql in [
+        "ALTER TABLE ton_recipients ADD COLUMN asset ENUM('TON','USDT') NOT NULL DEFAULT 'TON' AFTER amount",
+        "ALTER TABLE ton_payout_runs ADD COLUMN asset ENUM('TON','USDT') NOT NULL DEFAULT 'TON' AFTER mode",
+        "ALTER TABLE ton_payout_run_items ADD COLUMN asset ENUM('TON','USDT') NOT NULL DEFAULT 'TON' AFTER amount",
+    ]:
+        try:
+            cursor.execute(sql)
+        except Exception:
+            pass  # уже применено
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -93,14 +108,20 @@ def init_db() -> None:
 
 # ── Получатели ──────────────────────────────────────────────────────────────
 
-def list_recipients(active_only: bool = False) -> list[dict]:
+def list_recipients(active_only: bool = False, asset: str | None = None) -> list[dict]:
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     sql = "SELECT * FROM ton_recipients"
+    where, params = [], []
     if active_only:
-        sql += " WHERE is_active = 1"
+        where.append("is_active = 1")
+    if asset:
+        where.append("asset = %s")
+        params.append(asset)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY id"
-    cursor.execute(sql)
+    cursor.execute(sql, tuple(params))
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -118,13 +139,13 @@ def get_recipient(recipient_id: int) -> dict | None:
 
 
 def add_recipient(address: str, amount: Decimal | str, comment: str | None,
-                  is_active: bool = True) -> int:
+                  is_active: bool = True, asset: str = "TON") -> int:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO ton_recipients (address, amount, comment, is_active) "
-        "VALUES (%s, %s, %s, %s)",
-        (address, str(amount), comment or None, 1 if is_active else 0),
+        "INSERT INTO ton_recipients (address, amount, asset, comment, is_active) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (address, str(amount), asset, comment or None, 1 if is_active else 0),
     )
     conn.commit()
     new_id = cursor.lastrowid
@@ -134,13 +155,13 @@ def add_recipient(address: str, amount: Decimal | str, comment: str | None,
 
 
 def update_recipient(recipient_id: int, address: str, amount: Decimal | str,
-                     comment: str | None, is_active: bool) -> None:
+                     comment: str | None, is_active: bool, asset: str = "TON") -> None:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE ton_recipients SET address = %s, amount = %s, comment = %s, "
+        "UPDATE ton_recipients SET address = %s, amount = %s, asset = %s, comment = %s, "
         "is_active = %s WHERE id = %s",
-        (address, str(amount), comment or None, 1 if is_active else 0, recipient_id),
+        (address, str(amount), asset, comment or None, 1 if is_active else 0, recipient_id),
     )
     conn.commit()
     cursor.close()
@@ -171,15 +192,16 @@ def delete_recipient(recipient_id: int) -> None:
 # ── Запуски рассылки ────────────────────────────────────────────────────────
 
 def create_run(mode: str, network: str, dry_run: bool, total_recipients: int,
-               total_amount: Decimal | str, triggered_by: str = "web") -> int:
+               total_amount: Decimal | str, triggered_by: str = "web",
+               asset: str = "TON") -> int:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO ton_payout_runs "
-        "(started_at, mode, network, dry_run, status, total_recipients, "
+        "(started_at, mode, asset, network, dry_run, status, total_recipients, "
         " total_amount, triggered_by) "
-        "VALUES (NOW(), %s, %s, %s, 'running', %s, %s, %s)",
-        (mode, network, 1 if dry_run else 0, total_recipients,
+        "VALUES (NOW(), %s, %s, %s, %s, 'running', %s, %s, %s)",
+        (mode, asset, network, 1 if dry_run else 0, total_recipients,
          str(total_amount), triggered_by),
     )
     conn.commit()
@@ -216,14 +238,15 @@ def finish_run(run_id: int, status: str, tx_hash: str | None = None,
 
 
 def add_run_item(run_id: int, recipient_id: int | None, address: str,
-                 amount: Decimal | str, comment: str | None) -> int:
+                 amount: Decimal | str, comment: str | None,
+                 asset: str = "TON") -> int:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO ton_payout_run_items "
-        "(run_id, recipient_id, address, amount, comment) "
-        "VALUES (%s, %s, %s, %s, %s)",
-        (run_id, recipient_id, address, str(amount), comment or None),
+        "(run_id, recipient_id, address, amount, asset, comment) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (run_id, recipient_id, address, str(amount), asset, comment or None),
     )
     conn.commit()
     item_id = cursor.lastrowid
