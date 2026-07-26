@@ -55,6 +55,10 @@ TON_MNEMONIC       = _secret("TON_MNEMONIC")
 TON_NETWORK        = _secret("TON_NETWORK", "mainnet")
 TONCENTER_API_KEY  = _secret("TONCENTER_API_KEY")
 
+# Мастер-контракт USDT (джеттон). Пусто = официальный адрес Tether в mainnet
+# (см. jettons.USDT_MASTER_MAINNET). Для testnet задать явно.
+USDT_MASTER_ADDRESS = _secret("USDT_MASTER_ADDRESS")
+
 # Master-сид для детерминированного вывода адресов пользователей (модель A):
 # адрес = WalletV4R2(subwallet_id = id пользователя). Из одного сида — сколько
 # угодно реальных адресов. Держателю сида принадлежат ключи (кастодиальная модель).
