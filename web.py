@@ -1217,12 +1217,22 @@ def api_ton_recipients():
         return guard
     rows = [_ton_ser(r) for r in ton_db.list_recipients()]
     active = [r for r in rows if int(r["is_active"])]
-    total = sum((Decimal(r["amount"]) for r in active), Decimal(0))
+    # Итоги считаем отдельно по активам — TON и USDT не складываются
+    totals = {}
+    for a in ("TON", "USDT"):
+        subset = [r for r in active if (r.get("asset") or "TON") == a]
+        s = sum((Decimal(r["amount"]) for r in subset), Decimal(0))
+        totals[a] = {
+            "count": len(subset),
+            "total": f"{s:.9f}".rstrip("0").rstrip(".") or "0",
+        }
+    total_all = sum((Decimal(r["amount"]) for r in active), Decimal(0))
     return jsonify({
         "ok": True,
         "recipients": rows,
         "active_count": len(active),
-        "total_active": f"{total:.9f}".rstrip("0").rstrip("."),
+        "total_active": f"{total_all:.9f}".rstrip("0").rstrip("."),
+        "totals_by_asset": totals,
         "payout_running": ton_db.has_running_payout(),
     })
 
@@ -1236,14 +1246,17 @@ def api_ton_recipient_add():
     address = str(body.get("address", "")).strip()
     comment = str(body.get("comment", "")).strip()
     is_active = bool(body.get("is_active", True))
+    asset = str(body.get("asset", "TON")).upper()
     if not address:
         return jsonify({"ok": False, "error": "Адрес не может быть пустым"}), 400
+    if asset not in ("TON", "USDT"):
+        return jsonify({"ok": False, "error": "Неизвестный актив (ожидалось TON/USDT)"}), 400
     try:
         amount = _ton_parse_amount(body.get("amount", ""))
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     try:
-        rid = ton_db.add_recipient(address, amount, comment or None, is_active)
+        rid = ton_db.add_recipient(address, amount, comment or None, is_active, asset=asset)
         return jsonify({"ok": True, "id": rid})
     except Exception as e:  # напр. дубликат адреса (UNIQUE)
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -1260,14 +1273,17 @@ def api_ton_recipient_edit(rid: int):
     address = str(body.get("address", "")).strip()
     comment = str(body.get("comment", "")).strip()
     is_active = bool(body.get("is_active", True))
+    asset = str(body.get("asset", "TON")).upper()
     if not address:
         return jsonify({"ok": False, "error": "Адрес не может быть пустым"}), 400
+    if asset not in ("TON", "USDT"):
+        return jsonify({"ok": False, "error": "Неизвестный актив (ожидалось TON/USDT)"}), 400
     try:
         amount = _ton_parse_amount(body.get("amount", ""))
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     try:
-        ton_db.update_recipient(rid, address, amount, comment or None, is_active)
+        ton_db.update_recipient(rid, address, amount, comment or None, is_active, asset=asset)
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -1304,12 +1320,15 @@ def api_ton_run():
     body = request.get_json(silent=True) or {}
     mode = str(body.get("mode", "highload"))
     dry_run = bool(body.get("dry_run", True))
+    asset = str(body.get("asset", "TON")).upper()
     if mode not in ("sequential", "highload"):
         return jsonify({"ok": False, "error": "Неизвестный режим"}), 400
+    if asset not in ("TON", "USDT"):
+        return jsonify({"ok": False, "error": "Неизвестный актив (ожидалось TON/USDT)"}), 400
     if not dry_run and ton_db.has_running_payout():
         return jsonify({"ok": False, "error": "Рассылка уже выполняется"}), 409
-    if not ton_db.list_recipients(active_only=True):
-        return jsonify({"ok": False, "error": "Нет активных получателей"}), 400
+    if not ton_db.list_recipients(active_only=True, asset=asset):
+        return jsonify({"ok": False, "error": f"Нет активных получателей с активом {asset}"}), 400
 
     prev_max = 0
     latest = ton_db.list_runs(1)
@@ -1320,7 +1339,7 @@ def api_ton_run():
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"payout_{time.strftime('%Y%m%d_%H%M%S')}.log")
     cmd = [VENV_PYTHON, "-m", "ton_payout.run",
-           "--mode", mode, "--triggered-by", "web"]
+           "--mode", mode, "--asset", asset, "--triggered-by", "web"]
     if dry_run:
         cmd.append("--dry-run")
     try:
@@ -1374,15 +1393,17 @@ def api_ton_wallet_info():
     guard = _ton_guard()
     if guard:
         return guard
+    # usdt=1 — дополнительно запросить балансы джеттона (дольше: +2 запроса на кошелёк)
+    with_usdt = request.args.get("usdt", "0") == "1"
     try:
         import asyncio
-        info = asyncio.run(_ton_wallet_overview())
+        info = asyncio.run(_ton_wallet_overview(with_usdt=with_usdt))
         return jsonify({"ok": True, **info})
     except Exception as e:  # tonutils не установлен / мнемоника не задана / сеть
         return jsonify({"ok": False, "error": str(e)})
 
 
-async def _ton_wallet_overview() -> dict:
+async def _ton_wallet_overview(with_usdt: bool = False) -> dict:
     from ton_core import NetworkGlobalID
     from tonutils.clients import ToncenterClient
     from tonutils.contracts import WalletHighloadV3R1, WalletV4R2, WalletV5R1
@@ -1425,6 +1446,24 @@ async def _ton_wallet_overview() -> dict:
                 entry["state"] = wallet.state.value
             except Exception as e:  # noqa: BLE001 — адрес всё равно показываем
                 entry["error"] = str(e)
+
+            # Баланс USDT (джеттон) — отдельный контракт jetton-wallet.
+            # best-effort: сбой/лимит не должен ломать выдачу TON-балансов.
+            if with_usdt:
+                try:
+                    from ton_payout import jettons
+                    if delay:
+                        await asyncio.sleep(delay)
+                    jw = await jettons.get_jetton_wallet_address(client, entry["address"])
+                    if delay:
+                        await asyncio.sleep(delay)
+                    info = await jettons.get_usdt_balance(client, jw)
+                    entry["usdt_wallet"] = jw
+                    entry["usdt_balance"] = info["balance"]
+                    entry["usdt_state"] = info["state"]
+                except Exception as e:  # noqa: BLE001
+                    entry["usdt_error"] = str(e)
+
             out["wallets"][mode] = entry
     finally:
         await client.close()
@@ -1474,10 +1513,11 @@ def api_ton_user_wallet():
     resp = {"ok": True, "subwallet_id": sub, "username": resolved_username,
             "address": address, "network": ton_config.TON_NETWORK}
 
+    with_usdt = request.args.get("usdt", "0") == "1"
     if with_balance:
         try:
             import asyncio
-            resp.update(asyncio.run(_ton_address_balance(address)))
+            resp.update(asyncio.run(_ton_address_balance(address, with_usdt=with_usdt)))
         except Exception as e:  # сеть/лимиты — адрес всё равно вернём
             resp["balance_error"] = str(e)
 
@@ -1497,11 +1537,14 @@ def _ton_girl_row(field: str, value):
     return row
 
 
-async def _ton_address_balance(address: str) -> dict:
+async def _ton_address_balance(address: str, with_usdt: bool = False) -> dict:
+    import asyncio
+
     from ton_core import Address, NetworkGlobalID
     from tonutils.clients import ToncenterClient
     from tonutils.contracts import WalletV4R2
 
+    from ton_payout import jettons
     from ton_payout.payout_core import NANO
 
     net_str = "mainnet" if ton_config.TON_NETWORK.lower() == "mainnet" else "testnet"
@@ -1509,13 +1552,29 @@ async def _ton_address_balance(address: str) -> dict:
     client = ToncenterClient(network=network,
                              api_key=ton_config.TONCENTER_API_KEY or None, rps_limit=1)
     await client.connect()
+    delay = 0.0 if ton_config.TONCENTER_API_KEY else 1.2
     try:
         wallet = await WalletV4R2.from_address(client, Address(address))
         await wallet.refresh()
-        return {
+        out = {
             "balance": f"{Decimal(wallet.balance) / NANO:.4f}",
             "state": wallet.state.value,
         }
+        if with_usdt:
+            # USDT живёт на отдельном контракте jetton-wallet владельца
+            try:
+                if delay:
+                    await asyncio.sleep(delay)
+                jw = await jettons.get_jetton_wallet_address(client, address)
+                if delay:
+                    await asyncio.sleep(delay)
+                info = await jettons.get_usdt_balance(client, jw)
+                out["usdt_wallet"] = jw
+                out["usdt_balance"] = info["balance"]
+                out["usdt_state"] = info["state"]
+            except Exception as e:  # noqa: BLE001 — TON-баланс всё равно вернём
+                out["usdt_error"] = str(e)
+        return out
     finally:
         await client.close()
 
@@ -1539,11 +1598,18 @@ def api_ton_transfer():
     send_all = bool(body.get("all", False))
     dry_run = bool(body.get("dry_run", True))
     comment = str(body.get("comment", "")).strip() or None
+    asset = str(body.get("asset", "TON")).upper()
 
     if src not in _TON_OWN_WALLETS:
         return jsonify({"ok": False, "error": "Неизвестный кошелёк-источник"}), 400
     if not dst:
         return jsonify({"ok": False, "error": "Укажите получателя"}), 400
+    if asset not in ("TON", "USDT"):
+        return jsonify({"ok": False, "error": "Неизвестный актив (ожидалось TON/USDT)"}), 400
+    if asset == "USDT" and send_all:
+        # carry-all — режим нативного TON; для джеттона сумму нужно указывать явно
+        return jsonify({"ok": False,
+                        "error": "Для USDT укажите сумму явно («весь баланс» доступен только для TON)"}), 400
 
     amount = None
     if not send_all:
@@ -1554,24 +1620,26 @@ def api_ton_transfer():
 
     try:
         import asyncio
-        res = asyncio.run(_ton_do_transfer(src, dst, amount, send_all, comment, dry_run))
+        res = asyncio.run(_ton_do_transfer(src, dst, amount, send_all, comment, dry_run, asset))
         return jsonify({"ok": True, **res})
     except Exception as e:  # noqa: BLE001 — сбой сети/недостаток средств/невалидный адрес
         return jsonify({"ok": False, "error": str(e)}), 400
 
 
-async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict:
+async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run, asset="TON") -> dict:
     import asyncio
 
     from ton_core import Address, NetworkGlobalID, SendMode, to_nano
     from tonutils.clients import ToncenterClient
     from tonutils.contracts import (
+        JettonTransferBuilder,
         TONTransferBuilder,
         WalletHighloadV3R1,
         WalletV4R2,
         WalletV5R1,
     )
 
+    from ton_payout import jettons
     from ton_payout.payout_core import NANO, _resolve_mnemonic
 
     cls_map = {"sequential": WalletV4R2, "highload": WalletHighloadV3R1, "v5": WalletV5R1}
@@ -1616,43 +1684,85 @@ async def _ton_do_transfer(src, dst, amount, send_all, comment, dry_run) -> dict
             amount_label = f"{amount:.4f}"
             mode_label = "обычный (комиссия отдельно)"
 
-        builder = TONTransferBuilder(
-            destination=Address(dst_address), amount=amt_nano,
-            body=comment, send_mode=send_mode,
-        )
+        if asset == "USDT":
+            # Джеттон-перевод: сообщение уходит на jetton-wallet отправителя,
+            # к нему прикладывается TON на газ. Сумма — в единицах USDT (6 знаков).
+            amount_label = f"{amount:.6f}"
+            mode_label = f"джеттон USDT (газ ~{jettons.JETTON_GAS_TON} TON)"
+            builder = JettonTransferBuilder(
+                destination=Address(dst_address),
+                jetton_amount=jettons.to_usdt_units(amount),
+                jetton_master_address=Address(jettons.usdt_master_address()),
+                forward_payload=comment,
+                amount=to_nano(jettons.JETTON_GAS_TON),
+                send_mode=send_mode,
+            )
+        else:
+            builder = TONTransferBuilder(
+                destination=Address(dst_address), amount=amt_nano,
+                body=comment, send_mode=send_mode,
+            )
         # Сборка+подпись сама делает refresh кошелька — актуальный баланс берём
         # отсюда, отдельный refresh не делаем (меньше запросов к Toncenter).
         ext = await src_wallet.build_external_message([builder])
         src_balance = Decimal(src_wallet.balance) / NANO
 
-        if not send_all and src_balance < amount:
+        if asset == "USDT":
+            # Проверяем и газ (TON), и сам джеттон на jetton-wallet отправителя
+            if src_balance < jettons.JETTON_GAS_TON:
+                raise ValueError(
+                    f"Недостаточно TON на газ: на {src} {src_balance:.4f} TON, "
+                    f"нужно ~{jettons.JETTON_GAS_TON} TON для джеттон-перевода"
+                )
+            if delay:
+                await asyncio.sleep(delay)
+            src_jw = await jettons.get_jetton_wallet_address(client, src_address)
+            if delay:
+                await asyncio.sleep(delay)
+            src_usdt = Decimal((await jettons.get_usdt_balance(client, src_jw))["balance"])
+            if src_usdt < amount:
+                raise ValueError(
+                    f"Недостаточно USDT: на {src} {src_usdt:.6f} USDT, нужно {amount:.6f} USDT"
+                )
+        elif not send_all and src_balance < amount:
             raise ValueError(
                 f"Недостаточно средств: на {src} {src_balance:.4f} TON, "
                 f"нужно {amount:.4f} TON + комиссия"
             )
 
-        if send_all:
+        if asset == "USDT":
+            # Выплата в USDT, комиссия — в TON (сверху), поэтому USDT-остаток
+            # уменьшается ровно на сумму перевода.
+            will_receive = amount
+            src_after = src_usdt - amount
+            fee_est = jettons.JETTON_GAS_TON
+        elif send_all:
             will_receive = max(src_balance - fee_est, Decimal(0))
             src_after = Decimal(0)
         else:
             will_receive = amount
             src_after = src_balance - amount - fee_est
 
+        prec = 6 if asset == "USDT" else 4
         result = {
+            "asset": asset,
             "from": src, "from_address": src_address,
             "to": dst_label, "to_address": dst_address,
-            "src_balance": f"{src_balance:.4f}",
+            "src_balance": (f"{src_usdt:.6f}" if asset == "USDT" else f"{src_balance:.4f}"),
+            "ton_balance": f"{src_balance:.4f}",
             "amount": amount_label, "dry_run": dry_run, "network": net_str,
             "comment": comment or "—",
             "fee_estimate": f"{fee_est:.4f}",
-            "will_receive": f"{will_receive:.4f}",
-            "src_after": f"{max(src_after, Decimal(0)):.4f}",
+            "will_receive": f"{will_receive:.{prec}f}",
+            "src_after": f"{max(src_after, Decimal(0)):.{prec}f}",
             "send_mode_label": mode_label,
             # Отправляем в non-bounceable форме (UQ): средства доходят даже на
             # ещё не развёрнутый (nonexist) адрес и не «отбиваются» обратно.
             "bounceable": False,
             "hash": ext.normalized_hash,
         }
+        if asset == "USDT":
+            result["src_usdt_wallet"] = src_jw
 
         if dry_run:
             result["note"] = "Пробный расчёт — средства НЕ отправлены."
