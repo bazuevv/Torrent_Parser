@@ -16,9 +16,15 @@ import com.tonapps.tonkeeper.koin.walletViewModel
 import com.tonapps.tonkeeper.ui.base.WalletContextScreen
 import com.tonapps.tonkeeperx.R
 import com.tonapps.blockchain.model.legacy.WalletEntity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uikit.base.BaseFragment
 import uikit.extensions.collectFlow
 import uikit.widget.AsyncImageView
+import java.io.File
+import java.util.UUID
 import uikit.extensions.pinToBottomInsets
 import uikit.widget.InputView
 import uikit.widget.ModalHeader
@@ -113,21 +119,48 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         }
 
         nameView.text = contact.name
-        contact.lookupKey?.let {
-            viewModel.setPhoneContact(contact.name, it, contact.photoUri?.toUri())
-        }
-        applyContactPhoto(contact.photoUri)
         nameView.focus()
+
+        lifecycleScope.launch {
+            // Фото копируется сразу: доступ к телефонной книге действует, пока живёт
+            // результат системного выбора, а до сохранения контакта он не доживёт
+            val photoPath = withContext(Dispatchers.IO) { copyContactPhoto(uri) }
+            contact.lookupKey?.let { viewModel.setPhoneContact(contact.name, it, photoPath) }
+            applyContactPhoto(photoPath)
+        }
     }
 
-    private fun applyContactPhoto(photoUri: String?) {
+    /**
+     * Читает фото штатным openContactPhotoInputStream: временный доступ выдаётся
+     * на URI контакта, а PHOTO_URI — отдельный адрес, напрямую его не открыть.
+     */
+    private fun copyContactPhoto(contactUri: Uri): String? {
+        return try {
+            val input = ContactsContract.Contacts.openContactPhotoInputStream(
+                requireContext().contentResolver,
+                contactUri,
+                true
+            ) ?: return null
+
+            val dir = File(requireContext().filesDir, PHOTOS_DIR).apply { mkdirs() }
+            val file = File(dir, "${UUID.randomUUID()}.jpg")
+            input.use { stream ->
+                file.outputStream().use { output -> stream.copyTo(output) }
+            }
+            file.absolutePath
+        } catch (ignored: Throwable) {
+            null
+        }
+    }
+
+    private fun applyContactPhoto(photoPath: String?) {
         // У контакта может не быть фото — тогда прячем аватар, а не показываем пустоту
-        if (photoUri.isNullOrBlank()) {
+        if (photoPath.isNullOrBlank()) {
             photoView.visibility = View.GONE
             return
         }
         photoView.visibility = View.VISIBLE
-        photoView.setImageURI(photoUri.toUri())
+        photoView.setImageURI(File(photoPath).toUri())
     }
 
     private data class PhoneContact(
@@ -154,6 +187,7 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
 
     companion object {
 
+        private const val PHOTOS_DIR = "contact_photos"
         private const val ARG_NAME = "name"
         private const val ARG_ADDRESS = "address"
 

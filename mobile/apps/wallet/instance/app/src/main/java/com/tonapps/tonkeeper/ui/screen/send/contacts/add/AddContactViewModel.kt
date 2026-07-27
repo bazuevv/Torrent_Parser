@@ -38,8 +38,8 @@ class AddContactViewModel(
         val address: String,
         /** LOOKUP_KEY, если имя выбрано из телефонной книги. */
         val lookupKey: String? = null,
-        /** URI фото выбранного контакта; копируется в хранилище при сохранении. */
-        val photoUri: Uri? = null,
+        /** Путь к скопированному фото контакта во внутреннем хранилище. */
+        val photoPath: String? = null,
     )
 
     sealed class AddressAccount {
@@ -101,7 +101,7 @@ class AddContactViewModel(
                     address = userInput.address,
                     network = wallet.network,
                     lookupKey = userInput.lookupKey,
-                    photoUri = userInput.photoUri
+                    photoPath = userInput.photoPath
                 )
             } catch (e: Throwable) {
                 toast(e.bestMessage)
@@ -120,11 +120,11 @@ class AddContactViewModel(
      * ключ не сбрасывает: пользователь мог выбрать контакт и подправить подпись,
      * но привязка к записи в книге остаётся той же.
      */
-    fun setPhoneContact(name: String, lookupKey: String, photoUri: Uri?) {
+    fun setPhoneContact(name: String, lookupKey: String, photoPath: String?) {
         _userInputFlow.value = _userInputFlow.value.copy(
             name = name,
             lookupKey = lookupKey,
-            photoUri = photoUri
+            photoPath = photoPath
         )
     }
 
