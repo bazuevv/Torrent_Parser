@@ -20,6 +20,7 @@ sealed class Item(type: Int, val name: String): BaseListItem(type) {
         const val TYPE_ICON = 3
         const val TYPE_LOGO = 4
         const val TYPE_TRON = 5
+        const val TYPE_TAB_TOGGLE = 6
     }
 
     data class Account(
@@ -46,6 +47,31 @@ sealed class Item(type: Int, val name: String): BaseListItem(type) {
     data class TronToggle(
         val enabled: Boolean,
     ): Item(TYPE_TRON, "tron")
+
+    /** Переключатель видимости вкладки в нижнем меню. */
+    data class TabToggle(
+        val tab: Tab,
+        val enabled: Boolean,
+        val position: ListCell.Position,
+    ): Item(TYPE_TAB_TOGGLE, tab.settingName) {
+
+        enum class Tab(
+            val settingName: String,
+            val titleRes: Int,
+            val descriptionRes: Int,
+        ) {
+            Browser(
+                settingName = "browser_tab",
+                titleRes = Localization.browser,
+                descriptionRes = Localization.settings_browser_tab_text
+            ),
+            Collectibles(
+                settingName = "collectibles_tab",
+                titleRes = Localization.collectibles,
+                descriptionRes = Localization.settings_collectibles_tab_text
+            )
+        }
+    }
 
     data object Space: Item(TYPE_SPACE, "")
 

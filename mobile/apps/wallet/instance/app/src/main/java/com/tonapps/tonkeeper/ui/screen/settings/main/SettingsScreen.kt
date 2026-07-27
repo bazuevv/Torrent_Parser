@@ -98,6 +98,7 @@ class SettingsScreen(
             is Item.Notifications -> navigation?.add(NotificationsManageScreen.newInstance(screenContext.wallet))
             is Item.FAQ -> navigation?.openURL(item.url)
             is Item.TronToggle -> viewModel.toggleTron()
+            is Item.TabToggle -> viewModel.toggleTab(item.tab)
             else -> return
         }
     }

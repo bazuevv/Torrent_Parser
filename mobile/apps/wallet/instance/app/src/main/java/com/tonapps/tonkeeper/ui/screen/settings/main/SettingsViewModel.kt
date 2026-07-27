@@ -102,16 +102,35 @@ class SettingsViewModel(
     }
 
     init {
+        // Потоки видимости вкладок нужны только как триггер пересборки списка —
+        // сами значения читаются в buildUiItems. Без него переключённый тумблер
+        // отскакивал бы назад при переиспользовании ViewHolder
+        val tabsChangedFlow = combine(
+            settingsRepository.browserTabEnabledFlow,
+            settingsRepository.collectiblesTabEnabledFlow
+        ) { _, _ -> Unit }
+
         combine(
             settingsRepository.walletPrefsChangedFlow,
             settingsRepository.currencyFlow,
             settingsRepository.languageFlow,
             settingsRepository.searchEngineFlow,
-            walletInfoFlow,
+            walletInfoFlow.combine(tabsChangedFlow) { walletInfo, _ -> walletInfo },
         ) { _, currency, language, searchEngine, walletInfo ->
             val (hasBackup, wallet) = walletInfo
             buildUiItems(wallet, currency, language, searchEngine, hasBackup)
         }.launchIn(viewModelScope)
+    }
+
+    fun toggleTab(tab: Item.TabToggle.Tab) {
+        when (tab) {
+            Item.TabToggle.Tab.Browser -> {
+                settingsRepository.browserTabEnabled = !settingsRepository.browserTabEnabled
+            }
+            Item.TabToggle.Tab.Collectibles -> {
+                settingsRepository.collectiblesTabEnabled = !settingsRepository.collectiblesTabEnabled
+            }
+        }
     }
 
     fun setSearchEngine(searchEngine: SearchEngine?) {
@@ -243,6 +262,31 @@ class SettingsViewModel(
             uiItems.add(Item.TronToggle(enabled = tronUsdtEnabled))
             uiItems.add(Item.Space)
         }
+
+        // Коллекции скрыты серверным флагом — переключать нечего, остаётся один тумблер
+        val showCollectiblesToggle = !config.flags.disableNfts
+
+        uiItems.add(
+            Item.TabToggle(
+                tab = Item.TabToggle.Tab.Browser,
+                enabled = settingsRepository.browserTabEnabled,
+                position = if (showCollectiblesToggle) {
+                    ListCell.Position.FIRST
+                } else {
+                    ListCell.Position.SINGLE
+                }
+            )
+        )
+        if (showCollectiblesToggle) {
+            uiItems.add(
+                Item.TabToggle(
+                    tab = Item.TabToggle.Tab.Collectibles,
+                    enabled = settingsRepository.collectiblesTabEnabled,
+                    position = ListCell.Position.LAST
+                )
+            )
+        }
+        uiItems.add(Item.Space)
 
         if (environment.isGooglePlayServicesAvailable) {
             uiItems.add(Item.Notifications(ListCell.Position.FIRST))

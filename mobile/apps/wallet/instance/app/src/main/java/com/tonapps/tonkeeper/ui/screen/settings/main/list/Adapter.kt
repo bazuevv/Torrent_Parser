@@ -5,6 +5,7 @@ import com.tonapps.tonkeeper.ui.screen.settings.main.list.holder.AccountHolder
 import com.tonapps.tonkeeper.ui.screen.settings.main.list.holder.IconHolder
 import com.tonapps.tonkeeper.ui.screen.settings.main.list.holder.LogoHolder
 import com.tonapps.tonkeeper.ui.screen.settings.main.list.holder.SpaceHolder
+import com.tonapps.tonkeeper.ui.screen.settings.main.list.holder.TabToggleHolder
 import com.tonapps.tonkeeper.ui.screen.settings.main.list.holder.TextHolder
 import com.tonapps.tonkeeper.ui.screen.settings.main.list.holder.TronHolder
 import com.tonapps.uikit.list.BaseListAdapter
@@ -23,6 +24,7 @@ class Adapter(
             Item.TYPE_ICON -> IconHolder(parent, onClick)
             Item.TYPE_LOGO -> LogoHolder(parent, onClick)
             Item.TYPE_TRON -> TronHolder(parent, onClick)
+            Item.TYPE_TAB_TOGGLE -> TabToggleHolder(parent, onClick)
             else -> throw IllegalArgumentException("Unknown view type: $viewType")
         }
     }
