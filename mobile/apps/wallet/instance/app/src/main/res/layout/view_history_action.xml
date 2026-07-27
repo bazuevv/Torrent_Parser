@@ -199,6 +199,7 @@
                     android:layout_width="36dp"
                     android:layout_height="36dp"
                     android:layout_marginTop="8dp"
+                    android:layout_marginStart="12dp"
                     android:padding="10dp"
                     android:clickable="true"
                     android:focusable="true"

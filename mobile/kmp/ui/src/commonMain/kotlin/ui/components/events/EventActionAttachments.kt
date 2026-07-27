@@ -1,5 +1,6 @@
 package ui.components.events
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -48,6 +49,7 @@ internal fun EventActionAttachments(
                     top = 8.dp,
                     end = Dimens.offsetMedium
                 ),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(modifier = Modifier.weight(1f)) {
