@@ -18,6 +18,11 @@
         android:title="@string/trade"
         android:visible="false" />
     <item
+        android:id="@+id/payments"
+        android:checkable="true"
+        android:icon="@drawable/ic_creditcard_28"
+        android:title="@string/payments" />
+    <item
         android:id="@+id/browser"
         android:checkable="true"
         android:icon="@drawable/ic_explore_28"

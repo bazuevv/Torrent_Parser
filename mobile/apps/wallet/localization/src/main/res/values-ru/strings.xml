@@ -869,4 +869,7 @@
     <string name="repeat_transfer">Повторить</string>
     <string name="settings_browser_tab_text">Показывать вкладку «Браузер» в нижнем меню.</string>
     <string name="settings_collectibles_tab_text">Показывать вкладку «Коллекции» в нижнем меню.</string>
+    <string name="payments">Платежи</string>
+    <string name="payments_placeholder">Здесь будут платежи.</string>
+    <string name="settings_payments_tab_text">Показывать вкладку «Платежи» в нижнем меню.</string>
 </resources>

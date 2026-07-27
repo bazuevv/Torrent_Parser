@@ -24,6 +24,7 @@ import com.tonapps.core.flags.TooltipState
 import com.tonapps.core.flags.WalletFeature
 import com.tonapps.core.flags.WalletTooltip
 import com.tonapps.tonkeeper.ui.screen.events.compose.history.TxEventsScreen
+import com.tonapps.tonkeeper.ui.screen.payments.PaymentsScreen
 import com.tonapps.tonkeeper.ui.screen.root.RootEvent
 import com.tonapps.tonkeeper.ui.screen.root.RootViewModel
 import com.tonapps.tonkeeper.ui.screen.swap.SwapScreen
@@ -322,6 +323,7 @@ class MainScreen: BaseWalletScreen<ScreenContext.None>(R.layout.fragment_main, S
             R.id.activity -> "activity"
             R.id.trading -> "trading"
             R.id.collectibles -> "collectibles"
+            R.id.payments -> "payments"
             R.id.browser -> "browser"
             else -> "unknown"
         }
@@ -339,6 +341,7 @@ class MainScreen: BaseWalletScreen<ScreenContext.None>(R.layout.fragment_main, S
             R.id.activity -> TxEventsScreen.newInstance(wallet, canGoBack = false)
             R.id.trading -> ShelvesFragment()
             R.id.collectibles -> CollectiblesScreen.newInstance(wallet)
+            R.id.payments -> PaymentsScreen.newInstance(wallet)
             R.id.browser -> BrowserBaseScreen.newInstance(wallet)
             else -> throw IllegalArgumentException("Unknown itemId: $itemId")
         }
