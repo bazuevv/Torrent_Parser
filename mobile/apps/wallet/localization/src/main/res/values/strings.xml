@@ -898,4 +898,5 @@
     <string name="earn_apy">Earn %1$s APY</string>
     <string name="p2p_error">Couldn’t create a P2P session. Please try again.</string>
     <string name="dapp_manifest_error">Couldn’t load the dApp manifest. Please try again.</string>
+    <string name="repeat_transfer">Repeat</string>
 </resources>

@@ -866,4 +866,5 @@
     <string name="dapp_manifest_error">Не удалось загрузить манифест dApp. Попробуйте ещё раз.</string>
     <string name="value_difference">Разница в стоимости</string>
     <string name="value_difference_info">Насколько ваша сделка сдвигает цену: при положительном значении вы получаете больше, при отрицательном — меньше.</string>
+    <string name="repeat_transfer">Повторить</string>
 </resources>
