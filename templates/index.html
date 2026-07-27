@@ -988,6 +988,40 @@
         <div id="ton-tr-result" style="margin-top:10px"></div>
       </div>
 
+      <!-- Конвертация TON ⇄ USDT (котировки) -->
+      <div class="card">
+        <div class="card-title">Конвертация TON ⇄ USDT — курс</div>
+        <p style="color:var(--muted);font-size:12px;margin-top:0">
+          Расчёт обмена на DEX <b>STON.fi</b>. Это только <b>котировка</b> — ничего не отправляется.
+          Курс плавающий: «получите минимум» учитывает проскальзывание, ниже этой суммы обмен
+          откатился бы. Обмен также требует газа в TON.
+        </p>
+        <div class="ton-row">
+          <div style="max-width:190px">
+            <label class="ton-lbl">Направление</label>
+            <select class="settings-select" id="ton-sw-dir" style="width:100%" onchange="tonSwapDirChange()">
+              <option value="TON>USDT">TON → USDT</option>
+              <option value="USDT>TON">USDT → TON</option>
+            </select>
+          </div>
+          <div style="max-width:150px">
+            <label class="ton-lbl"><span id="ton-sw-amount-lbl">Сумма, TON</span></label>
+            <input class="settings-input" id="ton-sw-amount" style="width:100%" placeholder="1"
+                   onkeydown="if(event.key==='Enter')tonSwapQuote()">
+          </div>
+          <div style="max-width:150px">
+            <label class="ton-lbl">Проскальзывание</label>
+            <select class="settings-select" id="ton-sw-slip" style="width:100%">
+              <option value="0.005">0.5%</option>
+              <option value="0.01" selected>1%</option>
+              <option value="0.03">3%</option>
+            </select>
+          </div>
+          <div style="flex:0"><button class="btn" id="ton-sw-btn" onclick="tonSwapQuote()">Рассчитать</button></div>
+        </div>
+        <div id="ton-sw-result" style="margin-top:10px"></div>
+      </div>
+
       <!-- Адреса пользователей -->
       <div class="card">
         <div class="card-title">Адреса пользователей</div>
@@ -2507,6 +2541,48 @@ function tonUserWallet() {
             + '<div class="ton-addr" style="color:var(--muted)">USDT-кошелёк: ' + escHtml(j.usdt_wallet) + '</div></div>'
           : (j.usdt_error ? '<div style="margin-top:6px"><span class="ton-pill err">USDT: ' + escHtml(j.usdt_error) + '</span></div>' : ''));
   }).catch(() => { box.innerHTML = '<span class="ton-pill err">Ошибка запроса</span>'; });
+}
+
+function tonSwapDirChange() {
+  const dir = document.getElementById('ton-sw-dir').value;
+  const from = dir.split('>')[0];
+  document.getElementById('ton-sw-amount-lbl').textContent = 'Сумма, ' + from;
+  document.getElementById('ton-sw-amount').placeholder = from === 'TON' ? '1' : '10';
+}
+
+function tonSwapQuote() {
+  const dir = document.getElementById('ton-sw-dir').value.split('>');
+  const amount = document.getElementById('ton-sw-amount').value.trim();
+  const slip = document.getElementById('ton-sw-slip').value;
+  const box = document.getElementById('ton-sw-result');
+  if (!amount) { box.innerHTML = '<span class="ton-pill err">Укажите сумму</span>'; return; }
+  const btn = document.getElementById('ton-sw-btn');
+  btn.disabled = true;
+  box.innerHTML = '<span class="muted">Запрашиваем курс…</span>';
+  tonFetch('/api/ton/swap-quote?from=' + dir[0] + '&to=' + dir[1]
+           + '&amount=' + encodeURIComponent(amount) + '&slippage=' + slip).then(({ j }) => {
+    btn.disabled = false;
+    if (!j.ok) { box.innerHTML = '<span class="ton-pill err">' + escHtml(j.error || 'Ошибка') + '</span>'; return; }
+    const feeLine = j.fee_amount
+      ? ('~' + escHtml(j.fee_amount) + ' ' + escHtml(j.fee_asset) + ' (' + escHtml(j.fee_percent) + '%)')
+      : (escHtml(j.fee_percent || '—') + '%');
+    box.innerHTML =
+      '<div class="ton-msg ok" style="margin:0">💱 '
+        + escHtml(j.offer) + ' ' + escHtml(j.from_asset) + ' &nbsp;→&nbsp; <b>'
+        + escHtml(j.receive) + ' ' + escHtml(j.to_asset) + '</b></div>'
+      + '<div style="margin-top:8px;font-size:13px;line-height:1.75">'
+      + '<div><span class="muted">курс:</span> 1 ' + escHtml(j.from_asset) + ' = '
+        + escHtml(Number(j.rate).toFixed(6)) + ' ' + escHtml(j.to_asset) + '</div>'
+      + '<div><span class="muted">получите минимум:</span> <b>' + escHtml(j.min_receive) + ' '
+        + escHtml(j.to_asset) + '</b> <span class="muted">(при проскальзывании '
+        + escHtml(j.slippage_pct) + '%)</span></div>'
+      + '<div><span class="muted">комиссия пула:</span> ' + feeLine
+        + ' &nbsp;·&nbsp; <span class="muted">влияние на цену:</span> ' + escHtml(j.price_impact_pct || '0') + '%</div>'
+      + '<div><span class="muted">газ на обмен:</span> ~' + escHtml(j.gas_ton) + ' TON'
+        + ' &nbsp;·&nbsp; <span class="muted">биржа:</span> ' + escHtml(j.dex) + '</div>'
+      + '<div class="muted" style="font-size:12px;margin-top:4px">Это расчёт, обмен не выполнен.</div>'
+      + '</div>';
+  }).catch(() => { btn.disabled = false; box.innerHTML = '<span class="ton-pill err">Ошибка запроса</span>'; });
 }
 
 function tonCopy(btn, text) {

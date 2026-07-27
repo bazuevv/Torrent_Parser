@@ -1579,6 +1579,44 @@ async def _ton_address_balance(address: str, with_usdt: bool = False) -> dict:
         await client.close()
 
 
+# ── Конвертация: котировки TON ⇄ USDT (только расчёт, без транзакций) ─────────
+
+@app.get("/api/ton/swap-quote")
+def api_ton_swap_quote():
+    """Сколько получится при обмене TON⇄USDT на DEX. Ничего не отправляет."""
+    guard = _ton_guard()
+    if guard:
+        return guard
+
+    from ton_payout.swap import DEFAULT_SLIPPAGE, SwapQuoteError, get_quote
+
+    from_asset = request.args.get("from", "TON")
+    to_asset = request.args.get("to", "USDT")
+    raw_amount = request.args.get("amount", "")
+    raw_slippage = request.args.get("slippage", "")
+
+    try:
+        amount = _ton_parse_amount(raw_amount)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+    slippage = DEFAULT_SLIPPAGE
+    if raw_slippage:
+        try:
+            slippage = Decimal(str(raw_slippage).replace(",", "."))
+            if not (Decimal(0) < slippage < Decimal(1)):
+                raise ValueError
+        except (InvalidOperation, ValueError):
+            return jsonify({"ok": False,
+                            "error": "Проскальзывание должно быть долей от 0 до 1 (напр. 0.01)"}), 400
+
+    try:
+        quote = get_quote(from_asset, to_asset, amount, slippage)
+        return jsonify({"ok": True, **quote})
+    except SwapQuoteError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
 # ── Переводы: перемещение средств между своими кошельками ─────────────────────
 
 _TON_OWN_WALLETS = ("sequential", "highload", "v5")
