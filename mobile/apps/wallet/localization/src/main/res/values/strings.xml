@@ -902,6 +902,7 @@
     <string name="settings_browser_tab_text">Show the Browser tab in the bottom menu.</string>
     <string name="settings_collectibles_tab_text">Show the Collectibles tab in the bottom menu.</string>
     <string name="payments">Payments</string>
-    <string name="payments_placeholder">Payments will appear here.</string>
+    <string name="auto_payments">Auto payments</string>
+    <string name="auto_payments_empty">Scheduled payments will appear here.</string>
     <string name="settings_payments_tab_text">Show the Payments tab in the bottom menu.</string>
 </resources>
