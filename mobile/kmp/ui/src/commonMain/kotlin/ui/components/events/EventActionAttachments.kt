@@ -1,8 +1,12 @@
 package ui.components.events
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import ui.theme.Dimens
@@ -33,27 +37,34 @@ internal fun EventActionAttachments(
         )
     }
 
-    if (text != null) {
-        EventActionText(
-            modifier = Modifier.padding(
-                start = 76.dp,
-                top = 8.dp,
-                end = Dimens.offsetMedium
-            ),
-            state = text,
-            index = index,
-            onClick = onClick
-        )
-    }
+    if (text != null || canRepeat) {
+        // Комментарий слева, кнопка повтора прижата к правому краю — под суммой.
+        // Box с weight держит её справа и когда комментария нет
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = 76.dp,
+                    top = 8.dp,
+                    end = Dimens.offsetMedium
+                ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                if (text != null) {
+                    EventActionText(
+                        state = text,
+                        index = index,
+                        onClick = onClick
+                    )
+                }
+            }
 
-    if (canRepeat) {
-        EventActionRepeat(
-            modifier = Modifier.padding(
-                start = 76.dp,
-                top = 8.dp,
-                end = Dimens.offsetMedium
-            ),
-            onClick = repeatClick
-        )
+            if (canRepeat) {
+                EventActionRepeat(
+                    onClick = repeatClick
+                )
+            }
+        }
     }
 }
