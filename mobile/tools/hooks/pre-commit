@@ -12,8 +12,18 @@ set -e
 # Find the project root using git
 PROJECT_ROOT="$(git rev-parse --show-toplevel)"
 
-# Path to the executor script
+# Path to the executor script.
+# В upstream исходники лежат в корне репозитория, но проект может быть вложен
+# в подкаталог (у нас — mobile/), поэтому проверяются оба варианта.
 EXECUTOR_SCRIPT="$PROJECT_ROOT/tools/scripts/pre-commit-exec"
+if [ ! -f "$EXECUTOR_SCRIPT" ]; then
+    EXECUTOR_SCRIPT="$PROJECT_ROOT/mobile/tools/scripts/pre-commit-exec"
+fi
+
+# Исходников нет — проверять нечего, коммит не блокируем
+if [ ! -f "$EXECUTOR_SCRIPT" ]; then
+    exit 0
+fi
 
 # Make the executor executable if it's not already
 if [ ! -x "$EXECUTOR_SCRIPT" ]; then
