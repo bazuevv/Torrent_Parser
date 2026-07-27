@@ -1,14 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <uikit.widget.RowLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="@dimen/itemHeight">
-    
+
     <com.tonapps.emoji.ui.EmojiView
         android:id="@+id/emoji"
         android:layout_width="28dp"
         android:layout_height="28dp"
         android:layout_gravity="center"
         android:layout_marginLeft="@dimen/offsetMedium"/>
+
+    <uikit.widget.AsyncImageView
+        android:id="@+id/photo"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="center"
+        android:layout_marginLeft="@dimen/offsetMedium"
+        android:visibility="gone"
+        app:roundAsCircle="true"/>
 
     <androidx.appcompat.widget.AppCompatTextView
         android:id="@+id/name"

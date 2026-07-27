@@ -28,13 +28,20 @@ internal class DatabaseSource(
          */
         private const val CONTACTS_LOOKUP_KEY = "lookup_key"
 
+        /**
+         * Путь к копии фото во внутреннем хранилище. Ссылку на телефонную книгу
+         * хранить нельзя: доступ к ней действует только на время выбора контакта.
+         */
+        private const val CONTACTS_PHOTO_PATH = "photo_path"
+
         private val contactsField = arrayOf(
             CONTACTS_ID,
             CONTACTS_NAME,
             CONTACTS_ADDRESS,
             CONTACTS_DATE,
             CONTACTS_TESTNET,
-            CONTACTS_LOOKUP_KEY
+            CONTACTS_LOOKUP_KEY,
+            CONTACTS_PHOTO_PATH
         ).joinToString(",")
 
         private const val KEY_HIDDEN = "hidden"
@@ -49,7 +56,8 @@ internal class DatabaseSource(
                 "$CONTACTS_ADDRESS TEXT NOT NULL," +
                 "$CONTACTS_DATE INTEGER NOT NULL," +
                 "$CONTACTS_TESTNET INTEGER NOT NULL DEFAULT 0," +
-                "$CONTACTS_LOOKUP_KEY TEXT" +
+                "$CONTACTS_LOOKUP_KEY TEXT," +
+                "$CONTACTS_PHOTO_PATH TEXT" +
                 ")")
     }
 
@@ -62,6 +70,7 @@ internal class DatabaseSource(
         }
         if (oldVersion < 3) {
             db.execSQL("ALTER TABLE $CONTACTS_TABLE ADD COLUMN $CONTACTS_LOOKUP_KEY TEXT")
+            db.execSQL("ALTER TABLE $CONTACTS_TABLE ADD COLUMN $CONTACTS_PHOTO_PATH TEXT")
         }
     }
 
@@ -75,6 +84,7 @@ internal class DatabaseSource(
         val dateIndex = cursor.getColumnIndex(CONTACTS_DATE)
         val testnetIndex = cursor.getColumnIndex(CONTACTS_TESTNET)
         val lookupKeyIndex = cursor.getColumnIndex(CONTACTS_LOOKUP_KEY)
+        val photoPathIndex = cursor.getColumnIndex(CONTACTS_PHOTO_PATH)
         while (cursor.moveToNext()) {
             contacts.add(ContactEntity(
                 id = cursor.getLong(idIndex),
@@ -86,6 +96,11 @@ internal class DatabaseSource(
                     null
                 } else {
                     cursor.getString(lookupKeyIndex)
+                },
+                photoPath = if (photoPathIndex == -1) {
+                    null
+                } else {
+                    cursor.getString(photoPathIndex)
                 }
             ))
         }
@@ -97,7 +112,8 @@ internal class DatabaseSource(
         name: String,
         address: String,
         testnet: Boolean,
-        lookupKey: String? = null
+        lookupKey: String? = null,
+        photoPath: String? = null
     ): ContactEntity {
         val date = currentTimeSeconds()
         val values = ContentValues().apply {
@@ -106,9 +122,10 @@ internal class DatabaseSource(
             put(CONTACTS_DATE, date)
             put(CONTACTS_TESTNET, if (testnet) 1L else 0L)
             put(CONTACTS_LOOKUP_KEY, lookupKey)
+            put(CONTACTS_PHOTO_PATH, photoPath)
         }
         val id = writableDatabase.insert(CONTACTS_TABLE, null, values)
-        return ContactEntity(id, name, address, date, testnet, lookupKey)
+        return ContactEntity(id, name, address, date, testnet, lookupKey, photoPath)
     }
 
     fun editContact(id: Long, name: String) {

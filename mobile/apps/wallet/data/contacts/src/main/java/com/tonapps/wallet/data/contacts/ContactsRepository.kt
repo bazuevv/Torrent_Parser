@@ -1,6 +1,7 @@
 package com.tonapps.wallet.data.contacts
 
 import android.content.Context
+import android.net.Uri
 import com.tonapps.blockchain.ton.TonNetwork
 import com.tonapps.extensions.MutableEffectFlow
 import com.tonapps.wallet.data.contacts.entities.ContactEntity
@@ -15,6 +16,8 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.UUID
 
 class ContactsRepository(
     context: Context,
@@ -22,7 +25,13 @@ class ContactsRepository(
     rnLegacy: RNLegacy,
 ) {
 
+    private companion object {
+        private const val PHOTOS_DIR = "contact_photos"
+    }
+
     private val database = DatabaseSource(context)
+    private val contentResolver = context.contentResolver
+    private val filesDir = context.filesDir
 
     private val _contactsFlow = MutableStateFlow<List<ContactEntity>?>(null)
     val contactsFlow = _contactsFlow.stateIn(scope, SharingStarted.Lazily, null).filterNotNull()
@@ -59,13 +68,32 @@ class ContactsRepository(
         _hiddenFlow.tryEmit(Unit)
     }
 
+    /**
+     * Копирует фото контакта во внутреннее хранилище: доступ к телефонной книге живёт
+     * только пока открыт системный выбор, поэтому ссылку на неё сохранять бесполезно.
+     */
+    private fun copyPhoto(photoUri: Uri): String? {
+        return try {
+            val dir = File(filesDir, PHOTOS_DIR).apply { mkdirs() }
+            val file = File(dir, "${UUID.randomUUID()}.jpg")
+            contentResolver.openInputStream(photoUri)?.use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            } ?: return null
+            file.absolutePath
+        } catch (ignored: Throwable) {
+            null
+        }
+    }
+
     suspend fun add(
         name: String,
         address: String,
         network: TonNetwork,
-        lookupKey: String? = null
+        lookupKey: String? = null,
+        photoUri: Uri? = null
     ): ContactEntity = withContext(Dispatchers.IO) {
-        val contact = database.addContact(name, address, network.isTestnet, lookupKey)
+        val photoPath = photoUri?.let { copyPhoto(it) }
+        val contact = database.addContact(name, address, network.isTestnet, lookupKey, photoPath)
         _contactsFlow.value = _contactsFlow.value.orEmpty().toMutableList().apply {
             add(contact)
         }

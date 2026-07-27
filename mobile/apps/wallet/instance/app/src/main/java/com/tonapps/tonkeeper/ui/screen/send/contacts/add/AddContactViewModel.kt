@@ -1,6 +1,7 @@
 package com.tonapps.tonkeeper.ui.screen.send.contacts.add
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.viewModelScope
 import com.tonapps.blockchain.ton.TonAddressTags
 import com.tonapps.blockchain.tron.isValidTronAddress
@@ -37,6 +38,8 @@ class AddContactViewModel(
         val address: String,
         /** LOOKUP_KEY, если имя выбрано из телефонной книги. */
         val lookupKey: String? = null,
+        /** URI фото выбранного контакта; копируется в хранилище при сохранении. */
+        val photoUri: Uri? = null,
     )
 
     sealed class AddressAccount {
@@ -97,7 +100,8 @@ class AddContactViewModel(
                     name = userInput.name,
                     address = userInput.address,
                     network = wallet.network,
-                    lookupKey = userInput.lookupKey
+                    lookupKey = userInput.lookupKey,
+                    photoUri = userInput.photoUri
                 )
             } catch (e: Throwable) {
                 toast(e.bestMessage)
@@ -116,8 +120,12 @@ class AddContactViewModel(
      * ключ не сбрасывает: пользователь мог выбрать контакт и подправить подпись,
      * но привязка к записи в книге остаётся той же.
      */
-    fun setPhoneContact(name: String, lookupKey: String) {
-        _userInputFlow.value = _userInputFlow.value.copy(name = name, lookupKey = lookupKey)
+    fun setPhoneContact(name: String, lookupKey: String, photoUri: Uri?) {
+        _userInputFlow.value = _userInputFlow.value.copy(
+            name = name,
+            lookupKey = lookupKey,
+            photoUri = photoUri
+        )
     }
 
     fun setAddress(address: String) {

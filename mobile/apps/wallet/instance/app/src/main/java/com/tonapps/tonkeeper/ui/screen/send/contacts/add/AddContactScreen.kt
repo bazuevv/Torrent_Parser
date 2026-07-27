@@ -113,7 +113,9 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         }
 
         nameView.text = contact.name
-        contact.lookupKey?.let { viewModel.setPhoneContact(contact.name, it) }
+        contact.lookupKey?.let {
+            viewModel.setPhoneContact(contact.name, it, contact.photoUri?.toUri())
+        }
         applyContactPhoto(contact.photoUri)
         nameView.focus()
     }

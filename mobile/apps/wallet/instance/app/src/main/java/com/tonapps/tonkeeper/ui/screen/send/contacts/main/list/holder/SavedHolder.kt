@@ -31,6 +31,7 @@ class SavedHolder(
         itemView.background = item.position.drawable(context)
 
         nameView.text = item.name
+        bindPhoto(item.contact.photoPath)
         iconView.setOnClickListener { showMenu(item) }
     }
 

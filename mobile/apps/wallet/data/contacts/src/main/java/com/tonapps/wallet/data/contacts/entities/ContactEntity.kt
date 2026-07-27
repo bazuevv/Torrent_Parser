@@ -11,5 +11,7 @@ data class ContactEntity(
     val date: Long,
     val testnet: Boolean,
     /** LOOKUP_KEY контакта в телефонной книге, если адрес заведён из неё. */
-    val lookupKey: String? = null
+    val lookupKey: String? = null,
+    /** Путь к копии фото контакта во внутреннем хранилище приложения. */
+    val photoPath: String? = null
 ): Parcelable
