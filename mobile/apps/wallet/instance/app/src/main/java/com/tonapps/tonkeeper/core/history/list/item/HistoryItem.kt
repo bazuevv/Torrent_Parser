@@ -15,6 +15,7 @@ import com.tonapps.extensions.readParcelableCompat
 import com.tonapps.extensions.writeBooleanCompat
 import com.tonapps.extensions.writeCharSequenceCompat
 import com.tonapps.extensions.writeEnum
+import com.tonapps.icu.Coins
 import com.tonapps.tonkeeper.core.history.ActionOutStatus
 import com.tonapps.tonkeeper.helper.DateHelper
 import com.tonapps.deposit.screens.send.state.SendFee
@@ -321,7 +322,8 @@ sealed class HistoryItem(
         val spamState: SpamTransactionState = SpamTransactionState.UNKNOWN,
         val actionOutStatus: ActionOutStatus,
         val showNetwork: Boolean = false,
-        val sendFee: SendFee? = null
+        val sendFee: SendFee? = null,
+        val repeatAmount: Coins? = null
     ): HistoryItem(TYPE_ACTION) {
 
         val account: Account?
@@ -413,7 +415,8 @@ sealed class HistoryItem(
             wallet = parcel.readParcelableCompat()!!,
             isMaybeSpam = parcel.readBooleanCompat(),
             spamState = parcel.readEnum(SpamTransactionState::class.java)!!,
-            actionOutStatus = parcel.readEnum(ActionOutStatus::class.java)!!
+            actionOutStatus = parcel.readEnum(ActionOutStatus::class.java)!!,
+            repeatAmount = parcel.readParcelableCompat()
         )
 
         override fun marshall(dest: Parcel, flags: Int) {
@@ -453,6 +456,7 @@ sealed class HistoryItem(
             dest.writeBooleanCompat(isMaybeSpam)
             dest.writeEnum(spamState)
             dest.writeEnum(actionOutStatus)
+            dest.writeParcelable(repeatAmount, flags)
         }
 
         companion object CREATOR : Parcelable.Creator<Event> {

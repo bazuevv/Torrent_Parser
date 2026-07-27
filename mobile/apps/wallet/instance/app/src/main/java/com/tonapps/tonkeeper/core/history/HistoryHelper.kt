@@ -826,7 +826,8 @@ class HistoryHelper(
                 wallet = wallet,
                 isMaybeSpam = action.getTonAmountRaw(wallet.network, ratesRepository) < api.getConfig(wallet.network).reportAmount,
                 spamState = settingsRepository.getSpamStateTransaction(wallet.id, txId),
-                actionOutStatus = if (isOut) ActionOutStatus.Send else ActionOutStatus.Received
+                actionOutStatus = if (isOut) ActionOutStatus.Send else ActionOutStatus.Received,
+                repeatAmount = token.toUIAmount(amount)
             )
         } else if (action.tonTransfer != null) {
             val tonTransfer = action.tonTransfer!!
@@ -890,7 +891,8 @@ class HistoryHelper(
                 wallet = wallet,
                 isMaybeSpam = action.getTonAmountRaw(wallet.network, ratesRepository) < api.getConfig(wallet.network).reportAmount,
                 spamState = settingsRepository.getSpamStateTransaction(wallet.id, txId),
-                actionOutStatus = if (isOut || isFromBattery || wallet.isMyAddress(tonTransfer.sender.address)) ActionOutStatus.Send else ActionOutStatus.Received
+                actionOutStatus = if (isOut || isFromBattery || wallet.isMyAddress(tonTransfer.sender.address)) ActionOutStatus.Send else ActionOutStatus.Received,
+                repeatAmount = amount
             )
         } else if (action.smartContractExec != null) {
             val smartContractExec = action.smartContractExec!!
