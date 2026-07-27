@@ -65,6 +65,11 @@ sealed class Item(type: Int, val name: String): BaseListItem(type) {
                 titleRes = Localization.browser,
                 descriptionRes = Localization.settings_browser_tab_text
             ),
+            Payments(
+                settingName = "payments_tab",
+                titleRes = Localization.payments,
+                descriptionRes = Localization.settings_payments_tab_text
+            ),
             Collectibles(
                 settingName = "collectibles_tab",
                 titleRes = Localization.collectibles,

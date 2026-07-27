@@ -72,6 +72,7 @@ class SettingsRepository(
         private const val SEND_TOOLTIP_SHOWN_KEY = "send_tooltip_shown"
         private const val BROWSER_TAB_ENABLED_KEY = "browser_tab_enabled"
         private const val COLLECTIBLES_TAB_ENABLED_KEY = "collectibles_tab_enabled"
+        private const val PAYMENTS_TAB_ENABLED_KEY = "payments_tab_enabled"
     }
 
     private val _currencyFlow = MutableEffectFlow<WalletCurrency>()
@@ -90,6 +91,10 @@ class SettingsRepository(
     private val _collectiblesTabEnabledFlow = MutableEffectFlow<Boolean>()
     val collectiblesTabEnabledFlow =
         _collectiblesTabEnabledFlow.stateIn(scope, SharingStarted.Eagerly, true)
+
+    private val _paymentsTabEnabledFlow = MutableEffectFlow<Boolean>()
+    val paymentsTabEnabledFlow =
+        _paymentsTabEnabledFlow.stateIn(scope, SharingStarted.Eagerly, true)
 
     private val _countryFlow = MutableEffectFlow<String>()
 
@@ -285,6 +290,16 @@ class SettingsRepository(
                 prefs.putBoolean(COLLECTIBLES_TAB_ENABLED_KEY, value)
                 field = value
                 _collectiblesTabEnabledFlow.tryEmit(value)
+            }
+        }
+
+    /** То же для вкладки «Платежи». */
+    var paymentsTabEnabled: Boolean = prefs.getBoolean(PAYMENTS_TAB_ENABLED_KEY, true)
+        set(value) {
+            if (value != field) {
+                prefs.putBoolean(PAYMENTS_TAB_ENABLED_KEY, value)
+                field = value
+                _paymentsTabEnabledFlow.tryEmit(value)
             }
         }
 
@@ -575,6 +590,7 @@ class SettingsRepository(
             _hiddenBalancesFlow.tryEmit(hiddenBalances)
             _browserTabEnabledFlow.tryEmit(browserTabEnabled)
             _collectiblesTabEnabledFlow.tryEmit(collectiblesTabEnabled)
+            _paymentsTabEnabledFlow.tryEmit(paymentsTabEnabled)
             _countryFlow.tryEmit(country)
             _searchEngineFlow.tryEmit(searchEngine)
             _biometricFlow.tryEmit(biometric)

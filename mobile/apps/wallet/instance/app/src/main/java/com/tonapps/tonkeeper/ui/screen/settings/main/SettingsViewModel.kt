@@ -107,8 +107,9 @@ class SettingsViewModel(
         // отскакивал бы назад при переиспользовании ViewHolder
         val tabsChangedFlow = combine(
             settingsRepository.browserTabEnabledFlow,
-            settingsRepository.collectiblesTabEnabledFlow
-        ) { _, _ -> Unit }
+            settingsRepository.collectiblesTabEnabledFlow,
+            settingsRepository.paymentsTabEnabledFlow
+        ) { _, _, _ -> Unit }
 
         combine(
             settingsRepository.walletPrefsChangedFlow,
@@ -126,6 +127,9 @@ class SettingsViewModel(
         when (tab) {
             Item.TabToggle.Tab.Browser -> {
                 settingsRepository.browserTabEnabled = !settingsRepository.browserTabEnabled
+            }
+            Item.TabToggle.Tab.Payments -> {
+                settingsRepository.paymentsTabEnabled = !settingsRepository.paymentsTabEnabled
             }
             Item.TabToggle.Tab.Collectibles -> {
                 settingsRepository.collectiblesTabEnabled = !settingsRepository.collectiblesTabEnabled
@@ -263,26 +267,22 @@ class SettingsViewModel(
             uiItems.add(Item.Space)
         }
 
-        // Коллекции скрыты серверным флагом — переключать нечего, остаётся один тумблер
-        val showCollectiblesToggle = !config.flags.disableNfts
-
-        uiItems.add(
-            Item.TabToggle(
-                tab = Item.TabToggle.Tab.Browser,
-                enabled = settingsRepository.browserTabEnabled,
-                position = if (showCollectiblesToggle) {
-                    ListCell.Position.FIRST
-                } else {
-                    ListCell.Position.SINGLE
-                }
-            )
+        val tabToggles = mutableListOf(
+            Item.TabToggle.Tab.Browser to settingsRepository.browserTabEnabled,
+            Item.TabToggle.Tab.Payments to settingsRepository.paymentsTabEnabled,
         )
-        if (showCollectiblesToggle) {
+        // Коллекции скрыты серверным флагом — переключать нечего
+        if (!config.flags.disableNfts) {
+            tabToggles.add(
+                Item.TabToggle.Tab.Collectibles to settingsRepository.collectiblesTabEnabled
+            )
+        }
+        tabToggles.forEachIndexed { index, (tab, enabled) ->
             uiItems.add(
                 Item.TabToggle(
-                    tab = Item.TabToggle.Tab.Collectibles,
-                    enabled = settingsRepository.collectiblesTabEnabled,
-                    position = ListCell.Position.LAST
+                    tab = tab,
+                    enabled = enabled,
+                    position = ListCell.getPosition(tabToggles.size, index)
                 )
             )
         }

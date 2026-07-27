@@ -189,6 +189,10 @@ class MainScreen: BaseWalletScreen<ScreenContext.None>(R.layout.fragment_main, S
             applyTabVisibility(R.id.browser, visible)
         }
 
+        collectFlow(viewModel.paymentsTabVisibleFlow) { visible ->
+            applyTabVisibility(R.id.payments, visible)
+        }
+
         val isTradingEnabled = WalletFeature.TradingTab.isEnabled
         bottomTabsView.toggleItem(R.id.activity, !isTradingEnabled)
         bottomTabsView.toggleItem(R.id.trading, isTradingEnabled)

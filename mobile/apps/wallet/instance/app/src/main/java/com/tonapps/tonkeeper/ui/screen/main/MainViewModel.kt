@@ -44,6 +44,9 @@ class MainViewModel(
     /** Пользовательская настройка видимости вкладки «Браузер». */
     val browserTabVisibleFlow = settingsRepository.browserTabEnabledFlow
 
+    /** То же для вкладки «Платежи». */
+    val paymentsTabVisibleFlow = settingsRepository.paymentsTabEnabledFlow
+
     /**
      * Вкладка «Коллекции» видна, только если её не запретил сервер и не выключил
      * пользователь: настройка не должна включать вкладку там, где её нет по конфигу.
