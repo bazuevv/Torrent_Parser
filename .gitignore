@@ -27,3 +27,9 @@ ton_payout/logs/
 # Скачанные медиа (media_downloader.py) — саму папку сохраняем через .gitkeep
 data/*
 !data/.gitkeep
+
+prompt.txt
+
+# mobile/ — исходники Tonkeeper (github.com/tonkeeper/android), лежат в нашем репо.
+# Артефакты сборки отсекает собственный mobile/.gitignore (build/, .gradle,
+# local.properties). Upstream-история вынесена в /mnt/Projects/tonkeeper-upstream.git

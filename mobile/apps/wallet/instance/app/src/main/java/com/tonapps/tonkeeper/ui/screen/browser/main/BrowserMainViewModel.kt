@@ -1,0 +1,147 @@
+package com.tonapps.tonkeeper.ui.screen.browser.main
+
+import android.app.Application
+import android.graphics.Color
+import android.net.Uri
+import androidx.core.net.toUri
+import androidx.lifecycle.viewModelScope
+import com.tonapps.extensions.mapList
+import com.tonapps.tonkeeper.Environment
+import com.tonapps.tonkeeper.manager.tonconnect.ITonConnectBridge
+import com.tonapps.tonkeeper.ui.base.BaseWalletVM
+import com.tonapps.tonkeeper.ui.screen.browser.main.list.connected.ConnectedItem
+import com.tonapps.tonkeeper.ui.screen.browser.main.list.explore.list.ExploreItem
+import com.tonapps.tonkeeperx.BuildConfig
+import com.tonapps.wallet.api.API
+import com.tonapps.blockchain.model.legacy.WalletEntity
+import com.tonapps.wallet.data.browser.BrowserRepository
+import com.tonapps.wallet.data.browser.entities.BrowserAppEntity
+import com.tonapps.wallet.data.browser.entities.BrowserDataEntity
+import com.tonapps.wallet.data.dapps.entities.AppEntity
+import com.tonapps.wallet.data.settings.SettingsRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+class BrowserMainViewModel(
+    app: Application,
+    private val wallet: WalletEntity,
+    private val settings: SettingsRepository,
+    private val api: API,
+    private val tonConnectBridge: ITonConnectBridge,
+    private val browserRepository: BrowserRepository,
+    private val settingsRepository: SettingsRepository,
+    private val environment: Environment
+): BaseWalletVM(app) {
+
+    val installId: String
+        get() = settings.installId
+
+    val uiConnectedItemsFlow = tonConnectBridge.walletAppsFlow(wallet).mapList {
+        ConnectedItem(wallet, it)
+    }
+
+    val isDappsDisabled: Boolean
+        get() = api.getConfig(wallet.network).flags.disableDApps
+
+    private val _uiExploreItemsFlow = MutableStateFlow<List<ExploreItem>>(emptyList())
+    val uiExploreItemsFlow = _uiExploreItemsFlow.asStateFlow()
+
+    init {
+        if (!isDappsDisabled) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val code = environment.deviceCountry
+                val locale = settingsRepository.getLocale()
+                _uiExploreItemsFlow.value = emptyList()
+                browserRepository.load(code, wallet.network, locale)?.let { setData(it) }
+                browserRepository.loadRemote(code, wallet.network, locale)?.let { setData(it) }
+            }
+        }
+    }
+
+    fun showDisconnect(app: AppEntity) {
+        viewModelScope.launch {
+            tonConnectBridge.showLogoutAppBar(wallet, context, app.url)
+        }
+    }
+
+    private fun getDebugApps(): List<BrowserAppEntity> {
+        val apps = mutableListOf<BrowserAppEntity>()
+        apps.add(BrowserAppEntity(
+            name = "Mariabit",
+            description = "fdsfsd",
+            icon = Uri.EMPTY,
+            poster = null,
+            url = "https://mariabit.github.io/".toUri(),
+            textColor = Color.WHITE,
+        ))
+
+        return apps.toList()
+    }
+
+    private fun setData(data: BrowserDataEntity) {
+        val items = mutableListOf<ExploreItem>()
+        if (data.apps.isNotEmpty()) {
+            items.add(ExploreItem.Banners(data.apps, api.getConfig(wallet.network).featuredPlayInterval, wallet, environment.deviceCountry))
+        }
+
+        var adsItem: ExploreItem.Ads? = null
+        for (category in data.categories) {
+            if (category.id == "featured") {
+                continue
+            } else if (category.id == "ads" && category.apps.isNotEmpty()) {
+                val ads = category.apps.first()
+                if (ads.button != null) {
+                    adsItem = ExploreItem.Ads(category.apps.first(), wallet, country = environment.deviceCountry)
+                }
+                continue
+            }
+
+            val isDigitalNomads = category.id == "digital_nomads"
+            if (!isDigitalNomads) {
+                items.add(ExploreItem.Title(category.title, category.id))
+            }
+
+            val apps = mutableListOf<BrowserAppEntity>()
+            if (category.apps.size > 4) {
+                for (chunk in category.apps.chunked(4)) {
+                    if (chunk.size >= 3) {
+                        apps.addAll(chunk)
+                    }
+                }
+            } else {
+                apps.addAll(category.apps)
+            }
+
+            for (app in apps.take(8)) {
+                items.add(ExploreItem.App(
+                    app = app,
+                    wallet = wallet,
+                    singleLine = !isDigitalNomads,
+                    country = environment.deviceCountry
+                ))
+            }
+        }
+
+        adsItem?.let {
+            items.add(1, it)
+        }
+
+        if (BuildConfig.DEBUG) {
+            val debugItems = mutableListOf<ExploreItem>()
+            debugItems.add(ExploreItem.Title("Testing"))
+            for (app in getDebugApps()) {
+                debugItems.add(ExploreItem.App(
+                    app = app,
+                    wallet = wallet,
+                    singleLine = false,
+                    country = environment.deviceCountry
+                ))
+            }
+            items.addAll(5, debugItems)
+        }
+
+        _uiExploreItemsFlow.value = items.toList()
+    }
+}
