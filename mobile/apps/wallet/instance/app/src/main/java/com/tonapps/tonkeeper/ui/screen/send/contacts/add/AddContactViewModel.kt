@@ -69,9 +69,12 @@ class AddContactViewModel(
 
     val isEnabledButtonFlow = combine(
         accountFlow,
-        userInputFlow.map { it.name }.distinctUntilChanged()
-    ) { account, name ->
-        (account is AddressAccount.Success || account is AddressAccount.TronAccount) && name.isNotBlank()
+        userInputFlow.map { it.name }.distinctUntilChanged(),
+        duplicateContactFlow
+    ) { account, name, duplicateContact ->
+        (account is AddressAccount.Success || account is AddressAccount.TronAccount) &&
+                name.isNotBlank() &&
+                duplicateContact == null
     }
 
     init {
