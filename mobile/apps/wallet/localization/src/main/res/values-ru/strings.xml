@@ -876,7 +876,7 @@
     <string name="create_phone_contact">Новый контакт в телефоне</string>
     <string name="pick_contact_title">Выбор контакта</string>
     <string name="pick_contact_message">Для отображения фото контакта в адресной книге приложению требуется разрешение на доступ к контактам.</string>
-    <string name="pick_contact_plain">Просто контакт</string>
+    <string name="pick_contact_plain">Только контакт</string>
     <string name="pick_contact_with_photo">Контакт с фото</string>
     <string name="phone_contacts_unavailable">На устройстве нет приложения «Контакты».</string>
 </resources>

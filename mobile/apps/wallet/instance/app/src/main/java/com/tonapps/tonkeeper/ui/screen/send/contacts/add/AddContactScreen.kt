@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.net.toUri
 import com.tonapps.tonkeeper.extensions.hideKeyboard
 import com.tonapps.tonkeeper.extensions.toast
+import com.tonapps.uikit.color.accentBlueColor
 import com.tonapps.wallet.localization.Localization
 import com.tonapps.tonkeeper.koin.walletViewModel
 import com.tonapps.tonkeeper.ui.base.WalletContextScreen
@@ -117,7 +118,10 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
             withPhoto = false
             pickContact.launch(null)
         }
-        builder.setNegativeButton(Localization.pick_contact_with_photo) { dialog ->
+        builder.setNegativeButton(
+            resId = Localization.pick_contact_with_photo,
+            color = requireContext().accentBlueColor
+        ) { dialog ->
             dialog.dismiss()
             requestContactsPermission.launch(Manifest.permission.READ_CONTACTS)
         }
