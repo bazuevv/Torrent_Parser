@@ -112,7 +112,11 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
     private fun showPickContactDialog() {
         val builder = AlertDialog.Builder(requireContext())
         builder.setTitle(Localization.pick_contact_title)
-        builder.setMessage(Localization.pick_contact_message)
+        // Отдельного слота под надпись у диалога нет, а текст сообщения уже
+        // центрирован — поэтому она добавляется к нему через пустую строку
+        builder.setMessage(
+            "${getString(Localization.pick_contact_message)}\n\n${getString(Localization.save)}"
+        )
         builder.setPositiveButton(Localization.pick_contact_plain) { dialog ->
             dialog.dismiss()
             withPhoto = false
