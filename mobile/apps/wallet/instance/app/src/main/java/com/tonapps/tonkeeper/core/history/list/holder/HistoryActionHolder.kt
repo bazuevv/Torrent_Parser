@@ -21,8 +21,10 @@ import com.tonapps.tonkeeper.core.history.list.item.HistoryItem
 import com.tonapps.wallet.features.events.iconRes
 import com.tonapps.wallet.features.events.nameRes
 import com.tonapps.tonkeeper.koin.historyHelper
+import com.tonapps.blockchain.model.legacy.TokenEntity
 import com.tonapps.tonkeeper.ui.screen.nft.NftScreen
 import com.tonapps.deposit.screens.send.state.SendFee
+import com.tonapps.tonkeeper.ui.screen.send.main.SendScreen
 import com.tonapps.tonkeeper.ui.screen.transaction.TransactionScreen
 import com.tonapps.tonkeeperx.R
 import com.tonapps.uikit.color.accentGreenColor
@@ -67,6 +69,7 @@ class HistoryActionHolder(
     private val titleView = findViewById<AppCompatTextView>(R.id.title)
     private val subtitleView = findViewById<AppCompatTextView>(R.id.subtitle)
     private val commentView = findViewById<AppCompatTextView>(R.id.comment)
+    private val repeatView = findViewById<AppCompatTextView>(R.id.repeat)
     private val amountView = findViewById<AppCompatTextView>(R.id.amount)
     private val amount2View = findViewById<AppCompatTextView>(R.id.amount2)
     private val dateView = findViewById<AppCompatTextView>(R.id.date)
@@ -152,6 +155,36 @@ class HistoryActionHolder(
 
         bindNft(item)
         bindAmount(item)
+        bindRepeat(item)
+    }
+
+    private fun bindRepeat(item: HistoryItem.Event) {
+        val targetAddress = item.recipient?.address
+        val amount = item.repeatAmount
+        val isSimpleTransfer = item.isOut &&
+                item.action == ActionType.Send &&
+                !item.isScam &&
+                !item.failed &&
+                !item.pending &&
+                item.nft == null
+
+        if (disableOpenAction || !isSimpleTransfer || targetAddress == null || amount == null) {
+            repeatView.visibility = View.GONE
+            repeatView.setOnClickListener(null)
+            return
+        }
+
+        repeatView.visibility = View.VISIBLE
+        repeatView.setOnClickListener {
+            context.navigation?.add(
+                SendScreen.Companion.Builder(item.wallet)
+                    .setTargetAddress(targetAddress)
+                    .setTokenAddress(item.tokenAddress ?: TokenEntity.TON.address)
+                    .setAmount(amount)
+                    .setType(SendScreen.Companion.Type.Default)
+                    .build()
+            )
+        }
     }
 
     private fun loadIcon(uri: Uri) {
