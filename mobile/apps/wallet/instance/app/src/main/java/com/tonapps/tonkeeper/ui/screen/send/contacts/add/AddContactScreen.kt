@@ -1,5 +1,6 @@
 package com.tonapps.tonkeeper.ui.screen.send.contacts.add
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -21,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uikit.base.BaseFragment
+import uikit.dialog.alert.AlertDialog
 import uikit.extensions.collectFlow
 import uikit.widget.AsyncImageView
 import java.io.File
@@ -50,6 +52,20 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         uri?.let { applyPickedContact(it) }
     }
 
+    /**
+     * Фото контакта лежит по вложенному адресу …/display_photo, и доступ от системного
+     * выбора на него не распространяется — провайдер требует READ_CONTACTS. Поэтому
+     * разрешение спрашивается только когда пользователь сам выбрал вариант с фото.
+     */
+    private val requestContactsPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        withPhoto = granted
+        pickContact.launch(null)
+    }
+
+    private var withPhoto: Boolean = false
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         headerView = view.findViewById(R.id.header)
@@ -57,7 +73,7 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
 
         nameView = view.findViewById(R.id.name)
         nameView.doOnTextChange = { viewModel.setName(it) }
-        nameView.doOnIconClick = { pickContact.launch(null) }
+        nameView.doOnIconClick = { showPickContactDialog() }
         requireArguments().getString(ARG_NAME)?.let { nameView.text = it }
 
         photoView = view.findViewById(R.id.photo)
@@ -92,6 +108,22 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         hideKeyboard()
     }
     
+    private fun showPickContactDialog() {
+        val builder = AlertDialog.Builder(requireContext())
+        builder.setTitle(Localization.pick_contact_title)
+        builder.setMessage(Localization.pick_contact_message)
+        builder.setPositiveButton(Localization.pick_contact_with_photo) { dialog ->
+            dialog.dismiss()
+            requestContactsPermission.launch(Manifest.permission.READ_CONTACTS)
+        }
+        builder.setNegativeButton(Localization.pick_contact_plain) { dialog ->
+            dialog.dismiss()
+            withPhoto = false
+            pickContact.launch(null)
+        }
+        builder.show()
+    }
+
     private fun applyPickedContact(uri: Uri) {
         val contact = requireContext().contentResolver.query(
             uri,
@@ -122,9 +154,13 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         nameView.focus()
 
         lifecycleScope.launch {
-            // Фото копируется сразу: доступ к телефонной книге действует, пока живёт
-            // результат системного выбора, а до сохранения контакта он не доживёт
-            val photoPath = withContext(Dispatchers.IO) { copyContactPhoto(uri) }
+            // Фото копируется сразу после выбора: доступ к телефонной книге живёт,
+            // пока не закрыт экран, и к моменту сохранения контакта может истечь
+            val photoPath = if (withPhoto) {
+                withContext(Dispatchers.IO) { copyContactPhoto(uri) }
+            } else {
+                null
+            }
             contact.lookupKey?.let { viewModel.setPhoneContact(contact.name, it, photoPath) }
             applyContactPhoto(photoPath)
         }
