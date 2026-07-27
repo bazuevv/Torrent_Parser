@@ -19,6 +19,7 @@ import com.tonapps.tonkeeper.ui.base.BaseWalletVM
 import com.tonapps.tonkeeper.ui.screen.events.compose.TxScope.decryptComment
 import com.tonapps.tonkeeper.ui.screen.events.compose.details.state.UiState
 import com.tonapps.tonkeeper.ui.screen.nft.NftScreen
+import com.tonapps.tonkeeper.ui.screen.send.main.SendScreen
 import com.tonapps.tonkeeper.ui.screen.transaction.CommentReportDialog
 import com.tonapps.uikit.color.accentGreenColor
 import com.tonapps.uikit.icon.UIKitIcon
@@ -149,7 +150,8 @@ class TxDetailsViewModel(
         icons = currencyIcons(),
         details = details(),
         spam = spam,
-        warningText = getWarningStatus()
+        warningText = getWarningStatus(),
+        canRepeat = canRepeat
     ))
 
     val uiStateFlow = _uiStateFlow.asStateFlow()
@@ -417,6 +419,36 @@ class TxDetailsViewModel(
         passcodeManager = passcodeManager,
         eventsRepository = eventsRepository
     )
+
+    /**
+     * Повторить можно только воспроизводимый перевод: исходящий перевод монет
+     * с известными получателем и суммой. Свопы, стейкинг и NFT сюда не попадают.
+     */
+    private val canRepeat: Boolean
+        get() = spam == UiState.Spam.No &&
+                !action.isFailed &&
+                action.type == ActionType.Send &&
+                action.product == null &&
+                action.recipient != null &&
+                outgoingValue != null
+
+    fun repeatTransfer() {
+        // Именно userFriendlyAddress, а не raw: он несёт флаг bounceable, от которого
+        // зависит судьба перевода на неинициализированный кошелёк
+        val targetAddress = action.recipient?.userFriendlyAddress ?: return
+        val outgoing = outgoingValue ?: return
+
+        viewModelScope.launch {
+            openScreen(
+                SendScreen.Companion.Builder(wallet)
+                    .setTargetAddress(targetAddress)
+                    .setTokenAddress(outgoing.currency.address)
+                    .setAmount(outgoing.value)
+                    .setType(SendScreen.Companion.Type.Default)
+                    .build()
+            )
+        }
+    }
 
     fun openTx() {
         val url = api.getConfig(wallet.network)

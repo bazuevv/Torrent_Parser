@@ -25,5 +25,6 @@ sealed class UiState() {
         val details: UiDetails = UiDetails(),
         val spam: Spam,
         val warningText: String?,
+        val canRepeat: Boolean = false,
     ): UiState()
 }

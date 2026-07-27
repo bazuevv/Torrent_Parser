@@ -1,6 +1,8 @@
 package com.tonapps.tonkeeper.ui.screen.events.compose.details.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +34,7 @@ fun TxDetailsComposable(
 ) {
     val uiState by viewModel.uiStateFlow.collectAsState()
     val spam by remember { derivedStateOf { uiState.spam } }
+    val canRepeat by remember { derivedStateOf { uiState.canRepeat } }
     val interop = rememberNestedScrollInteropConnection()
 
     TKModalScaffold(
@@ -46,10 +49,26 @@ fun TxDetailsComposable(
                 if (state == UiState.Spam.Maybe) {
                     TxSpamButtons(viewModel::reportSpam)
                 } else {
-                    TxDetailsExplorer(
-                        viewModel = viewModel,
-                        hash = uiState.hash
-                    )
+                    // FlowRow, а не Row: вместе с широкой кнопкой обозревателя
+                    // «Повторить» может не поместиться в строку на узком экране
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(
+                            space = 8.dp,
+                            alignment = Alignment.CenterHorizontally
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TxDetailsExplorer(
+                            viewModel = viewModel,
+                            hash = uiState.hash
+                        )
+
+                        if (canRepeat) {
+                            TxDetailsRepeat(
+                                onClick = viewModel::repeatTransfer
+                            )
+                        }
+                    }
                 }
             }
         }
