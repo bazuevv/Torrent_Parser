@@ -100,7 +100,7 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             manifestPlaceholders += mapOf("build_type" to "internal_debug")
 
-            ndk { abiFilters += setOf(ABI_ARM64_V8A) }
+            ndk { abiFilters += setOf(ABI_ARM64_V8A, ABI_INTEL_ATOM64) }
         }
     }
 
