@@ -29,7 +29,6 @@ class TxEventUiMapper(
 ) {
 
     private val moreButtonText = context.getString(Localization.more)
-    private val repeatButtonText = context.getString(Localization.repeat_transfer)
 
     fun changeText(item: UiEvent.Item, text: String): UiEvent.Item {
         val index = item.actions.indexOfFirst {
@@ -121,22 +120,21 @@ class TxEventUiMapper(
     }
 
     /**
-     * Кнопка «Повторить» показывается только у воспроизводимых переводов: исходящий
-     * перевод монет с известными получателем и суммой. Свопы, стейкинг и NFT сюда
-     * не попадают — их нельзя повторить обычным переводом.
+     * Повторить можно только воспроизводимый перевод: исходящий перевод монет
+     * с известными получателем и суммой. Свопы, стейкинг и NFT сюда не попадают —
+     * их нельзя повторить обычным переводом.
      */
-    private fun repeatButtonText(
+    private fun canRepeat(
         action: TxAction,
         isSpam: Boolean,
         state: UiEvent.Item.Action.State
-    ): String? {
-        val canRepeat = !isSpam &&
+    ): Boolean {
+        return !isSpam &&
                 state == UiEvent.Item.Action.State.Success &&
                 action.type == ActionType.Send &&
                 action.product == null &&
                 action.recipient != null &&
                 action.amount.outgoing != null
-        return if (canRepeat) repeatButtonText else null
     }
 
     fun toUiItem(event: TxEvent, wallet: WalletEntity): UiEvent.Item {
@@ -177,7 +175,7 @@ class TxEventUiMapper(
                 rightDescription = if (action.hasUnverifiedToken) context.getString(Localization.unverified_token) else null,
                 spam = isSpam,
                 position = uiPosition(index, event.actions.size),
-                repeatButtonText = repeatButtonText(action, isSpam, state)
+                canRepeat = canRepeat(action, isSpam, state)
             )
         }
 

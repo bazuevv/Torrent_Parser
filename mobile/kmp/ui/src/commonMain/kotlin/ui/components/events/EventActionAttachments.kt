@@ -11,7 +11,7 @@ import ui.theme.Dimens
 internal fun EventActionAttachments(
     product: UiEvent.Item.Action.Product?,
     text: UiEvent.Item.Action.Text?,
-    repeatButtonText: String?,
+    canRepeat: Boolean,
     index: Int,
     hiddenBalances: Boolean,
     onClick: (part: EventItemClickPart) -> Unit
@@ -46,14 +46,13 @@ internal fun EventActionAttachments(
         )
     }
 
-    if (repeatButtonText != null) {
+    if (canRepeat) {
         EventActionRepeat(
             modifier = Modifier.padding(
                 start = 76.dp,
                 top = 8.dp,
                 end = Dimens.offsetMedium
             ),
-            title = repeatButtonText,
             onClick = repeatClick
         )
     }

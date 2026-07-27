@@ -78,14 +78,14 @@ sealed class UiEvent(
             val rightDescription: String?,
             val spam: Boolean,
             val position: UiPosition,
-            val repeatButtonText: String? = null,
+            val canRepeat: Boolean = false,
         ) {
 
             val showDivider: Boolean
                 get() = position == UiPosition.Start || position == UiPosition.Middle
 
             val hasAttachments: Boolean
-                get() = !spam && (product != null || text != null || repeatButtonText != null)
+                get() = !spam && (product != null || text != null || canRepeat)
 
             enum class State {
                 Pending, Success, Failed

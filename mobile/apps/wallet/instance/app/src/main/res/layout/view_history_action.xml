@@ -183,22 +183,19 @@
                 android:textColor="?attr/textPrimaryColor"
                 android:textSize="14sp"/>
 
-            <androidx.appcompat.widget.AppCompatTextView
+            <androidx.appcompat.widget.AppCompatImageView
                 android:id="@+id/repeat"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:layout_marginTop="8dp"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="8dp"
+                android:padding="10dp"
                 android:clickable="true"
                 android:focusable="true"
-                android:singleLine="true"
                 android:visibility="gone"
-                android:text="@string/repeat_transfer"
+                android:contentDescription="@string/repeat_transfer"
+                android:src="@drawable/ic_refresh_16"
                 android:background="@drawable/bg_content_tint"
-                android:fontFamily="@font/montserrat_medium"
-                android:textColor="?attr/textAccentColor"
-                android:textSize="14sp"/>
+                app:tint="?attr/textAccentColor"/>
 
         </uikit.widget.ColumnLayout>
 

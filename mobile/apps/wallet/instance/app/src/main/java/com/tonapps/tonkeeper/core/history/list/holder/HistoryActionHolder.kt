@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import androidx.annotation.ColorInt
 import androidx.annotation.RequiresApi
+import androidx.appcompat.widget.AppCompatImageView
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.net.toUri
 import com.tonapps.extensions.logError
@@ -69,7 +70,7 @@ class HistoryActionHolder(
     private val titleView = findViewById<AppCompatTextView>(R.id.title)
     private val subtitleView = findViewById<AppCompatTextView>(R.id.subtitle)
     private val commentView = findViewById<AppCompatTextView>(R.id.comment)
-    private val repeatView = findViewById<AppCompatTextView>(R.id.repeat)
+    private val repeatView = findViewById<AppCompatImageView>(R.id.repeat)
     private val amountView = findViewById<AppCompatTextView>(R.id.amount)
     private val amount2View = findViewById<AppCompatTextView>(R.id.amount2)
     private val dateView = findViewById<AppCompatTextView>(R.id.date)
