@@ -70,6 +70,8 @@ class SettingsRepository(
         private const val STORIES_VIEWED_PREFIX = "stories_viewed_"
         private const val LEDGER_CONNECT_USB = "ledger_connect_usb"
         private const val SEND_TOOLTIP_SHOWN_KEY = "send_tooltip_shown"
+        private const val BROWSER_TAB_ENABLED_KEY = "browser_tab_enabled"
+        private const val COLLECTIBLES_TAB_ENABLED_KEY = "collectibles_tab_enabled"
     }
 
     private val _currencyFlow = MutableEffectFlow<WalletCurrency>()
@@ -81,6 +83,13 @@ class SettingsRepository(
 
     private val _hiddenBalancesFlow = MutableEffectFlow<Boolean>()
     val hiddenBalancesFlow = _hiddenBalancesFlow.stateIn(scope, SharingStarted.Eagerly, false)
+
+    private val _browserTabEnabledFlow = MutableEffectFlow<Boolean>()
+    val browserTabEnabledFlow = _browserTabEnabledFlow.stateIn(scope, SharingStarted.Eagerly, true)
+
+    private val _collectiblesTabEnabledFlow = MutableEffectFlow<Boolean>()
+    val collectiblesTabEnabledFlow =
+        _collectiblesTabEnabledFlow.stateIn(scope, SharingStarted.Eagerly, true)
 
     private val _countryFlow = MutableEffectFlow<String>()
 
@@ -253,6 +262,29 @@ class SettingsRepository(
                 field = value
                 _hiddenBalancesFlow.tryEmit(value)
                 migrationHelper.setHiddenBalance(value)
+            }
+        }
+
+    /**
+     * Показывать ли вкладку «Браузер» в нижнем меню. По умолчанию включена —
+     * пользователь скрывает её сам в настройках.
+     */
+    var browserTabEnabled: Boolean = prefs.getBoolean(BROWSER_TAB_ENABLED_KEY, true)
+        set(value) {
+            if (value != field) {
+                prefs.putBoolean(BROWSER_TAB_ENABLED_KEY, value)
+                field = value
+                _browserTabEnabledFlow.tryEmit(value)
+            }
+        }
+
+    /** То же для вкладки «Коллекции». */
+    var collectiblesTabEnabled: Boolean = prefs.getBoolean(COLLECTIBLES_TAB_ENABLED_KEY, true)
+        set(value) {
+            if (value != field) {
+                prefs.putBoolean(COLLECTIBLES_TAB_ENABLED_KEY, value)
+                field = value
+                _collectiblesTabEnabledFlow.tryEmit(value)
             }
         }
 
@@ -541,6 +573,8 @@ class SettingsRepository(
             _currencyFlow.tryEmit(currency)
             _languageFlow.tryEmit(language)
             _hiddenBalancesFlow.tryEmit(hiddenBalances)
+            _browserTabEnabledFlow.tryEmit(browserTabEnabled)
+            _collectiblesTabEnabledFlow.tryEmit(collectiblesTabEnabled)
             _countryFlow.tryEmit(country)
             _searchEngineFlow.tryEmit(searchEngine)
             _biometricFlow.tryEmit(biometric)
