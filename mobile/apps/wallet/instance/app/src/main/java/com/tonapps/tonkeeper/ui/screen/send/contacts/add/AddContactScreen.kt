@@ -3,12 +3,14 @@ package com.tonapps.tonkeeper.ui.screen.send.contacts.add
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.view.View
 import android.widget.Button
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import com.tonapps.tonkeeper.extensions.hideKeyboard
 import com.tonapps.tonkeeper.extensions.toast
@@ -74,7 +76,7 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
 
         nameView = view.findViewById(R.id.name)
         nameView.doOnTextChange = { viewModel.setName(it) }
-        nameView.doOnIconClick = { showPickContactDialog() }
+        nameView.doOnIconClick = { pickContactOrAsk() }
         requireArguments().getString(ARG_NAME)?.let { nameView.text = it }
 
         photoView = view.findViewById(R.id.photo)
@@ -109,6 +111,26 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         hideKeyboard()
     }
     
+    /**
+     * Диалог нужен только чтобы решить, спрашивать ли разрешение. Если доступ уже выдан,
+     * фото копируется без вопросов — переспрашивать пользователя не о чем.
+     */
+    private fun pickContactOrAsk() {
+        if (hasContactsPermission()) {
+            withPhoto = true
+            pickContact.launch(null)
+        } else {
+            showPickContactDialog()
+        }
+    }
+
+    private fun hasContactsPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            requireContext(),
+            Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
     private fun showPickContactDialog() {
         val builder = AlertDialog.Builder(requireContext())
         builder.setTitle(Localization.pick_contact_title)
