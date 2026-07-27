@@ -10,6 +10,9 @@ set -euo pipefail
 # Configuration
 DETEKT_VERSION="1.23.8"
 PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+# Корень исходников Tonkeeper. В upstream совпадает с корнем репозитория,
+# у нас проект вложен в mobile/ — оттуда берутся detekt.yml и каталог отчётов.
+TONKEEPER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # Use git-common-dir for worktree support - stores JARs in shared location
 GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
 TOOLS_BUILD_DIR="$GIT_COMMON_DIR/detekt-cache"
@@ -84,8 +87,8 @@ echo -e "${YELLOW}Running detekt with auto-correct...${NC}"
 java -jar "$DETEKT_CLI_JAR" \
     --input "$DETEKT_INPUT_ABSOLUTE" \
     --plugins "$DETEKT_FORMATTING_JAR" \
-    --config "$PROJECT_ROOT/detekt/detekt.yml" \
-    --report "xml:$PROJECT_ROOT/build/reports/detekt-report.xml" \
+    --config "$TONKEEPER_ROOT/detekt/detekt.yml" \
+    --report "xml:$TONKEEPER_ROOT/build/reports/detekt-report.xml" \
     --auto-correct
 
 DETEKT_EXIT_CODE=$?
