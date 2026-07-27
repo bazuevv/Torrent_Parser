@@ -41,6 +41,18 @@ class MainViewModel(
         api.getConfig(wallet.network).flags.disableNfts
     }
 
+    /** Пользовательская настройка видимости вкладки «Браузер». */
+    val browserTabVisibleFlow = settingsRepository.browserTabEnabledFlow
+
+    /**
+     * Вкладка «Коллекции» видна, только если её не запретил сервер и не выключил
+     * пользователь: настройка не должна включать вкладку там, где её нет по конфигу.
+     */
+    val collectiblesTabVisibleFlow = combine(
+        disbleNftsFlow,
+        settingsRepository.collectiblesTabEnabledFlow
+    ) { disabledByServer, enabledByUser -> !disabledByServer && enabledByUser }
+
     fun setBottomScrolled(value: Boolean) {
         _childBottomScrolled.tryEmit(value)
     }

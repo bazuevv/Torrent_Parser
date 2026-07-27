@@ -122,6 +122,7 @@ class MainScreen: BaseWalletScreen<ScreenContext.None>(R.layout.fragment_main, S
     private val fragments: MutableMap<Int, Fragment> = mutableMapOf()
 
     private var currentWalletId: String? = null
+    private var currentWallet: WalletEntity? = null
 
     private lateinit var bottomTabsView: BottomTabsView
 
@@ -179,8 +180,12 @@ class MainScreen: BaseWalletScreen<ScreenContext.None>(R.layout.fragment_main, S
             setFragment(bottomTabsView.selectedItemId, wallet, "wallet",null, false)
         }
 
-        collectFlow(viewModel.disbleNftsFlow) {
-            bottomTabsView.toggleItem(R.id.collectibles, !it)
+        collectFlow(viewModel.collectiblesTabVisibleFlow) { visible ->
+            applyTabVisibility(R.id.collectibles, visible)
+        }
+
+        collectFlow(viewModel.browserTabVisibleFlow) { visible ->
+            applyTabVisibility(R.id.browser, visible)
         }
 
         val isTradingEnabled = WalletFeature.TradingTab.isEnabled
@@ -275,7 +280,24 @@ class MainScreen: BaseWalletScreen<ScreenContext.None>(R.layout.fragment_main, S
         view.alpha = 1f
     }
 
+    /**
+     * hideItem только прячет кнопку в меню. Если пользователь стоит на этой вкладке,
+     * её экран остался бы открытым без подсветки в меню, поэтому уводим на «Кошелёк».
+     */
+    private fun applyTabVisibility(itemId: Int, visible: Boolean) {
+        bottomTabsView.toggleItem(itemId, visible)
+
+        if (visible || bottomTabsView.selectedItemId != itemId) {
+            return
+        }
+
+        val wallet = currentWallet ?: return
+        bottomTabsView.selectedItemId = R.id.wallet
+        setFragment(R.id.wallet, wallet, "wallet", null, false)
+    }
+
     private fun applyWallet(wallet: WalletEntity) {
+        currentWallet = wallet
         val walletChanged = currentWalletId != null && currentWalletId != wallet.id
         if (walletChanged && fragments.isNotEmpty()) {
             childFragmentManager.removeAllFragments()
