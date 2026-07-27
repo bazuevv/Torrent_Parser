@@ -905,4 +905,6 @@
     <string name="auto_payments">Auto payments</string>
     <string name="auto_payments_empty">Scheduled payments will appear here.</string>
     <string name="settings_payments_tab_text">Show the Payments tab in the bottom menu.</string>
+    <string name="create_phone_contact">New contact in phone book</string>
+    <string name="phone_contacts_unavailable">No contacts app found on the device.</string>
 </resources>

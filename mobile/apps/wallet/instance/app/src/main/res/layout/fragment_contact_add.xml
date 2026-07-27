@@ -20,7 +20,17 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:maxLength="32"
+            android:icon="@drawable/ic_address_book_28"
             android:hint="@string/name"/>
+
+        <Button
+            style="@style/Widget.App.Button.Medium.Secondary"
+            android:id="@+id/create_phone_contact"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/offsetExtraSmall"
+            android:textAppearance="@style/TextAppearance.Label2"
+            android:text="@string/create_phone_contact"/>
 
         <uikit.widget.InputView
             android:id="@+id/address"

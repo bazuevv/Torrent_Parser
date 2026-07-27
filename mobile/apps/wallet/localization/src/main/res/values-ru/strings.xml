@@ -873,4 +873,6 @@
     <string name="auto_payments">Автоплатежи</string>
     <string name="auto_payments_empty">Здесь будут запланированные платежи.</string>
     <string name="settings_payments_tab_text">Показывать вкладку «Платежи» в нижнем меню.</string>
+    <string name="create_phone_contact">Новый контакт в телефоне</string>
+    <string name="phone_contacts_unavailable">На устройстве нет приложения «Контакты».</string>
 </resources>

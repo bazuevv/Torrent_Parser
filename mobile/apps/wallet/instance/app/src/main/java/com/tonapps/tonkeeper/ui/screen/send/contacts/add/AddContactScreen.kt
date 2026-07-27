@@ -1,9 +1,16 @@
 package com.tonapps.tonkeeper.ui.screen.send.contacts.add
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.view.View
 import android.widget.Button
+import androidx.activity.result.contract.ActivityResultContracts
 import com.tonapps.tonkeeper.extensions.hideKeyboard
+import com.tonapps.tonkeeper.extensions.toast
+import com.tonapps.wallet.localization.Localization
 import com.tonapps.tonkeeper.koin.walletViewModel
 import com.tonapps.tonkeeper.ui.base.WalletContextScreen
 import com.tonapps.tonkeeperx.R
@@ -24,6 +31,15 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
     private lateinit var nameView: InputView
     private lateinit var addressView: InputView
     private lateinit var button: Button
+    private lateinit var createPhoneContactButton: Button
+
+    /**
+     * Системный выбор контакта: пользователь сам указывает, кого отдать приложению,
+     * поэтому разрешение READ_CONTACTS не нужно — доступ выдаётся к одному URI.
+     */
+    private val pickContact = registerForActivityResult(ActivityResultContracts.PickContact()) { uri ->
+        uri?.let { applyPickedContact(it) }
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -32,7 +48,11 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
 
         nameView = view.findViewById(R.id.name)
         nameView.doOnTextChange = { viewModel.setName(it) }
+        nameView.doOnIconClick = { pickContact.launch(null) }
         requireArguments().getString(ARG_NAME)?.let { nameView.text = it }
+
+        createPhoneContactButton = view.findViewById(R.id.create_phone_contact)
+        createPhoneContactButton.setOnClickListener { createPhoneContact() }
 
         addressView = view.findViewById(R.id.address)
         addressView.doOnTextChange = { viewModel.setAddress(it) }
@@ -61,6 +81,35 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         hideKeyboard()
     }
     
+    private fun applyPickedContact(uri: Uri) {
+        val name = requireContext().contentResolver.query(
+            uri,
+            arrayOf(ContactsContract.Contacts.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+
+        if (name.isNullOrBlank()) {
+            return
+        }
+        nameView.text = name
+        nameView.focus()
+    }
+
+    private fun createPhoneContact() {
+        val intent = Intent(Intent.ACTION_INSERT).apply {
+            type = ContactsContract.Contacts.CONTENT_TYPE
+        }
+        try {
+            startActivity(intent)
+        } catch (ignored: ActivityNotFoundException) {
+            navigation?.toast(Localization.phone_contacts_unavailable)
+        }
+    }
+
     private fun applyAccountState(accountState: AddContactViewModel.AddressAccount) {
         addressView.loading = accountState is AddContactViewModel.AddressAccount.Loading
         addressView.error = accountState is AddContactViewModel.AddressAccount.Error
