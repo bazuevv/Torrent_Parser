@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <uikit.widget.ColumnLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/body"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
@@ -22,6 +23,14 @@
             android:maxLength="32"
             android:icon="@drawable/ic_address_book_28"
             android:hint="@string/name"/>
+
+        <uikit.widget.AsyncImageView
+            android:id="@+id/photo"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="@dimen/offsetMedium"
+            android:visibility="gone"
+            app:roundAsCircle="true"/>
 
         <Button
             style="@style/Widget.App.Button.Medium.Secondary"

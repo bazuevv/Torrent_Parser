@@ -35,6 +35,8 @@ class AddContactViewModel(
     data class UserInput(
         val name: String,
         val address: String,
+        /** LOOKUP_KEY, если имя выбрано из телефонной книги. */
+        val lookupKey: String? = null,
     )
 
     sealed class AddressAccount {
@@ -91,7 +93,12 @@ class AddContactViewModel(
         viewModelScope.launch {
             try {
                 val userInput = _userInputFlow.value
-                contactsRepository.add(userInput.name, userInput.address, wallet.network)
+                contactsRepository.add(
+                    name = userInput.name,
+                    address = userInput.address,
+                    network = wallet.network,
+                    lookupKey = userInput.lookupKey
+                )
             } catch (e: Throwable) {
                 toast(e.bestMessage)
             } finally {
@@ -102,6 +109,15 @@ class AddContactViewModel(
 
     fun setName(name: String) {
         _userInputFlow.value = _userInputFlow.value.copy(name = name)
+    }
+
+    /**
+     * Имя из телефонной книги вместе с ключом контакта. Последующая правка имени
+     * ключ не сбрасывает: пользователь мог выбрать контакт и подправить подпись,
+     * но привязка к записи в книге остаётся той же.
+     */
+    fun setPhoneContact(name: String, lookupKey: String) {
+        _userInputFlow.value = _userInputFlow.value.copy(name = name, lookupKey = lookupKey)
     }
 
     fun setAddress(address: String) {

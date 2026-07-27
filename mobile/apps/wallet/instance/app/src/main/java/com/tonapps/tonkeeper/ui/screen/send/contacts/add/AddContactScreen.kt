@@ -8,6 +8,7 @@ import android.provider.ContactsContract
 import android.view.View
 import android.widget.Button
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.net.toUri
 import com.tonapps.tonkeeper.extensions.hideKeyboard
 import com.tonapps.tonkeeper.extensions.toast
 import com.tonapps.wallet.localization.Localization
@@ -17,6 +18,7 @@ import com.tonapps.tonkeeperx.R
 import com.tonapps.blockchain.model.legacy.WalletEntity
 import uikit.base.BaseFragment
 import uikit.extensions.collectFlow
+import uikit.widget.AsyncImageView
 import uikit.extensions.pinToBottomInsets
 import uikit.widget.InputView
 import uikit.widget.ModalHeader
@@ -32,6 +34,7 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
     private lateinit var addressView: InputView
     private lateinit var button: Button
     private lateinit var createPhoneContactButton: Button
+    private lateinit var photoView: AsyncImageView
 
     /**
      * Системный выбор контакта: пользователь сам указывает, кого отдать приложению,
@@ -50,6 +53,8 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         nameView.doOnTextChange = { viewModel.setName(it) }
         nameView.doOnIconClick = { pickContact.launch(null) }
         requireArguments().getString(ARG_NAME)?.let { nameView.text = it }
+
+        photoView = view.findViewById(R.id.photo)
 
         createPhoneContactButton = view.findViewById(R.id.create_phone_contact)
         createPhoneContactButton.setOnClickListener { createPhoneContact() }
@@ -82,22 +87,52 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
     }
     
     private fun applyPickedContact(uri: Uri) {
-        val name = requireContext().contentResolver.query(
+        val contact = requireContext().contentResolver.query(
             uri,
-            arrayOf(ContactsContract.Contacts.DISPLAY_NAME),
+            arrayOf(
+                ContactsContract.Contacts.DISPLAY_NAME,
+                ContactsContract.Contacts.LOOKUP_KEY,
+                ContactsContract.Contacts.PHOTO_URI
+            ),
             null,
             null,
             null
         )?.use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) else null
-        }
+            if (!cursor.moveToFirst()) {
+                return@use null
+            }
+            PhoneContact(
+                name = cursor.getString(0),
+                lookupKey = cursor.getString(1),
+                photoUri = cursor.getString(2)
+            )
+        } ?: return
 
-        if (name.isNullOrBlank()) {
+        if (contact.name.isNullOrBlank()) {
             return
         }
-        nameView.text = name
+
+        nameView.text = contact.name
+        contact.lookupKey?.let { viewModel.setPhoneContact(contact.name, it) }
+        applyContactPhoto(contact.photoUri)
         nameView.focus()
     }
+
+    private fun applyContactPhoto(photoUri: String?) {
+        // У контакта может не быть фото — тогда прячем аватар, а не показываем пустоту
+        if (photoUri.isNullOrBlank()) {
+            photoView.visibility = View.GONE
+            return
+        }
+        photoView.visibility = View.VISIBLE
+        photoView.setImageURI(photoUri.toUri())
+    }
+
+    private data class PhoneContact(
+        val name: String?,
+        val lookupKey: String?,
+        val photoUri: String?
+    )
 
     private fun createPhoneContact() {
         val intent = Intent(Intent.ACTION_INSERT).apply {
