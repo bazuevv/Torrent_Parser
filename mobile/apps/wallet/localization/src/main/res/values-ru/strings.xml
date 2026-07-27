@@ -874,9 +874,9 @@
     <string name="auto_payments_empty">Здесь будут запланированные платежи.</string>
     <string name="settings_payments_tab_text">Показывать вкладку «Платежи» в нижнем меню.</string>
     <string name="create_phone_contact">Новый контакт в телефоне</string>
-    <string name="pick_contact_title">Выбор из телефонной книги</string>
-    <string name="pick_contact_message">Имя можно взять из телефонной книги без разрешений. Чтобы скопировать ещё и фото контакта, приложению нужен доступ к контактам.</string>
-    <string name="pick_contact_plain">Выбрать контакт</string>
-    <string name="pick_contact_with_photo">Выбрать контакт с фото</string>
+    <string name="pick_contact_title">Выбор контакта</string>
+    <string name="pick_contact_message">Для отображения фото контакта в адресной книге приложению требуется разрешение на доступ к контактам.</string>
+    <string name="pick_contact_plain">Просто контакт</string>
+    <string name="pick_contact_with_photo">Контакт с фото</string>
     <string name="phone_contacts_unavailable">На устройстве нет приложения «Контакты».</string>
 </resources>

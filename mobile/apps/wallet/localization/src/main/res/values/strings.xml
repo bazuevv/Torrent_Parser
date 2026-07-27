@@ -906,9 +906,9 @@
     <string name="auto_payments_empty">Scheduled payments will appear here.</string>
     <string name="settings_payments_tab_text">Show the Payments tab in the bottom menu.</string>
     <string name="create_phone_contact">New contact in phone book</string>
-    <string name="pick_contact_title">Pick from phone book</string>
-    <string name="pick_contact_message">The name can be taken from the phone book without any permissions. To copy the contact photo as well, the app needs access to contacts.</string>
-    <string name="pick_contact_plain">Pick contact</string>
-    <string name="pick_contact_with_photo">Pick contact with photo</string>
+    <string name="pick_contact_title">Pick a contact</string>
+    <string name="pick_contact_message">To show the contact photo in the address book, the app needs permission to access contacts.</string>
+    <string name="pick_contact_plain">Contact only</string>
+    <string name="pick_contact_with_photo">Contact with photo</string>
     <string name="phone_contacts_unavailable">No contacts app found on the device.</string>
 </resources>

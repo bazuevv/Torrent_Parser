@@ -112,14 +112,14 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         val builder = AlertDialog.Builder(requireContext())
         builder.setTitle(Localization.pick_contact_title)
         builder.setMessage(Localization.pick_contact_message)
-        builder.setPositiveButton(Localization.pick_contact_with_photo) { dialog ->
-            dialog.dismiss()
-            requestContactsPermission.launch(Manifest.permission.READ_CONTACTS)
-        }
-        builder.setNegativeButton(Localization.pick_contact_plain) { dialog ->
+        builder.setPositiveButton(Localization.pick_contact_plain) { dialog ->
             dialog.dismiss()
             withPhoto = false
             pickContact.launch(null)
+        }
+        builder.setNegativeButton(Localization.pick_contact_with_photo) { dialog ->
+            dialog.dismiss()
+            requestContactsPermission.launch(Manifest.permission.READ_CONTACTS)
         }
         builder.show()
     }
