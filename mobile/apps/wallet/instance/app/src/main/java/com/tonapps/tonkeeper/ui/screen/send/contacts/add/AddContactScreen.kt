@@ -10,6 +10,7 @@ import android.provider.ContactsContract
 import android.view.View
 import android.widget.Button
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import com.tonapps.tonkeeper.extensions.hideKeyboard
@@ -46,6 +47,7 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
     private lateinit var button: Button
     private lateinit var createPhoneContactButton: Button
     private lateinit var photoView: AsyncImageView
+    private lateinit var addressDuplicateView: AppCompatTextView
 
     /**
      * Системный выбор контакта: пользователь сам указывает, кого отдать приложению,
@@ -95,7 +97,10 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
             viewModel.save()
         }
 
+        addressDuplicateView = view.findViewById(R.id.address_duplicate)
+
         collectFlow(viewModel.accountFlow, ::applyAccountState)
+        collectFlow(viewModel.duplicateContactFlow, ::applyDuplicateState)
         collectFlow(viewModel.isEnabledButtonFlow) { button.isEnabled = it }
 
         view.pinToBottomInsets()
@@ -245,6 +250,19 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         } catch (ignored: ActivityNotFoundException) {
             navigation?.toast(Localization.phone_contacts_unavailable)
         }
+    }
+
+    /**
+     * Предупреждение, а не блокировка: сохранить второй контакт с тем же адресом
+     * по-прежнему можно — иногда это осознанно (например, разные пометки).
+     */
+    private fun applyDuplicateState(contactName: String?) {
+        if (contactName.isNullOrBlank()) {
+            addressDuplicateView.visibility = View.GONE
+            return
+        }
+        addressDuplicateView.visibility = View.VISIBLE
+        addressDuplicateView.text = getString(Localization.contact_address_duplicate, contactName)
     }
 
     private fun applyAccountState(accountState: AddContactViewModel.AddressAccount) {

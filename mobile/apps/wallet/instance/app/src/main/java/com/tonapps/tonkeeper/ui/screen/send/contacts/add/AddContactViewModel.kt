@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.viewModelScope
 import com.tonapps.blockchain.ton.TonAddressTags
+import com.tonapps.blockchain.ton.extensions.equalsAddress
 import com.tonapps.blockchain.tron.isValidTronAddress
 import com.tonapps.extensions.bestMessage
 import com.tonapps.tonkeeper.ui.base.BaseWalletVM
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -61,6 +63,10 @@ class AddContactViewModel(
     private val _accountFlow = MutableStateFlow<AddressAccount>(AddressAccount.Empty)
     val accountFlow = _accountFlow.asStateFlow()
 
+    /** Имя контакта, под которым этот адрес уже сохранён, иначе null. */
+    private val _duplicateContactFlow = MutableStateFlow<String?>(null)
+    val duplicateContactFlow = _duplicateContactFlow.asStateFlow()
+
     val isEnabledButtonFlow = combine(
         accountFlow,
         userInputFlow.map { it.name }.distinctUntilChanged()
@@ -70,6 +76,8 @@ class AddContactViewModel(
 
     init {
         userInputAddressFlow.collectFlow { address ->
+            _duplicateContactFlow.value = findSavedContactName(address)
+
             val tags = TonAddressTags.of(address)
             if (address.isBlank()) {
                 _accountFlow.value = AddressAccount.Empty
@@ -109,6 +117,22 @@ class AddContactViewModel(
                 finish()
             }
         }
+    }
+
+    /**
+     * Ищет адрес среди уже сохранённых. Сравнение через equalsAddress: один и тот же
+     * кошелёк записывается в разных формах (UQ…/EQ…/raw), строкой их не сопоставить.
+     * Tron-адреса equalsAddress не разбирает, поэтому для них прямое сравнение.
+     */
+    private suspend fun findSavedContactName(address: String): String? {
+        if (address.isBlank()) {
+            return null
+        }
+        val contacts = contactsRepository.contactsFlow.firstOrNull() ?: return null
+        return contacts.firstOrNull {
+            it.testnet == wallet.testnet &&
+                    (it.address.equals(address, ignoreCase = true) || it.address.equalsAddress(address))
+        }?.name
     }
 
     fun setName(name: String) {

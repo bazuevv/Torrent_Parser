@@ -56,6 +56,16 @@
             android:layout_marginTop="@dimen/offsetMedium"
             android:hint="@string/wallet_address"/>
 
+        <androidx.appcompat.widget.AppCompatTextView
+            android:id="@+id/address_duplicate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/offsetExtraSmall"
+            android:paddingHorizontal="@dimen/offsetMedium"
+            android:visibility="gone"
+            android:textAppearance="@style/TextAppearance.Body2"
+            android:textColor="?attr/accentOrangeColor"/>
+
         <Button
             style="@style/Widget.App.Button"
             android:id="@+id/button"
