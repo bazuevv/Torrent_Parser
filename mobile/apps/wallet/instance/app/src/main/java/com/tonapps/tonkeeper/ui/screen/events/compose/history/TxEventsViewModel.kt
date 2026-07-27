@@ -23,6 +23,7 @@ import com.tonapps.tonkeeper.ui.screen.events.compose.history.paging.TxPagingSou
 import com.tonapps.tonkeeper.ui.screen.events.compose.history.state.TxFilter
 import com.tonapps.tonkeeper.ui.screen.events.spam.SpamEventsScreen
 import com.tonapps.tonkeeper.ui.screen.nft.NftScreen
+import com.tonapps.tonkeeper.ui.screen.send.main.SendScreen
 import com.tonapps.wallet.data.account.AccountRepository
 import com.tonapps.blockchain.model.legacy.WalletEntity
 import com.tonapps.wallet.data.collectibles.CollectiblesRepository
@@ -232,7 +233,28 @@ class TxEventsViewModel(
             viewModelScope.launch {
                 openDetails(tx, part.index)
             }
+        } else if (part is EventItemClickPart.Repeat) {
+            viewModelScope.launch {
+                openRepeat(tx, part.index)
+            }
         }
+    }
+
+    private suspend fun openRepeat(tx: TxEvent, actionIndex: Int) {
+        val action = tx.actions.getOrNull(actionIndex) ?: return
+        // Именно userFriendlyAddress, а не raw: он несёт флаг bounceable, от которого
+        // зависит судьба перевода на неинициализированный кошелёк
+        val targetAddress = action.recipient?.userFriendlyAddress ?: return
+        val outgoing = action.amount.outgoing ?: return
+
+        openScreen(
+            SendScreen.Companion.Builder(wallet)
+                .setTargetAddress(targetAddress)
+                .setTokenAddress(outgoing.currency.address)
+                .setAmount(outgoing.value)
+                .setType(SendScreen.Companion.Type.Default)
+                .build()
+        )
     }
 
     private suspend fun openNft(nftItem: NftEntity) {

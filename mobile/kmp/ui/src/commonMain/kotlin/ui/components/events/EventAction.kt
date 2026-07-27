@@ -29,6 +29,7 @@ internal fun EventAction(
             EventActionAttachments(
                 product = action.product,
                 text = action.text,
+                repeatButtonText = action.repeatButtonText,
                 index = index,
                 hiddenBalances = hiddenBalances,
                 onClick = onClick

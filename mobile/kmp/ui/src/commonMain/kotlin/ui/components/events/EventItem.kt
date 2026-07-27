@@ -16,6 +16,7 @@ sealed class EventItemClickPart {
     data class Action(val index: Int): EventItemClickPart()
     data class Product(val index: Int): EventItemClickPart()
     data class Encrypted(val index: Int): EventItemClickPart()
+    data class Repeat(val index: Int): EventItemClickPart()
 }
 
 @Composable
