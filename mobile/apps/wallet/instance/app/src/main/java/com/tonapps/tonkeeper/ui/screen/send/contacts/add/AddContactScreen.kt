@@ -19,6 +19,8 @@ import com.tonapps.uikit.color.accentBlueColor
 import com.tonapps.wallet.localization.Localization
 import com.tonapps.tonkeeper.koin.walletViewModel
 import com.tonapps.tonkeeper.ui.base.WalletContextScreen
+import com.tonapps.tonkeeper.ui.screen.camera.CameraMode
+import com.tonapps.tonkeeper.ui.screen.camera.CameraScreen
 import com.tonapps.tonkeeperx.R
 import com.tonapps.blockchain.model.legacy.WalletEntity
 import androidx.lifecycle.lifecycleScope
@@ -71,6 +73,10 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
 
     private var withPhoto: Boolean = false
 
+    // Уникальный ключ на экземпляр экрана: два открытых окна добавления не должны
+    // получать чужой результат сканирования
+    private val scannerRequestKey: String by lazy { "contact_scanner_${UUID.randomUUID()}" }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         headerView = view.findViewById(R.id.header)
@@ -88,6 +94,10 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
 
         addressView = view.findViewById(R.id.address)
         addressView.doOnTextChange = { viewModel.setAddress(it) }
+        addressView.doOnIconClick = {
+            hideKeyboard()
+            navigation?.add(CameraScreen.newInstance(CameraMode.Result(scannerRequestKey)))
+        }
 
         requireArguments().getString(ARG_ADDRESS)?.let { addressView.text = it }
 
@@ -98,6 +108,12 @@ class AddContactScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragm
         }
 
         addressDuplicateView = view.findViewById(R.id.address_duplicate)
+
+        navigation?.setFragmentResultListener(scannerRequestKey) { bundle ->
+            val address = bundle.getString(CameraScreen.ARG_RESULT_ADDRESS)
+                ?: return@setFragmentResultListener
+            addressView.text = address
+        }
 
         collectFlow(viewModel.accountFlow, ::applyAccountState)
         collectFlow(viewModel.duplicateContactFlow, ::applyDuplicateState)

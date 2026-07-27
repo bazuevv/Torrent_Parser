@@ -112,6 +112,12 @@ class CameraScreen : QRCameraScreen(R.layout.fragment_camera), BaseFragment.Bott
             return
         }
 
+        val resultMode = mode as? CameraMode.Result
+        if (resultMode != null) {
+            returnAddress(resultMode.requestKey, uri)
+            return
+        }
+
         val deeplink = DeepLink(DeepLink.fixBadUri(uri), true, null)
         val route = deeplink.route
         if (mode == CameraMode.Address && route is DeepLinkRoute.Transfer) {
@@ -124,6 +130,31 @@ class CameraScreen : QRCameraScreen(R.layout.fragment_camera), BaseFragment.Bott
             rootViewModel.processSignerDeepLink(route, true)
             finish()
         }
+    }
+
+    /**
+     * В QR может быть как сам адрес, так и ссылка вида ton://transfer/<адрес>?amount=…
+     * Во втором случае берём только адрес: сумма и комментарий вызывающему экрану
+     * не нужны, он подставляет адрес в поле формы.
+     */
+    private fun returnAddress(requestKey: String, uri: Uri) {
+        val raw = uri.toString()
+        val address = if (raw.isValidTonAddress() || raw.isValidTronAddress()) {
+            raw
+        } else {
+            val route = DeepLink(DeepLink.fixBadUri(uri), true, null).route
+            (route as? DeepLinkRoute.Transfer)?.address
+        }
+
+        if (address.isNullOrBlank()) {
+            navigation?.toast(Localization.invalid_link)
+            return
+        }
+
+        val bundle = Bundle()
+        bundle.putString(ARG_RESULT_ADDRESS, address)
+        navigation?.setFragmentResult(requestKey, bundle)
+        finish()
     }
 
     private fun readQRCodeFromImage(uri: Uri) {
@@ -211,6 +242,9 @@ class CameraScreen : QRCameraScreen(R.layout.fragment_camera), BaseFragment.Bott
 
         private const val ARG_MODE = "mode"
         private const val ARG_CHAINS = "chains"
+
+        /** Ключ адреса в результате режима CameraMode.Result. */
+        const val ARG_RESULT_ADDRESS = "result_address"
 
         fun newInstance(
             mode: CameraMode = CameraMode.Default,
