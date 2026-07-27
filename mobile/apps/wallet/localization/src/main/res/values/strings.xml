@@ -908,7 +908,8 @@
     <string name="create_phone_contact">New contact in phone book</string>
     <string name="pick_contact_title">Pick a contact</string>
     <string name="pick_contact_message">To show the contact photo in the address book, the app needs permission to access contacts.</string>
-    <string name="pick_contact_plain">Only contact</string>
-    <string name="pick_contact_with_photo">Contact with photo</string>
+    <string name="pick_contact_question">Save the contact with a photo?</string>
+    <string name="pick_contact_plain">No</string>
+    <string name="pick_contact_with_photo">Yes</string>
     <string name="phone_contacts_unavailable">No contacts app found on the device.</string>
 </resources>
