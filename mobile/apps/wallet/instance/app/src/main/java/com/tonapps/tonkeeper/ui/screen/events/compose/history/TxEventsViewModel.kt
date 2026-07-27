@@ -30,6 +30,7 @@ import com.tonapps.wallet.data.collectibles.CollectiblesRepository
 import com.tonapps.wallet.data.collectibles.entities.NftEntity
 import com.tonapps.wallet.data.events.EventsRepository
 import com.tonapps.wallet.features.events.TxEventUiMapper
+import com.tonapps.wallet.data.events.tx.model.TxAction
 import com.tonapps.wallet.data.events.tx.model.TxActionBody
 import com.tonapps.wallet.data.events.tx.model.TxEvent
 import com.tonapps.wallet.data.passcode.PasscodeManager
@@ -240,6 +241,15 @@ class TxEventsViewModel(
         }
     }
 
+    /**
+     * Переносится только открытый комментарий. Зашифрованный не подставляем даже
+     * расшифрованным: SendArgs не умеет передавать признак шифрования, и текст,
+     * который отправитель прятал, ушёл бы в блокчейн открытым.
+     */
+    private fun repeatComment(action: TxAction): String? {
+        return (action.text as? TxActionBody.Text.Plain)?.text
+    }
+
     private suspend fun openRepeat(tx: TxEvent, actionIndex: Int) {
         val action = tx.actions.getOrNull(actionIndex) ?: return
         // Именно userFriendlyAddress, а не raw: он несёт флаг bounceable, от которого
@@ -252,6 +262,7 @@ class TxEventsViewModel(
                 .setTargetAddress(targetAddress)
                 .setTokenAddress(outgoing.currency.address)
                 .setAmount(outgoing.value)
+                .setText(repeatComment(action))
                 .setType(SendScreen.Companion.Type.Default)
                 .build()
         )

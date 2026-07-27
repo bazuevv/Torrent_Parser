@@ -175,6 +175,12 @@ class HistoryActionHolder(
             return
         }
 
+        // Переносится только открытый комментарий: SendArgs не умеет передавать признак
+        // шифрования, и текст, который отправитель прятал, ушёл бы в блокчейн открытым
+        val comment = item.comment
+            ?.takeIf { it.type == HistoryItem.Event.Comment.Type.Text }
+            ?.body
+
         repeatView.visibility = View.VISIBLE
         repeatView.setOnClickListener {
             context.navigation?.add(
@@ -182,6 +188,7 @@ class HistoryActionHolder(
                     .setTargetAddress(targetAddress)
                     .setTokenAddress(item.tokenAddress ?: TokenEntity.TON.address)
                     .setAmount(amount)
+                    .setText(comment)
                     .setType(SendScreen.Companion.Type.Default)
                     .build()
             )

@@ -438,12 +438,17 @@ class TxDetailsViewModel(
         val targetAddress = action.recipient?.userFriendlyAddress ?: return
         val outgoing = outgoingValue ?: return
 
+        // Переносится только открытый комментарий: SendArgs не умеет передавать признак
+        // шифрования, и текст, который отправитель прятал, ушёл бы в блокчейн открытым
+        val comment = (action.text as? TxActionBody.Text.Plain)?.text
+
         viewModelScope.launch {
             openScreen(
                 SendScreen.Companion.Builder(wallet)
                     .setTargetAddress(targetAddress)
                     .setTokenAddress(outgoing.currency.address)
                     .setAmount(outgoing.value)
+                    .setText(comment)
                     .setType(SendScreen.Companion.Type.Default)
                     .build()
             )
