@@ -59,8 +59,13 @@ class ContactsRepository(
         _hiddenFlow.tryEmit(Unit)
     }
 
-    suspend fun add(name: String, address: String, network: TonNetwork): ContactEntity = withContext(Dispatchers.IO) {
-        val contact = database.addContact(name, address, network.isTestnet)
+    suspend fun add(
+        name: String,
+        address: String,
+        network: TonNetwork,
+        lookupKey: String? = null
+    ): ContactEntity = withContext(Dispatchers.IO) {
+        val contact = database.addContact(name, address, network.isTestnet, lookupKey)
         _contactsFlow.value = _contactsFlow.value.orEmpty().toMutableList().apply {
             add(contact)
         }

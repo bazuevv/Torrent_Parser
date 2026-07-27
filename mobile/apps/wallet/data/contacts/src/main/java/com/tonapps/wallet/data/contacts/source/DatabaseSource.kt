@@ -13,7 +13,7 @@ internal class DatabaseSource(
 
     private companion object {
         private const val DATABASE_NAME = "contacts"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
 
         private const val CONTACTS_TABLE = "contacts"
         private const val CONTACTS_ID = "_id"
@@ -22,12 +22,19 @@ internal class DatabaseSource(
         private const val CONTACTS_DATE = "date"
         private const val CONTACTS_TESTNET = "testnet"
 
+        /**
+         * LOOKUP_KEY контакта телефонной книги, а не _ID: последний меняется при
+         * пересоздании контакта, восстановлении из бэкапа и слиянии дубликатов.
+         */
+        private const val CONTACTS_LOOKUP_KEY = "lookup_key"
+
         private val contactsField = arrayOf(
             CONTACTS_ID,
             CONTACTS_NAME,
             CONTACTS_ADDRESS,
             CONTACTS_DATE,
-            CONTACTS_TESTNET
+            CONTACTS_TESTNET,
+            CONTACTS_LOOKUP_KEY
         ).joinToString(",")
 
         private const val KEY_HIDDEN = "hidden"
@@ -41,14 +48,20 @@ internal class DatabaseSource(
                 "$CONTACTS_NAME TEXT NOT NULL," +
                 "$CONTACTS_ADDRESS TEXT NOT NULL," +
                 "$CONTACTS_DATE INTEGER NOT NULL," +
-                "$CONTACTS_TESTNET INTEGER NOT NULL DEFAULT 0" +
+                "$CONTACTS_TESTNET INTEGER NOT NULL DEFAULT 0," +
+                "$CONTACTS_LOOKUP_KEY TEXT" +
                 ")")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         super.onUpgrade(db, oldVersion, newVersion)
-        if (oldVersion == 1 && newVersion == 2) {
+        // Шаги последовательные, а не парой old→new: база могла остаться на версии 1,
+        // и тогда при обновлении сразу до 3 колонка testnet иначе не добавилась бы
+        if (oldVersion < 2) {
             db.execSQL("ALTER TABLE $CONTACTS_TABLE ADD COLUMN $CONTACTS_TESTNET INTEGER NOT NULL DEFAULT 0")
+        }
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE $CONTACTS_TABLE ADD COLUMN $CONTACTS_LOOKUP_KEY TEXT")
         }
     }
 
@@ -61,29 +74,41 @@ internal class DatabaseSource(
         val addressIndex = cursor.getColumnIndex(CONTACTS_ADDRESS)
         val dateIndex = cursor.getColumnIndex(CONTACTS_DATE)
         val testnetIndex = cursor.getColumnIndex(CONTACTS_TESTNET)
+        val lookupKeyIndex = cursor.getColumnIndex(CONTACTS_LOOKUP_KEY)
         while (cursor.moveToNext()) {
             contacts.add(ContactEntity(
                 id = cursor.getLong(idIndex),
                 name = cursor.getString(nameIndex),
                 address = cursor.getString(addressIndex),
                 date = cursor.getLong(dateIndex),
-                testnet = cursor.getLong(testnetIndex) != 0L
+                testnet = cursor.getLong(testnetIndex) != 0L,
+                lookupKey = if (lookupKeyIndex == -1) {
+                    null
+                } else {
+                    cursor.getString(lookupKeyIndex)
+                }
             ))
         }
         cursor.close()
         return contacts
     }
 
-    fun addContact(name: String, address: String, testnet: Boolean): ContactEntity {
+    fun addContact(
+        name: String,
+        address: String,
+        testnet: Boolean,
+        lookupKey: String? = null
+    ): ContactEntity {
         val date = currentTimeSeconds()
         val values = ContentValues().apply {
             put(CONTACTS_NAME, name)
             put(CONTACTS_ADDRESS, address)
             put(CONTACTS_DATE, date)
             put(CONTACTS_TESTNET, if (testnet) 1L else 0L)
+            put(CONTACTS_LOOKUP_KEY, lookupKey)
         }
         val id = writableDatabase.insert(CONTACTS_TABLE, null, values)
-        return ContactEntity(id, name, address, date, testnet)
+        return ContactEntity(id, name, address, date, testnet, lookupKey)
     }
 
     fun editContact(id: Long, name: String) {

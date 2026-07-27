@@ -9,5 +9,7 @@ data class ContactEntity(
     val name: String,
     val address: String,
     val date: Long,
-    val testnet: Boolean
+    val testnet: Boolean,
+    /** LOOKUP_KEY контакта в телефонной книге, если адрес заведён из неё. */
+    val lookupKey: String? = null
 ): Parcelable
