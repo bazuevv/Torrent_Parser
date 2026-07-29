@@ -1,7 +1,10 @@
 package com.tonapps.tonkeeper.ui.screen.name.edit
 
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.tonapps.tonkeeper.koin.walletViewModel
 import com.tonapps.tonkeeper.ui.base.WalletContextScreen
@@ -21,6 +24,17 @@ class EditNameScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragmen
 
     private lateinit var editorView: LabelEditorView
 
+    // Системный пикер: доступ к галерее целиком не запрашивается, пользователь
+    // сам отдаёт приложению одну картинку, поэтому разрешений не требуется.
+    private val pickPhoto = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        uri ?: return@registerForActivityResult
+        viewModel.setPhoto(uri) { path ->
+            editorView.photoPath = path
+        }
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val headerView = view.findViewById<HeaderView>(R.id.header)
@@ -31,6 +45,16 @@ class EditNameScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragmen
         editorView.name = screenContext.wallet.label.name
         editorView.emoji = screenContext.wallet.label.emoji
         editorView.color = screenContext.wallet.label.color
+        editorView.photoPath = viewModel.photoPath
+        editorView.doOnPickPhoto = {
+            pickPhoto.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            )
+        }
+        editorView.doOnRemovePhoto = {
+            viewModel.removePhoto()
+            editorView.photoPath = null
+        }
 
         view.doKeyboardAnimation { offset, progress, showKeyboard ->
             editorView.setBottomOffset(offset, progress)

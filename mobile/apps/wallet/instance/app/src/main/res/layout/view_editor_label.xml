@@ -5,6 +5,44 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <FrameLayout
+        android:id="@+id/label_preview"
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="@dimen/offsetLarge"
+        android:background="@drawable/bg_oval">
+
+        <com.tonapps.emoji.ui.EmojiView
+            android:id="@+id/label_preview_emoji"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_gravity="center"/>
+
+        <androidx.appcompat.widget.AppCompatImageView
+            android:id="@+id/label_preview_photo"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_margin="3dp"
+            android:background="@drawable/bg_oval"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            android:contentDescription="@string/wallet_avatar_choose_photo"/>
+    </FrameLayout>
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/label_photo_action"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="@dimen/offsetExtraSmall"
+        android:paddingHorizontal="@dimen/offsetMedium"
+        android:paddingVertical="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:textAppearance="@style/TextAppearance.Label1"
+        android:textColor="?attr/accentBlueColor"
+        android:text="@string/wallet_avatar_choose_photo"/>
+
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="@dimen/offsetLarge"
@@ -30,6 +68,16 @@
                 android:layout_width="28dp"
                 android:layout_height="28dp"
                 android:layout_gravity="center"/>
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/label_photo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_margin="3dp"
+                android:background="@drawable/bg_emoji_edit"
+                android:scaleType="centerCrop"
+                android:visibility="gone"
+                android:contentDescription="@string/wallet_avatar_choose_photo"/>
         </FrameLayout>
     </FrameLayout>
 
@@ -54,7 +102,8 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/label_emoji_picker"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
                 android:layout_marginTop="@dimen/offsetMedium"
                 android:layout_marginHorizontal="26dp"
                 android:overScrollMode="never"

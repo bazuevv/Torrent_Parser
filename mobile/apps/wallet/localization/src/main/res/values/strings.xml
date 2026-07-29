@@ -534,6 +534,8 @@
     <string name="currency">Currency</string>
     <string name="rename">Rename</string>
     <string name="wallet_name">Wallet Name</string>
+    <string name="wallet_avatar_choose_photo">Choose photo</string>
+    <string name="wallet_avatar_remove_photo">Remove photo</string>
     <string name="primary_currency">Primary currency</string>
     <string name="currency_usd_name">United States Dollar</string>
     <string name="currency_eur_name">Euro</string>

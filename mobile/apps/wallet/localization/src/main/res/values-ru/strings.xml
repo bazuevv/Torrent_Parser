@@ -207,6 +207,8 @@
     <string name="privacy">Политика конфиденциальности</string>
     <string name="customize">Кастомизировать</string>
     <string name="wallet_name">Имя кошелька</string>
+    <string name="wallet_avatar_choose_photo">Выбрать фото</string>
+    <string name="wallet_avatar_remove_photo">Убрать фото</string>
     <string name="apps">Приложения</string>
     <string name="apps_notifications_description">Уведомления от подключенных приложений в вашей активности</string>
     <string name="tonconnect_warning_description">Обязательно проверьте адрес сервиса перед подключением кошелька.</string>
