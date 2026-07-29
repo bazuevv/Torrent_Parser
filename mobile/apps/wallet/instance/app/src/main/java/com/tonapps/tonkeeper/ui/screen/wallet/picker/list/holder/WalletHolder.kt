@@ -2,8 +2,6 @@ package com.tonapps.tonkeeper.ui.screen.wallet.picker.list.holder
 
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.drawable.RippleDrawable
-import com.tonapps.log.L
 import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.widget.AppCompatImageView
@@ -12,7 +10,8 @@ import com.tonapps.emoji.ui.EmojiView
 import com.tonapps.icu.CurrencyFormatter.withCustomSymbol
 import com.tonapps.tonkeeper.extensions.fixW5Title
 import com.tonapps.tonkeeper.extensions.getWalletBadges
-import com.tonapps.tonkeeper.koin.accountRepository
+import com.tonapps.tonkeeper.koin.settingsRepository
+import com.tonapps.tonkeeper.ui.component.label.applyWalletPhoto
 import com.tonapps.tonkeeper.ui.screen.name.edit.EditNameScreen
 import com.tonapps.tonkeeper.ui.screen.wallet.picker.list.Item
 import com.tonapps.tonkeeperx.R
@@ -33,6 +32,7 @@ class WalletHolder(
 
     private val colorView = findViewById<View>(R.id.wallet_color)
     private val emojiView = findViewById<EmojiView>(R.id.wallet_emoji)
+    private val photoView = findViewById<AppCompatImageView>(R.id.wallet_photo)
     private val nameView = findViewById<AppCompatTextView>(R.id.wallet_name)
     private val typesView = findViewById<AppCompatTextView>(R.id.wallet_types)
     private val balanceView = findViewById<AppCompatTextView>(R.id.wallet_balance)
@@ -43,6 +43,7 @@ class WalletHolder(
     override fun onBind(item: Item.Wallet) {
         colorView.backgroundTintList = ColorStateList.valueOf(item.color)
         emojiView.setEmoji(item.emoji, Color.TRANSPARENT)
+        applyWalletPhoto(emojiView, photoView, context.settingsRepository?.getWalletAvatarPhoto(item.wallet.id))
         nameView.text = item.name.fixW5Title()
         typesView.text = context.getWalletBadges(item.wallet.type, item.wallet.version)
 

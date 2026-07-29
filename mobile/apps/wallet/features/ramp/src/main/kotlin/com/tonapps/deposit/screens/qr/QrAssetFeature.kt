@@ -36,6 +36,7 @@ enum class QrAssetTab {
 data class QrAssetSelectedData(
     val token: TokenEntity,
     val address: String,
+    val avatarPhotoPath: String? = null,
     val qrContent: String,
     val wallet: WalletEntity,
     val isBatteryEnabled: Boolean,
@@ -125,6 +126,7 @@ class QrAssetFeature(
                 data = QrAssetSelectedData(
                     token = token,
                     address = address,
+                    avatarPhotoPath = settingsRepository.getWalletAvatarPhoto(wallet.id),
                     qrContent = qrContent,
                     wallet = wallet,
                     isBatteryEnabled = isBatteryEnabled,
@@ -228,6 +230,7 @@ class QrAssetFeature(
         val data = QrAssetSelectedData(
             token = token,
             address = activeAddress,
+            avatarPhotoPath = settingsRepository.getWalletAvatarPhoto(wallet.id),
             qrContent = qrContent,
             wallet = wallet,
             isBatteryEnabled = isBatteryEnabled,

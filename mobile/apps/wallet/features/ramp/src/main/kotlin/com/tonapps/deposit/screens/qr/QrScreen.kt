@@ -175,6 +175,7 @@ fun QrScreen(
                 QrContent(
                     walletType = data.wallet.type,
                     walletLabel = data.wallet.label,
+                    walletAvatarPhotoPath = data.avatarPhotoPath,
                     walletAddress = data.address,
                     content = data.qrContent,
                     tokenImage = if (token.isTon) UIKitIcon.ic_ton.uri() else token.imageUri,
@@ -220,6 +221,7 @@ fun QrContent(
     // null — когда QR не про кошелёк пользователя (например, адрес платежа
     // при покупке крипты): тогда строка с владельцем не рисуется.
     walletLabel: Wallet.Label? = null,
+    walletAvatarPhotoPath: String? = null,
     content: String?,
     tokenImage: Uri,
     blockchainImage: Int?,
@@ -272,7 +274,8 @@ fun QrContent(
                 WalletAvatar(
                     emoji = walletLabel.emoji,
                     color = walletLabel.color,
-                    size = WalletAvatarSize
+                    size = WalletAvatarSize,
+                    photoPath = walletAvatarPhotoPath
                 )
 
                 Spacer(modifier = Modifier.width(8.dp))

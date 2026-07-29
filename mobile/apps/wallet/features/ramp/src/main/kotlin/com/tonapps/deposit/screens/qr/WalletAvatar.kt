@@ -10,10 +10,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import coil3.compose.AsyncImage
 import com.tonapps.emoji.ui.EmojiView
+import java.io.File
 
 private const val EMOJI_TO_CIRCLE_RATIO = 0.7f
+private val PHOTO_INSET = 3.dp
 
 /**
  * Аватар кошелька: эмодзи из его метки на круге цвета метки.
@@ -26,8 +33,12 @@ private const val EMOJI_TO_CIRCLE_RATIO = 0.7f
  * (24 dp внутри 44 dp), но там аватар стоит в плотной строке; здесь он крупный
  * и одиночный, поэтому эмодзи заполняет круг заметнее.
  *
+ * Если для кошелька выбрана фотография, вместо эмодзи показывается она —
+ * с небольшим отступом внутри круга, чтобы цвет метки был виден кольцом.
+ *
  * @param emoji значение [com.tonapps.blockchain.model.legacy.Wallet.Label.emoji]
  * @param color цвет метки, ARGB-число из [com.tonapps.blockchain.model.legacy.Wallet.Label.color]
+ * @param photoPath путь к фотографии либо null, когда показывается эмодзи
  */
 @Composable
 fun WalletAvatar(
@@ -35,6 +46,7 @@ fun WalletAvatar(
     color: Int,
     modifier: Modifier = Modifier,
     size: Dp = 44.dp,
+    photoPath: String? = null,
 ) {
     Box(
         modifier = modifier
@@ -42,12 +54,24 @@ fun WalletAvatar(
             .background(color = Color(color), shape = CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        AndroidView(
-            modifier = Modifier.size(size * EMOJI_TO_CIRCLE_RATIO),
-            factory = { context -> EmojiView(context) },
-            update = { view ->
-                view.setEmoji(emoji, android.graphics.Color.TRANSPARENT)
-            }
-        )
+        if (photoPath.isNullOrBlank()) {
+            AndroidView(
+                modifier = Modifier.size(size * EMOJI_TO_CIRCLE_RATIO),
+                factory = { context -> EmojiView(context) },
+                update = { view ->
+                    view.setEmoji(emoji, android.graphics.Color.TRANSPARENT)
+                }
+            )
+        } else {
+            AsyncImage(
+                model = File(photoPath),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(PHOTO_INSET)
+                    .clip(CircleShape)
+            )
+        }
     }
 }
