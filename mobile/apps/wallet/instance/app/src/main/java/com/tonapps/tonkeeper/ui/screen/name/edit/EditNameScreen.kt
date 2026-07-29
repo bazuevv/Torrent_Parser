@@ -1,5 +1,7 @@
 package com.tonapps.tonkeeper.ui.screen.name.edit
 
+import android.app.Dialog
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
@@ -9,6 +11,8 @@ import androidx.lifecycle.lifecycleScope
 import com.tonapps.tonkeeper.koin.walletViewModel
 import com.tonapps.tonkeeper.ui.base.WalletContextScreen
 import com.tonapps.tonkeeper.ui.component.label.LabelEditorView
+import com.tonapps.tonkeeper.ui.component.label.PhotoCropView
+import com.tonapps.wallet.data.settings.WalletAvatarPhotoStore
 import com.tonapps.tonkeeperx.R
 import com.tonapps.blockchain.model.legacy.WalletEntity
 import kotlinx.coroutines.launch
@@ -30,9 +34,34 @@ class EditNameScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragmen
         ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         uri ?: return@registerForActivityResult
-        viewModel.setPhoto(uri) { path ->
-            editorView.photoPath = path
+        viewModel.decodePhoto(uri) { bitmap ->
+            bitmap ?: return@decodePhoto
+            showCropDialog(bitmap)
         }
+    }
+
+    /**
+     * Кадрирование показывается поверх редактора обычным диалогом, а не отдельным
+     * экраном навигации: результат нужен здесь же, и так его не приходится
+     * прокидывать между экранами.
+     */
+    private fun showCropDialog(bitmap: Bitmap) {
+        val context = context ?: return
+        val dialog = Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        val content = layoutInflater.inflate(R.layout.dialog_photo_crop, null)
+        val cropView = content.findViewById<PhotoCropView>(R.id.crop_view)
+        cropView.setBitmap(bitmap)
+        content.findViewById<View>(R.id.crop_cancel).setOnClickListener { dialog.dismiss() }
+        content.findViewById<View>(R.id.crop_done).setOnClickListener {
+            val cropped = cropView.crop(WalletAvatarPhotoStore.OUTPUT_SIZE)
+            dialog.dismiss()
+            cropped ?: return@setOnClickListener
+            viewModel.setPhoto(cropped) { path ->
+                editorView.photoPath = path
+            }
+        }
+        dialog.setContentView(content)
+        dialog.show()
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {

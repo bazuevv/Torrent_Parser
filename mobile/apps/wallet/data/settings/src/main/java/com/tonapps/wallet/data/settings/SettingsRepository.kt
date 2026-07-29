@@ -3,6 +3,7 @@ package com.tonapps.wallet.data.settings
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.net.Uri
 import android.icu.util.Currency
 import androidx.core.content.edit
@@ -552,12 +553,19 @@ class SettingsRepository(
     }
 
     /**
-     * Копирует выбранное изображение к себе и делает его аватаром кошелька.
-     * Прежняя фотография удаляется. Возвращает путь к новому файлу либо null,
-     * если изображение не удалось прочитать.
+     * Читает выбранное изображение, уменьшая его до размера аватара.
+     * Дальше картинку кадрируют, и сохраняется уже результат кадрирования.
      */
-    suspend fun setWalletAvatarPhoto(walletId: String, uri: Uri): String? {
-        val file = WalletAvatarPhotoStore.save(context, walletId, uri) ?: return null
+    suspend fun decodeAvatarPhoto(uri: Uri): Bitmap? {
+        return WalletAvatarPhotoStore.decode(context, uri)
+    }
+
+    /**
+     * Сохраняет картинку как аватар кошелька. Прежняя фотография удаляется.
+     * Возвращает путь к новому файлу либо null, если сохранить не удалось.
+     */
+    suspend fun setWalletAvatarPhoto(walletId: String, bitmap: Bitmap): String? {
+        val file = WalletAvatarPhotoStore.save(context, walletId, bitmap) ?: return null
         val previous = walletPrefsFolder.getAvatarPhoto(walletId)
         walletPrefsFolder.setAvatarPhoto(walletId, file.absolutePath)
         WalletAvatarPhotoStore.delete(previous)

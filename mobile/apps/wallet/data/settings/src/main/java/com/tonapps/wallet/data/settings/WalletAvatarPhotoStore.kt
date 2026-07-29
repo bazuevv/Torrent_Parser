@@ -22,21 +22,33 @@ import java.io.FileOutputStream
  * Это заодно решает вопрос устаревших кэшей изображений: путь меняется — кэш
  * промахивается и картинка перечитывается.
  */
-internal object WalletAvatarPhotoStore {
+object WalletAvatarPhotoStore {
+
+    const val OUTPUT_SIZE = 512
 
     private const val DIR_NAME = "wallet_avatars"
-    private const val MAX_SIZE = 512
+    private const val MAX_SIZE = OUTPUT_SIZE
     private const val QUALITY = 90
 
-    suspend fun save(context: Context, walletId: String, uri: Uri): File? {
+    /** Читает выбранное изображение, ужимая его при декодировании. */
+    suspend fun decode(context: Context, uri: Uri): Bitmap? {
         return withContext(Dispatchers.IO) {
             try {
-                val bitmap = decodeScaled(context, uri) ?: return@withContext null
+                decodeScaled(context, uri)
+            } catch (e: Throwable) {
+                L.e(e)
+                null
+            }
+        }
+    }
+
+    suspend fun save(context: Context, walletId: String, bitmap: Bitmap): File? {
+        return withContext(Dispatchers.IO) {
+            try {
                 val file = File(dir(context), "${walletId}_${System.currentTimeMillis()}.jpg")
                 FileOutputStream(file).use { output ->
                     bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, output)
                 }
-                bitmap.recycle()
                 file
             } catch (e: Throwable) {
                 L.e(e)

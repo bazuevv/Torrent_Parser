@@ -1,6 +1,7 @@
 package com.tonapps.tonkeeper.ui.screen.name.edit
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.viewModelScope
 import com.tonapps.tonkeeper.core.FirebaseHelper
@@ -22,12 +23,22 @@ class EditNameViewModel(
         get() = settingsRepository.getWalletAvatarPhoto(wallet.id)
 
     /**
-     * Копирует выбранное изображение к себе и делает его аватаром.
-     * [onDone] получает путь к файлу либо null, если картинку не удалось прочитать.
+     * Читает выбранное изображение для кадрирования.
+     * [onDone] получает картинку либо null, если прочитать её не удалось.
      */
-    fun setPhoto(uri: Uri, onDone: (path: String?) -> Unit) {
+    fun decodePhoto(uri: Uri, onDone: (bitmap: Bitmap?) -> Unit) {
         viewModelScope.launch {
-            val path = settingsRepository.setWalletAvatarPhoto(wallet.id, uri)
+            onDone(settingsRepository.decodeAvatarPhoto(uri))
+        }
+    }
+
+    /**
+     * Сохраняет кадрированную картинку как аватар.
+     * [onDone] получает путь к файлу либо null, если сохранить не удалось.
+     */
+    fun setPhoto(bitmap: Bitmap, onDone: (path: String?) -> Unit) {
+        viewModelScope.launch {
+            val path = settingsRepository.setWalletAvatarPhoto(wallet.id, bitmap)
             onDone(path)
             WidgetUpdaterWorker.update(context)
         }
