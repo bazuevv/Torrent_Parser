@@ -80,8 +80,8 @@ import ui.utils.uppercased
 // а из светлой палитры приложения — она рассчитана на белый фон.
 private val AddressOnWhiteColor = Color(0xFF818C99)
 private val DigitCodeOnWhiteColor = Color(0xFF007AFF)
-private val DigitCodeFontSize = 22.sp
-private val DigitCodeLineHeight = 30.sp
+private val DigitCodeFontSize = 23.sp
+private val DigitCodeLineHeight = 31.sp
 
 @Composable
 fun QrScreen(
@@ -280,7 +280,8 @@ fun QrContent(
                     text = digitCode,
                     style = UIKit.typography.mono.copy(
                         fontSize = DigitCodeFontSize,
-                        lineHeight = DigitCodeLineHeight
+                        lineHeight = DigitCodeLineHeight,
+                        letterSpacing = 0.sp
                     ),
                     color = DigitCodeOnWhiteColor,
                     textAlign = TextAlign.Center,
