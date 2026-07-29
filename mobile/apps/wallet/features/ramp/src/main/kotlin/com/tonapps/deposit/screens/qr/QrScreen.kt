@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -83,6 +85,7 @@ import ui.utils.uppercased
 private val AddressOnWhiteColor = Color(0xFF818C99)
 private val DigitCodeOnWhiteColor = Color(0xFF007AFF)
 private val DigitCodeFontSize = 23.sp
+private val DigitCodeMinFontSize = 10.sp
 private val DigitCodeLineHeight = 31.sp
 private val CardContentPadding = 24.dp
 private val WalletAvatarSize = 64.dp
@@ -233,6 +236,18 @@ fun QrContent(
         }
     }
 
+    // Для TON под данными кошелька показываем цифровой код, а под QR —
+    // сокращённый адрес. Для остальных сетей (TRON) кода нет, и под QR
+    // остаётся полный адрес.
+    val digitCode = remember(walletAddress) { walletAddress.tonAddressDigitCode() }
+
+    // Отступ над нижним адресом задаётся Spacer'ом, под ним — нижним padding
+    // карточки. Равными их держать нельзя: у QR-кода снизу остаётся собственное
+    // белое поле, поэтому визуально верхний зазор больше заданного, и нижний
+    // приходится задавать крупнее, чтобы поля выглядели одинаковыми.
+    val addressGap = if (digitCode == null) Dimens.offsetMedium else Dimens.offsetExtraSmall
+    val cardBottomPadding = if (digitCode == null) CardContentPadding else 12.dp
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -242,7 +257,12 @@ fun QrContent(
                 color = Color.White,
                 shape = RoundedCornerShape(Dimens.cornerLarge)
             )
-            .padding(CardContentPadding),
+            .padding(
+                start = CardContentPadding,
+                top = CardContentPadding,
+                end = CardContentPadding,
+                bottom = cardBottomPadding
+            ),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Чей это кошелёк — метка из настроек: её эмодзи, цвет и имя.
@@ -264,6 +284,67 @@ fun QrContent(
                 )
             }
 
+            Spacer(
+                modifier = Modifier.height(
+                    if (digitCode == null) Dimens.offsetMedium else 8.dp
+                )
+            )
+        }
+
+        if (digitCode != null) {
+            BasicText(
+                text = digitCode,
+                style = UIKit.typography.mono.copy(
+                    fontSize = DigitCodeFontSize,
+                    lineHeight = DigitCodeLineHeight,
+                    letterSpacing = 0.sp,
+                    color = DigitCodeOnWhiteColor,
+                    textAlign = TextAlign.Center
+                ),
+                // Код неделим: вместо переноса подбираем кегль, пока строка не
+                // уместится целиком. Верхняя граница — обычный размер, ниже
+                // опускаемся только когда ширины не хватает.
+                maxLines = 1,
+                softWrap = false,
+                autoSize = TextAutoSize.StepBased(
+                    minFontSize = DigitCodeMinFontSize,
+                    maxFontSize = DigitCodeFontSize,
+                    stepSize = 1.sp
+                ),
+                modifier = Modifier
+                    .clickable { onCopyClick() }
+                    // Прежде чем уменьшать кегль, коду разрешено занять поля
+                    // карточки — до её белого края, но не дальше. Меряем текст по
+                    // расширенным ограничениям, а наружу отдаём прежнюю ширину,
+                    // размещая его по центру. BoxWithConstraints здесь
+                    // использовать нельзя: экранная колонка запрашивает
+                    // интринсики, а SubcomposeLayout их не поддерживает.
+                    .layout { measurable, constraints ->
+                        val extra = CardContentPadding.roundToPx() * 2
+                        val widened = if (constraints.hasBoundedWidth) {
+                            constraints.copy(
+                                minWidth = 0,
+                                maxWidth = constraints.maxWidth + extra
+                            )
+                        } else {
+                            constraints.copy(minWidth = 0)
+                        }
+                        val placeable = measurable.measure(widened)
+                        val width = if (constraints.hasBoundedWidth) {
+                            constraints.maxWidth
+                        } else {
+                            placeable.width
+                        }
+                        layout(width, placeable.height) {
+                            placeable.place((width - placeable.width) / 2, 0)
+                        }
+                    }
+                    .semantics(mergeDescendants = false) {
+                        testTagsAsResourceId = true
+                        testTag = "wallet_address_digit_code_text"
+                    }
+            )
+
             Spacer(modifier = Modifier.height(Dimens.offsetMedium))
         }
 
@@ -275,83 +356,21 @@ fun QrContent(
             )
         }
 
-        // Для TON показываем сокращённый адрес и под ним цифровой код,
-        // для остальных сетей (TRON) кода нет — остаётся полный адрес.
-        val digitCode = remember(walletAddress) { walletAddress.tonAddressDigitCode() }
+        Spacer(modifier = Modifier.height(addressGap))
 
-        Spacer(
-            modifier = Modifier.height(
-                if (digitCode == null) Dimens.offsetMedium else Dimens.offsetExtraSmall
-            )
-        )
-
-        Column(
+        Text(
+            text = if (digitCode == null) walletAddress else walletAddress.short4,
+            style = UIKit.typography.mono,
+            color = if (digitCode == null) Color.Black else AddressOnWhiteColor,
+            textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onCopyClick() },
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = if (digitCode == null) walletAddress else walletAddress.short4,
-                style = UIKit.typography.mono,
-                color = if (digitCode == null) Color.Black else AddressOnWhiteColor,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics(mergeDescendants = false) {
-                        testTagsAsResourceId = true
-                        testTag = "wallet_address_text"
-                    }
-            )
-
-            if (digitCode != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = digitCode,
-                    style = UIKit.typography.mono.copy(
-                        fontSize = DigitCodeFontSize,
-                        lineHeight = DigitCodeLineHeight,
-                        letterSpacing = 0.sp
-                    ),
-                    color = DigitCodeOnWhiteColor,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        // Коду разрешено выходить за отведённую ширину ровно на
-                        // внутренние поля карточки, то есть до её белого края — но не
-                        // дальше: за ним строка снова переносится, а не уезжает на
-                        // тёмный фон. Меряем текст по расширенным ограничениям, а
-                        // наружу отдаём прежнюю ширину, размещая его по центру.
-                        // BoxWithConstraints здесь использовать нельзя: экранная
-                        // колонка запрашивает интринсики, а SubcomposeLayout их
-                        // не поддерживает.
-                        .layout { measurable, constraints ->
-                            val extra = CardContentPadding.roundToPx() * 2
-                            val widened = if (constraints.hasBoundedWidth) {
-                                constraints.copy(
-                                    minWidth = 0,
-                                    maxWidth = constraints.maxWidth + extra
-                                )
-                            } else {
-                                constraints.copy(minWidth = 0)
-                            }
-                            val placeable = measurable.measure(widened)
-                            val width = if (constraints.hasBoundedWidth) {
-                                constraints.maxWidth
-                            } else {
-                                placeable.width
-                            }
-                            layout(width, placeable.height) {
-                                placeable.place((width - placeable.width) / 2, 0)
-                            }
-                        }
-                        .semantics(mergeDescendants = false) {
-                            testTagsAsResourceId = true
-                            testTag = "wallet_address_digit_code_text"
-                        }
-                )
-            }
-        }
+                .clickable { onCopyClick() }
+                .semantics(mergeDescendants = false) {
+                    testTagsAsResourceId = true
+                    testTag = "wallet_address_text"
+                }
+        )
 
         if (walletType == WalletType.Watch) {
             Spacer(modifier = Modifier.height(Dimens.offsetMedium))
