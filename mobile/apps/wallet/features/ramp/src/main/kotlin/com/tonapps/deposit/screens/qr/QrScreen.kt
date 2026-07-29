@@ -39,13 +39,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -83,6 +83,7 @@ private val AddressOnWhiteColor = Color(0xFF818C99)
 private val DigitCodeOnWhiteColor = Color(0xFF007AFF)
 private val DigitCodeFontSize = 23.sp
 private val DigitCodeLineHeight = 31.sp
+private val CardContentPadding = 24.dp
 
 @Composable
 fun QrScreen(
@@ -234,7 +235,7 @@ fun QrContent(
                 color = Color.White,
                 shape = RoundedCornerShape(Dimens.cornerLarge)
             )
-            .padding(24.dp),
+            .padding(CardContentPadding),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (content != null) {
@@ -286,16 +287,35 @@ fun QrContent(
                     ),
                     color = DigitCodeOnWhiteColor,
                     textAlign = TextAlign.Center,
-                    // Код не переносим: если он не влезает в отведённую ширину,
-                    // пусть выходит за её пределы, оставаясь по центру.
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Visible,
                     modifier = Modifier
-                        .wrapContentWidth(
-                            align = Alignment.CenterHorizontally,
-                            unbounded = true
-                        )
+                        // Коду разрешено выходить за отведённую ширину ровно на
+                        // внутренние поля карточки, то есть до её белого края — но не
+                        // дальше: за ним строка снова переносится, а не уезжает на
+                        // тёмный фон. Меряем текст по расширенным ограничениям, а
+                        // наружу отдаём прежнюю ширину, размещая его по центру.
+                        // BoxWithConstraints здесь использовать нельзя: экранная
+                        // колонка запрашивает интринсики, а SubcomposeLayout их
+                        // не поддерживает.
+                        .layout { measurable, constraints ->
+                            val extra = CardContentPadding.roundToPx() * 2
+                            val widened = if (constraints.hasBoundedWidth) {
+                                constraints.copy(
+                                    minWidth = 0,
+                                    maxWidth = constraints.maxWidth + extra
+                                )
+                            } else {
+                                constraints.copy(minWidth = 0)
+                            }
+                            val placeable = measurable.measure(widened)
+                            val width = if (constraints.hasBoundedWidth) {
+                                constraints.maxWidth
+                            } else {
+                                placeable.width
+                            }
+                            layout(width, placeable.height) {
+                                placeable.place((width - placeable.width) / 2, 0)
+                            }
+                        }
                         .semantics(mergeDescendants = false) {
                             testTagsAsResourceId = true
                             testTag = "wallet_address_digit_code_text"
