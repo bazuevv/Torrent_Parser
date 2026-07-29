@@ -8,6 +8,7 @@
         android:id="@+id/label_preview"
         android:layout_width="96dp"
         android:layout_height="96dp"
+        android:visibility="gone"
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="@dimen/offsetLarge"
         android:background="@drawable/bg_oval">
@@ -33,6 +34,7 @@
         android:id="@+id/label_photo_action"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:visibility="gone"
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="@dimen/offsetExtraSmall"
         android:paddingHorizontal="@dimen/offsetMedium"

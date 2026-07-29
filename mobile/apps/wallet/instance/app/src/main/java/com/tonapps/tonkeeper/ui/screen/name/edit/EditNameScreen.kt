@@ -45,6 +45,7 @@ class EditNameScreen(wallet: WalletEntity): WalletContextScreen(R.layout.fragmen
         editorView.name = screenContext.wallet.label.name
         editorView.emoji = screenContext.wallet.label.emoji
         editorView.color = screenContext.wallet.label.color
+        editorView.photoEnabled = true
         editorView.photoPath = viewModel.photoPath
         editorView.doOnPickPhoto = {
             pickPhoto.launch(

@@ -83,6 +83,25 @@ class LabelEditorView @JvmOverloads constructor(
         }
 
     /**
+     * Включает управление фотографией: крупное превью и кнопку выбора.
+     *
+     * По умолчанию выключено — редактор открывается ещё и при создании кошелька,
+     * где кошелька, а значит и места для хранения фото, пока не существует. Там
+     * экран должен выглядеть как раньше.
+     */
+    var photoEnabled: Boolean = false
+        set(value) {
+            if (value != field) {
+                field = value
+                photoActionView.visibility = if (value) View.VISIBLE else View.GONE
+                if (!value) {
+                    photoPath = null
+                }
+                requestLayout()
+            }
+        }
+
+    /**
      * Путь к фотографии на аватаре либо null — тогда показывается эмодзи.
      */
     var photoPath: String? = null
@@ -198,6 +217,13 @@ class LabelEditorView @JvmOverloads constructor(
      * @return true, если видимость изменилась и требуется повторный замер
      */
     private fun adjustPreviewForSpace(): Boolean {
+        if (!photoEnabled) {
+            if (previewView.visibility != View.GONE) {
+                previewView.visibility = View.GONE
+                return true
+            }
+            return false
+        }
         if (!photoPath.isNullOrBlank()) {
             if (previewView.visibility != View.VISIBLE) {
                 previewView.visibility = View.VISIBLE
