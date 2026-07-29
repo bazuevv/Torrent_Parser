@@ -54,6 +54,7 @@ import androidx.lifecycle.flowWithLifecycle
 import com.tonapps.blockchain.contract.Blockchain
 import com.tonapps.blockchain.contract.TokenType
 import com.tonapps.blockchain.model.legacy.TokenEntity
+import com.tonapps.blockchain.model.legacy.Wallet
 import com.tonapps.blockchain.model.legacy.WalletType
 import com.tonapps.blockchain.ton.extensions.tonAddressDigitCode
 import com.tonapps.core.helper.rememberClipboardManager
@@ -84,6 +85,8 @@ private val DigitCodeOnWhiteColor = Color(0xFF007AFF)
 private val DigitCodeFontSize = 23.sp
 private val DigitCodeLineHeight = 31.sp
 private val CardContentPadding = 24.dp
+private val WalletAvatarSize = 64.dp
+private val WalletNameFontSize = 18.sp
 
 @Composable
 fun QrScreen(
@@ -168,6 +171,7 @@ fun QrScreen(
 
                 QrContent(
                     walletType = data.wallet.type,
+                    walletLabel = data.wallet.label,
                     walletAddress = data.address,
                     content = data.qrContent,
                     tokenImage = if (token.isTon) UIKitIcon.ic_ton.uri() else token.imageUri,
@@ -210,6 +214,9 @@ fun QrScreen(
 fun QrContent(
     walletType: WalletType,
     walletAddress: String,
+    // null — когда QR не про кошелёк пользователя (например, адрес платежа
+    // при покупке крипты): тогда строка с владельцем не рисуется.
+    walletLabel: Wallet.Label? = null,
     content: String?,
     tokenImage: Uri,
     blockchainImage: Int?,
@@ -238,6 +245,28 @@ fun QrContent(
             .padding(CardContentPadding),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Чей это кошелёк — метка из настроек: её эмодзи, цвет и имя.
+        // Внутри карточки фон белый, поэтому имя чёрным, как и адрес ниже.
+        if (walletLabel != null && !walletLabel.isEmpty) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                WalletAvatar(
+                    emoji = walletLabel.emoji,
+                    color = walletLabel.color,
+                    size = WalletAvatarSize
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Text(
+                    text = walletLabel.name,
+                    style = UIKit.typography.label1.copy(fontSize = WalletNameFontSize),
+                    color = Color.Black
+                )
+            }
+
+            Spacer(modifier = Modifier.height(Dimens.offsetMedium))
+        }
+
         if (content != null) {
             QrCode(
                 content = content,

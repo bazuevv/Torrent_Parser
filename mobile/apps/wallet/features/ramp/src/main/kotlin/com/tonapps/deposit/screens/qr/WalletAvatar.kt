@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.tonapps.emoji.ui.EmojiView
 
-private const val EMOJI_TO_CIRCLE_RATIO = 24f / 44f
+private const val EMOJI_TO_CIRCLE_RATIO = 0.7f
 
 /**
  * Аватар кошелька: эмодзи из его метки на круге цвета метки.
@@ -21,7 +21,10 @@ private const val EMOJI_TO_CIRCLE_RATIO = 24f / 44f
  * Рисуется через [EmojiView] из lib/emoji, а не текстом, потому что метка может
  * содержать не только обычное эмодзи, но и один из встроенных значков
  * (`custom_wallet`, `custom_leaf` и прочие) — их умеет разворачивать только он.
- * Пропорция эмодзи к кругу взята из списка кошельков (24 dp внутри 44 dp).
+ *
+ * Эмодзи занимает 0.7 диаметра круга. В списке кошельков пропорция мельче
+ * (24 dp внутри 44 dp), но там аватар стоит в плотной строке; здесь он крупный
+ * и одиночный, поэтому эмодзи заполняет круг заметнее.
  *
  * @param emoji значение [com.tonapps.blockchain.model.legacy.Wallet.Label.emoji]
  * @param color цвет метки, ARGB-число из [com.tonapps.blockchain.model.legacy.Wallet.Label.color]
