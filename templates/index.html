@@ -877,6 +877,19 @@
                   border-radius:8px; padding:10px 13px; font-size:13px; margin-bottom:12px; }
       #tab-transfers table td, #tab-transfers table th { vertical-align: middle; }
       .ton-edit summary { cursor:pointer; color:var(--muted); font-size:12px; }
+      /* Сворачиваемые секции раздела «Переводы» (по умолчанию закрыты) */
+      details.ton-sec > summary.card-title {
+        cursor:pointer; user-select:none; list-style:none;
+        display:flex; align-items:center; gap:8px;
+      }
+      details.ton-sec > summary.card-title::-webkit-details-marker { display:none; }
+      details.ton-sec > summary.card-title::before {
+        content:'▸'; display:inline-block; font-size:11px; line-height:1;
+        transition: transform .15s ease;
+      }
+      details.ton-sec[open] > summary.card-title::before { transform: rotate(90deg); }
+      details.ton-sec > summary.card-title:hover { color: var(--text); }
+      details.ton-sec:not([open]) > summary.card-title { margin-bottom:0; }
     </style>
 
     <!-- Экран входа -->
@@ -915,18 +928,18 @@
       </div>
 
       <!-- Кошелёк -->
-      <div class="card">
-        <div class="card-title">Кошелёк-отправитель</div>
+      <details class="card ton-sec" data-sec="wallet">
+        <summary class="card-title">Баланс</summary>
         <div id="ton-wallet" style="color:var(--muted);font-size:13px">Нажмите «Обновить баланс».</div>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-clear" onclick="tonWalletInfo(false)">Обновить баланс TON</button>
           <button class="btn btn-clear" onclick="tonWalletInfo(true)">TON + USDT</button>
         </div>
-      </div>
+      </details>
 
       <!-- Перевод между кошельками -->
-      <div class="card">
-        <div class="card-title">Перевод между кошельками</div>
+      <details class="card ton-sec" data-sec="transfer">
+        <summary class="card-title">Перевод между кошельками</summary>
         <p style="color:var(--muted);font-size:12px;margin-top:0">
           Собрать средства на нужный кошелёк (например, v5 → highload перед рассылкой) или отправить
           на произвольный адрес. Ключи у вас (сид казны) — деньги <b>реальные</b>. Начните с пробного расчёта.
@@ -986,11 +999,11 @@
           <div style="flex:0"><button class="btn" id="ton-tr-btn" onclick="tonTransfer()">Перевести</button></div>
         </div>
         <div id="ton-tr-result" style="margin-top:10px"></div>
-      </div>
+      </details>
 
       <!-- Конвертация TON ⇄ USDT (котировки) -->
-      <div class="card">
-        <div class="card-title">Конвертация TON ⇄ USDT — курс</div>
+      <details class="card ton-sec" data-sec="swap">
+        <summary class="card-title">Конвертация TON ⇄ USDT — курс</summary>
         <p style="color:var(--muted);font-size:12px;margin-top:0">
           Расчёт обмена на DEX <b>STON.fi</b>. Это только <b>котировка</b> — ничего не отправляется.
           Курс плавающий: «получите минимум» учитывает проскальзывание, ниже этой суммы обмен
@@ -1020,11 +1033,11 @@
           <div style="flex:0"><button class="btn" id="ton-sw-btn" onclick="tonSwapQuote()">Рассчитать</button></div>
         </div>
         <div id="ton-sw-result" style="margin-top:10px"></div>
-      </div>
+      </details>
 
       <!-- Адреса пользователей -->
-      <div class="card">
-        <div class="card-title">Адреса пользователей</div>
+      <details class="card ton-sec" data-sec="user-addr">
+        <summary class="card-title">Адреса пользователей</summary>
         <p style="color:var(--muted);font-size:12px;margin-top:0">
           Адрес выводится из master-сида по <b>subwallet_id = id пользователя</b> (кошелёк v4R2).
           Баланс и состояние — запросом в сеть. Пополнения на такие адреса в обычном
@@ -1055,11 +1068,11 @@
           <div style="flex:0"><button class="btn" onclick="tonUserWallet()">Показать</button></div>
         </div>
         <div id="ton-uw-result" style="margin-top:12px"></div>
-      </div>
+      </details>
 
       <!-- Сводка + запуск -->
-      <div class="card">
-        <div class="card-title">Запустить рассылку</div>
+      <details class="card ton-sec" data-sec="run">
+        <summary class="card-title">Запустить рассылку</summary>
         <div class="ton-stat" style="margin-bottom:14px">
           <div><div class="k">Активных получателей</div><div class="v" id="ton-active">—</div></div>
           <div><div class="k">Сумма к рассылке</div><div class="v" id="ton-total">—</div></div>
@@ -1094,11 +1107,11 @@
           Dry-run проверяет баланс и пишет план, но <b>денег не отправляет</b>. Снимите галочку для боевой отправки.
         </p>
         <div id="ton-run-msg"></div>
-      </div>
+      </details>
 
       <!-- Текущий/последний запуск -->
-      <div class="card" id="ton-run-card" style="display:none">
-        <div class="card-title">Запуск <span id="ton-run-title"></span> <span id="ton-run-status"></span></div>
+      <details class="card ton-sec" id="ton-run-card" data-sec="run-card" style="display:none">
+        <summary class="card-title">Запуск <span id="ton-run-title"></span> <span id="ton-run-status"></span></summary>
         <div id="ton-run-meta" style="color:var(--muted);font-size:12px;margin-bottom:10px"></div>
         <div class="table-wrap">
           <table>
@@ -1106,11 +1119,11 @@
             <tbody id="ton-run-items"></tbody>
           </table>
         </div>
-      </div>
+      </details>
 
       <!-- Получатели -->
-      <div class="card">
-        <div class="card-title">Получатели</div>
+      <details class="card ton-sec" data-sec="recipients">
+        <summary class="card-title">Получатели</summary>
         <div id="ton-rcpt-msg"></div>
         <div class="ton-row" style="margin-bottom:14px">
           <div style="flex:2"><label class="ton-lbl">Адрес (UQ… / EQ…)</label>
@@ -1134,20 +1147,21 @@
             <tbody id="ton-rcpt-body"></tbody>
           </table>
         </div>
-      </div>
+      </details>
 
       <!-- История -->
-      <div class="card">
-        <div class="card-title">История рассылок
-          <button class="btn btn-clear" style="float:right;padding:4px 10px;font-size:12px" onclick="tonLoadRuns()">Обновить</button>
-        </div>
+      <details class="card ton-sec" data-sec="history">
+        <summary class="card-title">История рассылок
+          <button class="btn btn-clear" style="margin-left:auto;padding:4px 10px;font-size:12px"
+                  onclick="event.preventDefault();event.stopPropagation();tonLoadRuns()">Обновить</button>
+        </summary>
         <div class="table-wrap">
           <table>
             <thead><tr><th>#</th><th>Начат</th><th>Актив</th><th>Режим</th><th>Тип</th><th>Получателей</th><th>Сумма</th><th>Статус</th></tr></thead>
             <tbody id="ton-runs-body"></tbody>
           </table>
         </div>
-      </div>
+      </details>
     </div>
   </div>
 
@@ -2227,6 +2241,31 @@ async function tonFetch(url, opts) {
   return { status: r.status, ok: r.ok, j };
 }
 
+// ── Состояние сворачиваемых секций: кука на год ────────────────────────────
+const TON_SEC_COOKIE = 'ton_open_sections';
+
+function tonSecCookieGet() {
+  const m = document.cookie.match(/(?:^|;\s*)ton_open_sections=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+function tonSecSave() {
+  const open = [...document.querySelectorAll('#ton-app details.ton-sec[open]')]
+    .map(d => d.dataset.sec).filter(Boolean);
+  document.cookie = TON_SEC_COOKIE + '=' + encodeURIComponent(open.join(','))
+    + '; path=/; max-age=31536000; SameSite=Lax';
+}
+
+function tonSecInit() {
+  const saved = tonSecCookieGet();
+  // куки нет (первый заход) — все секции остаются свёрнутыми
+  const open = new Set(saved === null ? [] : saved.split(',').filter(Boolean));
+  document.querySelectorAll('#ton-app details.ton-sec').forEach(d => {
+    d.open = open.has(d.dataset.sec);
+    d.addEventListener('toggle', tonSecSave);
+  });
+}
+
 function tonOnOpen() {
   fetch('/api/ton/access').then(r => r.json()).then(d => {
     if (!d.admin) { tonShow('denied'); return; }
@@ -2403,7 +2442,9 @@ function tonWatchRun(after) {
 }
 
 function tonShowRun(runId) {
-  document.getElementById('ton-run-card').style.display = 'block';
+  const runCard = document.getElementById('ton-run-card');
+  runCard.style.display = 'block';
+  runCard.open = true;   // ход рассылки показываем сразу развёрнутым
   if (_tonRunTimer) clearInterval(_tonRunTimer);
   const tick = () => {
     tonFetch('/api/ton/runs/' + runId).then(({ j }) => {
@@ -2682,6 +2723,8 @@ function tonTransfer() {
     if (!j.dry_run) { setTimeout(tonWalletInfo, 1500); }
   }).catch(() => { btn.disabled = false; box.innerHTML = '<span class="ton-pill err">Ошибка запроса</span>'; });
 }
+
+tonSecInit();
 
 {% if admin %}
 connectSSE();
