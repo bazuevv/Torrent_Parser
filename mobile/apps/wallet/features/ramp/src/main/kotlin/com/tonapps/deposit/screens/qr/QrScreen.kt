@@ -46,6 +46,7 @@ import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.flowWithLifecycle
@@ -74,6 +75,13 @@ import ui.theme.Dimens
 import ui.theme.Shapes
 import ui.theme.UIKit
 import ui.utils.uppercased
+
+// Карточка под QR всегда белая, поэтому цвета внутри неё берутся не из темы,
+// а из светлой палитры приложения — она рассчитана на белый фон.
+private val AddressOnWhiteColor = Color(0xFF818C99)
+private val DigitCodeOnWhiteColor = Color(0xFF007AFF)
+private val DigitCodeFontSize = 22.sp
+private val DigitCodeLineHeight = 30.sp
 
 @Composable
 fun QrScreen(
@@ -236,11 +244,15 @@ fun QrContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(Dimens.offsetMedium))
-
         // Для TON показываем сокращённый адрес и под ним цифровой код,
         // для остальных сетей (TRON) кода нет — остаётся полный адрес.
         val digitCode = remember(walletAddress) { walletAddress.tonAddressDigitCode() }
+
+        Spacer(
+            modifier = Modifier.height(
+                if (digitCode == null) Dimens.offsetMedium else Dimens.offsetExtraSmall
+            )
+        )
 
         Column(
             modifier = Modifier
@@ -251,7 +263,7 @@ fun QrContent(
             Text(
                 text = if (digitCode == null) walletAddress else walletAddress.short4,
                 style = UIKit.typography.mono,
-                color = Color.Black,
+                color = if (digitCode == null) Color.Black else AddressOnWhiteColor,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -262,10 +274,15 @@ fun QrContent(
             )
 
             if (digitCode != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+
                 Text(
                     text = digitCode,
-                    style = UIKit.typography.mono,
-                    color = Color.Black,
+                    style = UIKit.typography.mono.copy(
+                        fontSize = DigitCodeFontSize,
+                        lineHeight = DigitCodeLineHeight
+                    ),
+                    color = DigitCodeOnWhiteColor,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
