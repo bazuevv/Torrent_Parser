@@ -45,6 +45,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -285,8 +286,16 @@ fun QrContent(
                     ),
                     color = DigitCodeOnWhiteColor,
                     textAlign = TextAlign.Center,
+                    // Код не переносим: если он не влезает в отведённую ширину,
+                    // пусть выходит за её пределы, оставаясь по центру.
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Visible,
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .wrapContentWidth(
+                            align = Alignment.CenterHorizontally,
+                            unbounded = true
+                        )
                         .semantics(mergeDescendants = false) {
                             testTagsAsResourceId = true
                             testTag = "wallet_address_digit_code_text"
