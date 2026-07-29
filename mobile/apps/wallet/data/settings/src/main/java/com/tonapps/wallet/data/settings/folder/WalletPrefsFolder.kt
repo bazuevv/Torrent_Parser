@@ -1,11 +1,8 @@
 package com.tonapps.wallet.data.settings.folder
 
 import android.content.Context
-import android.os.SystemClock
-import com.tonapps.log.L
 import com.tonapps.wallet.data.settings.BatteryTransaction
 import com.tonapps.wallet.data.settings.BatteryTransaction.Companion.toIntArray
-import com.tonapps.wallet.data.settings.SettingsRepository
 import com.tonapps.wallet.data.settings.SpamTransactionState
 import com.tonapps.wallet.data.settings.entities.PreferredFeeMethod
 import com.tonapps.wallet.data.settings.entities.PreferredTronFeeMethod
@@ -14,19 +11,17 @@ import kotlinx.coroutines.CoroutineScope
 
 internal class WalletPrefsFolder(context: Context, scope: CoroutineScope): BaseSettingsFolder(context, scope, "wallet_prefs") {
 
-    private companion object {
-        private const val SORT_PREFIX = "sort_"
-        private const val PUSH_PREFIX = "push_"
-        private const val PURCHASE_PREFIX = "purchase_"
-        private const val SETUP_HIDDEN_PREFIX = "setup_hidden_"
-        private const val LAST_UPDATED_PREFIX = "last_updated_"
-        private const val TELEGRAM_CHANNEL_PREFIX = "telegram_channel_"
-        private const val SPAM_STATE_TRANSACTION_PREFIX = "spam_state_transaction_"
-        private const val BATTERY_TX_ENABLED_PREFIX = "batter_tx_enabled_"
-        private const val USDT_W5_PREFIX = "usdt_w5_"
-        private const val DAPP_CONFIRM_PREFIX = "dapp_confirm_"
-        private const val PREFERRED_FEE_PREFIX = "preferred_fee_"
-		private const val PREFERRED_TRON_FEE_PREFIX = "preferred_tron_fee_"
+
+    fun getAvatarPhoto(walletId: String): String? {
+        return getString(keyAvatarPhoto(walletId))
+    }
+
+    fun setAvatarPhoto(walletId: String, path: String?) {
+        putString(keyAvatarPhoto(walletId), path)
+    }
+
+    private fun keyAvatarPhoto(walletId: String): String {
+        return AVATAR_PHOTO_PREFIX + walletId
     }
 
     fun isUSDTW5(walletId: String): Boolean {
@@ -194,5 +189,21 @@ internal class WalletPrefsFolder(context: Context, scope: CoroutineScope): BaseS
         } else {
             keys.joinToString(separator = "_", prefix = "$prefix$walletId")
         }
+    }
+
+    private companion object {
+        private const val SORT_PREFIX = "sort_"
+        private const val PUSH_PREFIX = "push_"
+        private const val PURCHASE_PREFIX = "purchase_"
+        private const val SETUP_HIDDEN_PREFIX = "setup_hidden_"
+        private const val LAST_UPDATED_PREFIX = "last_updated_"
+        private const val TELEGRAM_CHANNEL_PREFIX = "telegram_channel_"
+        private const val SPAM_STATE_TRANSACTION_PREFIX = "spam_state_transaction_"
+        private const val BATTERY_TX_ENABLED_PREFIX = "batter_tx_enabled_"
+        private const val USDT_W5_PREFIX = "usdt_w5_"
+        private const val DAPP_CONFIRM_PREFIX = "dapp_confirm_"
+        private const val PREFERRED_FEE_PREFIX = "preferred_fee_"
+		private const val PREFERRED_TRON_FEE_PREFIX = "preferred_tron_fee_"
+        private const val AVATAR_PHOTO_PREFIX = "avatar_photo_"
     }
 }

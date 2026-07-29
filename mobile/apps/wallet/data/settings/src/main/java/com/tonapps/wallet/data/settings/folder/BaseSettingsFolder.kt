@@ -9,6 +9,7 @@ import com.tonapps.extensions.putBoolean
 import com.tonapps.extensions.putInt
 import com.tonapps.extensions.putIntArray
 import com.tonapps.extensions.putLong
+import com.tonapps.extensions.putString
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
@@ -50,6 +51,15 @@ internal abstract class BaseSettingsFolder(
     fun getBoolean(key: String, defValue: Boolean = false) = prefs.getBoolean(key, defValue)
 
     fun getInt(key: String, defValue: Int = 0) = prefs.getInt(key, defValue)
+
+    fun getString(key: String, defValue: String? = null): String? = prefs.getString(key, defValue)
+
+    fun putString(key: String, value: String?, notify: Boolean = true) {
+        prefs.putString(key, value)
+        if (notify) {
+            notifyChanged()
+        }
+    }
 
     fun getLong(key: String, defValue: Long = 0) = prefs.getLong(key, defValue)
 

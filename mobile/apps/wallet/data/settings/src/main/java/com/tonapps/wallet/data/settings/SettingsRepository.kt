@@ -3,6 +3,7 @@ package com.tonapps.wallet.data.settings
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Configuration
+import android.net.Uri
 import android.icu.util.Currency
 import androidx.core.content.edit
 import androidx.core.os.LocaleListCompat
@@ -39,9 +40,13 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 // TODO need to be refactored
+// ClassOrdering подавлен намеренно: init-блок обращается к свойствам, объявленным
+// выше него, и перенос сломал бы порядок инициализации.
+@Suppress("ClassOrdering")
 class SettingsRepository(
     private val scope: CoroutineScope,
     private val context: Context,
@@ -532,6 +537,41 @@ class SettingsRepository(
     }
 
     fun getWalletPrefs(walletId: String) = walletPrefsFolder.get(walletId)
+
+    /**
+     * Путь к фотографии на аватаре кошелька либо null, если её нет и показывается эмодзи.
+     */
+    fun getWalletAvatarPhoto(walletId: String): String? {
+        val path = walletPrefsFolder.getAvatarPhoto(walletId) ?: return null
+        // Файл мог исчезнуть вместе с данными приложения — тогда путь тоже не нужен.
+        if (!File(path).exists()) {
+            walletPrefsFolder.setAvatarPhoto(walletId, null)
+            return null
+        }
+        return path
+    }
+
+    /**
+     * Копирует выбранное изображение к себе и делает его аватаром кошелька.
+     * Прежняя фотография удаляется. Возвращает путь к новому файлу либо null,
+     * если изображение не удалось прочитать.
+     */
+    suspend fun setWalletAvatarPhoto(walletId: String, uri: Uri): String? {
+        val file = WalletAvatarPhotoStore.save(context, walletId, uri) ?: return null
+        val previous = walletPrefsFolder.getAvatarPhoto(walletId)
+        walletPrefsFolder.setAvatarPhoto(walletId, file.absolutePath)
+        WalletAvatarPhotoStore.delete(previous)
+        return file.absolutePath
+    }
+
+    /**
+     * Убирает фотографию — аватар возвращается к эмодзи метки.
+     */
+    fun removeWalletAvatarPhoto(walletId: String) {
+        val previous = walletPrefsFolder.getAvatarPhoto(walletId)
+        walletPrefsFolder.setAvatarPhoto(walletId, null)
+        WalletAvatarPhotoStore.delete(previous)
+    }
 
     fun getWalletLastUpdated(walletId: String) = walletPrefsFolder.getLastUpdated(walletId)
 
