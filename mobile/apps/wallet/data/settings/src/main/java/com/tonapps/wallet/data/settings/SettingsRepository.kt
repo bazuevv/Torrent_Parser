@@ -57,7 +57,6 @@ class SettingsRepository(
 
     private companion object {
         private const val NAME = "settings"
-        private const val CURRENCY_CODE_KEY = "currency_code"
         private const val LOCK_SCREEN_KEY = "lock_screen"
         private const val BIOMETRIC_KEY = "biometric"
         private const val COUNTRY_KEY = "country"
@@ -201,16 +200,9 @@ class SettingsRepository(
             }
         }
 
-    var currency: WalletCurrency =
-        WalletCurrency.ofOrDefault(prefs.getString(CURRENCY_CODE_KEY, null))
-        set(value) {
-            if (field != value && value.code.isNotEmpty()) {
-                prefs.putString(CURRENCY_CODE_KEY, value.code)
-                field = value
-                _currencyFlow.tryEmit(value)
-                migrationHelper.setLegacyCurrency(value)
-            }
-        }
+    // Валюта приложения зафиксирована на USD — выбор валюты из настроек убран,
+    // поэтому значение не хранится в prefs и не мигрируется из legacy-хранилища
+    val currency: WalletCurrency = WalletCurrency.USD
 
     var language: Language =
         Language(prefs.getString(LANGUAGE_CODE_KEY, Language.DEFAULT) ?: Language.DEFAULT)
@@ -620,11 +612,6 @@ class SettingsRepository(
                 val legacyValues = importFromLegacy()
                 biometric = legacyValues.biometric
                 lockScreen = legacyValues.lockScreen
-                currency = if (legacyValues.currency.code.isBlank()) {
-                    WalletCurrency.DEFAULT
-                } else {
-                    legacyValues.currency
-                }
                 theme = legacyValues.theme
                 language = legacyValues.language
                 hiddenBalances = legacyValues.hiddenBalances
@@ -649,7 +636,6 @@ class SettingsRepository(
     }
 
     private data class LegacyValues(
-        val currency: WalletCurrency,
         val language: Language,
         val searchEngine: SearchEngine,
         val theme: Theme,
@@ -662,7 +648,6 @@ class SettingsRepository(
     private suspend fun importFromLegacy(): LegacyValues {
         importLegacyWallets()
         return LegacyValues(
-            currency = migrationHelper.getLegacyCurrency(),
             language = migrationHelper.getLegacyLanguage(),
             searchEngine = migrationHelper.getLegacySearchEngine(),
             theme = migrationHelper.getLegacyTheme(),

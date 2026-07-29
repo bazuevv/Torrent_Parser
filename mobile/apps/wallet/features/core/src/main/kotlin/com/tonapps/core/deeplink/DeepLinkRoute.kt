@@ -114,7 +114,6 @@ sealed class DeepLinkRoute {
     }
     data object Settings: Internal()
     data object SettingsSecurity: Internal()
-    data object SettingsCurrency: Internal()
     data object SettingsLanguage: Internal()
     data object SettingsExtensions: Internal()
     data object SettingsNotifications: Internal()
@@ -164,10 +163,6 @@ sealed class DeepLinkRoute {
         val bin: Cell?,
         val initStateBase64: String?
     ): DeepLinkRoute() {
-
-        companion object {
-            const val MAX_EXP = 10 * 60L
-        }
 
         val isExpired: Boolean
             get() {
@@ -222,6 +217,10 @@ sealed class DeepLinkRoute {
                 throw IllegalArgumentException("Amount is required for bin or init")
             }
         }
+
+        companion object {
+            const val MAX_EXP = 10 * 60L
+        }
     }
 
     data class PickWallet(val walletId: String): DeepLinkRoute() {
@@ -270,6 +269,10 @@ sealed class DeepLinkRoute {
 
     data class DApp(val url: String): DeepLinkRoute() {
 
+        constructor(uri: Uri) : this(
+            url = parseLink(uri)
+        )
+
         private companion object {
 
             private fun parseLink(uri: Uri): String {
@@ -286,10 +289,6 @@ sealed class DeepLinkRoute {
                 } ?: throw IllegalArgumentException("DApp url is required")
             }
         }
-
-        constructor(uri: Uri) : this(
-            url = parseLink(uri)
-        )
     }
 
     data class Signer(
@@ -364,7 +363,6 @@ sealed class DeepLinkRoute {
                     "ton-connect" -> TonConnect(uri)
                     "signer" -> Signer(uri)
                     "security" -> SettingsSecurity
-                    "currency" -> SettingsCurrency
                     "language" -> SettingsLanguage
                     "extensions" -> SettingsExtensions
                     "notifications", "push" -> SettingsNotifications

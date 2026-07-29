@@ -91,16 +91,6 @@ sealed class Item(type: Int, val name: String): BaseListItem(type) {
         name: String
     ): Item(TYPE_TEXT, name)
 
-    class Currency(
-        code: String,
-        position: ListCell.Position
-    ): Text(
-        titleRes = Localization.currency,
-        value = code,
-        position = position,
-        name = "currency"
-    )
-
     data class ConnectedApps(
         override val position: ListCell.Position
     ): Icon(

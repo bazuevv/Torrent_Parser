@@ -86,7 +86,6 @@ import com.tonapps.tonkeeper.ui.screen.init.list.AccountItem
 import com.tonapps.tonkeeper.ui.screen.name.edit.EditNameScreen
 import com.tonapps.tonkeeper.ui.screen.send.main.SendScreen
 import com.tonapps.tonkeeper.ui.screen.send.transaction.SendTransactionScreen
-import com.tonapps.tonkeeper.ui.screen.settings.currency.CurrencyScreen
 import com.tonapps.tonkeeper.ui.screen.settings.extensions.ExtensionsScreen
 import com.tonapps.tonkeeper.ui.screen.settings.language.LanguageScreen
 import com.tonapps.tonkeeper.ui.screen.settings.main.SettingsScreen
@@ -807,7 +806,8 @@ class RootViewModel(
                 } else if (state is AccountRepository.SelectedState.Wallet) {
                     processDeepLink(state.wallet, deeplink, fromPackageName)
                 }
-            }.launch()
+            }
+            .launch()
         return true
     }
 
@@ -976,8 +976,6 @@ class RootViewModel(
             }
         } else if (route is DeepLinkRoute.SettingsSecurity) {
             openScreen(SecurityScreen.newInstance(wallet))
-        } else if (route is DeepLinkRoute.SettingsCurrency) {
-            openScreen(CurrencyScreen.newInstance())
         } else if (route is DeepLinkRoute.SettingsLanguage) {
             openScreen(LanguageScreen.newInstance())
         } else if (route is DeepLinkRoute.SettingsExtensions) {

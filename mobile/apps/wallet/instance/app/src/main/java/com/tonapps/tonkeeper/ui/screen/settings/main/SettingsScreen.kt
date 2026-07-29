@@ -15,7 +15,6 @@ import com.tonapps.tonkeeper.ui.base.BaseListWalletScreen
 import com.tonapps.tonkeeper.ui.base.ScreenContext
 import com.tonapps.tonkeeper.ui.screen.backup.main.BackupScreen
 import com.tonapps.tonkeeper.ui.screen.battery.BatteryScreen
-import com.tonapps.tonkeeper.ui.screen.settings.currency.CurrencyScreen
 import com.tonapps.tonkeeper.ui.screen.settings.language.LanguageScreen
 import com.tonapps.tonkeeper.ui.screen.name.edit.EditNameScreen
 import com.tonapps.tonkeeper.ui.screen.notifications.NotificationsManageScreen
@@ -76,7 +75,6 @@ class SettingsScreen(
         ))
         when (item) {
             is Item.Backup -> navigation?.add(BackupScreen.newInstance(screenContext.wallet))
-            is Item.Currency -> navigation?.add(CurrencyScreen.newInstance())
             is Item.Language -> navigation?.add(LanguageScreen.newInstance())
             is Item.Account -> navigation?.add(EditNameScreen.newInstance(item.wallet))
             is Item.Theme -> navigation?.add(ThemeScreen.newInstance(screenContext.wallet))

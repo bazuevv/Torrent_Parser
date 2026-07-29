@@ -28,7 +28,6 @@ import com.tonapps.tonkeeper.ui.screen.browser.search.BrowserSearchViewModel
 import com.tonapps.tonkeeper.ui.screen.country.CountryPickerViewModel
 import com.tonapps.tonkeeper.ui.screen.dev.DevViewModel
 import com.tonapps.tonkeeper.ui.screen.init.InitViewModel
-import com.tonapps.tonkeeper.ui.screen.settings.currency.CurrencyViewModel
 import com.tonapps.tonkeeper.ui.screen.ledger.steps.LedgerConnectionViewModel
 import com.tonapps.tonkeeper.ui.screen.migration.MigrationViewModel
 import com.tonapps.tonkeeper.ui.screen.settings.language.LanguageViewModel
@@ -92,7 +91,6 @@ val koinModel = module {
     viewModelOf(::DevViewModel)
     viewModelOf(::ChangePasscodeViewModel)
     viewModelOf(::CountryPickerViewModel)
-    viewModelOf(::CurrencyViewModel)
     viewModelOf(::ThemeViewModel)
     viewModelOf(::LanguageViewModel)
     viewModelOf(::SecurityViewModel)

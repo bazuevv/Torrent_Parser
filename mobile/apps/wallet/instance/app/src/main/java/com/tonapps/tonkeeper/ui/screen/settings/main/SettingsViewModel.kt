@@ -28,7 +28,6 @@ import com.tonapps.blockchain.model.legacy.WalletType
 import com.tonapps.wallet.data.backup.BackupRepository
 import com.tonapps.wallet.data.battery.BatteryRepository
 import com.tonapps.wallet.data.core.SearchEngine
-import com.tonapps.blockchain.model.legacy.WalletCurrency
 import com.tonapps.wallet.data.passcode.PasscodeManager
 import com.tonapps.wallet.data.rn.RNLegacy
 import com.tonapps.wallet.data.settings.SettingsRepository
@@ -113,13 +112,12 @@ class SettingsViewModel(
 
         combine(
             settingsRepository.walletPrefsChangedFlow,
-            settingsRepository.currencyFlow,
             settingsRepository.languageFlow,
             settingsRepository.searchEngineFlow,
             walletInfoFlow.combine(tabsChangedFlow) { walletInfo, _ -> walletInfo },
-        ) { _, currency, language, searchEngine, walletInfo ->
+        ) { _, language, searchEngine, walletInfo ->
             val (hasBackup, wallet) = walletInfo
-            buildUiItems(wallet, currency, language, searchEngine, hasBackup)
+            buildUiItems(wallet, language, searchEngine, hasBackup)
         }.launchIn(viewModelScope)
     }
 
@@ -240,7 +238,6 @@ class SettingsViewModel(
 
     private suspend fun buildUiItems(
         displayWallet: WalletEntity,
-        currency: WalletCurrency,
         language: Language,
         searchEngine: SearchEngine,
         hasBackup: Boolean
@@ -308,11 +305,6 @@ class SettingsViewModel(
                 secondCellPosition = ListCell.Position.MIDDLE
             }
         }
-        if (!wallet.testnet) {
-            uiItems.add(Item.Currency(currency.code, secondCellPosition))
-            secondCellPosition = ListCell.Position.MIDDLE
-        }
-
         if (wallet.isTonConnectSupported) {
             uiItems.add(Item.SearchEngine(searchEngine, secondCellPosition))
             uiItems.add(Item.ConnectedApps(ListCell.Position.MIDDLE))
