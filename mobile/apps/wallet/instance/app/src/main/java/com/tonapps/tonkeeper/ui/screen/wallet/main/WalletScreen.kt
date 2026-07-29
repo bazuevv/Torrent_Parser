@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.View
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.tonapps.tonkeeper.koin.settingsRepository
 import com.tonapps.tonkeeper.koin.walletViewModel
 import com.tonapps.tonkeeper.ui.component.MainRecyclerView
 import com.tonapps.tonkeeper.ui.component.wallet.WalletHeaderView
@@ -40,6 +41,21 @@ class WalletScreen(wallet: WalletEntity): MainScreen.Child(R.layout.fragment_wal
         collectFlow(viewModel.uiItemsFlow, adapter::submitList)
     }
 
+    /**
+     * Фотография кошелька могла смениться в редакторе, а метка при этом не
+     * меняется и поток с ней не перевыпускается — поэтому обновляем при возврате.
+     */
+    override fun onResume() {
+        super.onResume()
+        if (this::headerView.isInitialized) {
+            applyHeaderPhoto()
+        }
+    }
+
+    private fun applyHeaderPhoto() {
+        headerView.setWalletPhoto(context?.settingsRepository?.getWalletAvatarPhoto(wallet.id))
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         headerView = view.findViewById(R.id.header)
@@ -69,7 +85,10 @@ class WalletScreen(wallet: WalletEntity): MainScreen.Child(R.layout.fragment_wal
         listView = view.findViewById(R.id.list)
         listView.adapter = adapter
 
-        collectFlow(viewModel.uiLabelFlow.filterNotNull(), headerView::setWallet)
+        collectFlow(viewModel.uiLabelFlow.filterNotNull()) { label ->
+            headerView.setWallet(label)
+            applyHeaderPhoto()
+        }
         collectFlow(viewModel.hasBackupFlow, headerView::setDot)
         collectFlow(viewModel.statusFlow) { status ->
             if (refreshLayout.isRefreshing && status != Status.Updating) {

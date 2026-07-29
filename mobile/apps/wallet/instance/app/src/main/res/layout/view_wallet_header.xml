@@ -34,6 +34,15 @@
                 android:layout_height="20dp"
                 android:layout_gravity="center" />
 
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/wallet_photo"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_oval"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+
             <androidx.appcompat.widget.AppCompatTextView
                 android:id="@+id/wallet_name"
                 android:layout_width="wrap_content"

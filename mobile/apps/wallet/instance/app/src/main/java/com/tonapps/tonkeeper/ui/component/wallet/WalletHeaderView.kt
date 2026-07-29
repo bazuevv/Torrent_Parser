@@ -15,6 +15,7 @@ import com.tonapps.core.flags.TooltipManager
 import com.tonapps.core.flags.TooltipState
 import com.tonapps.core.flags.WalletTooltip
 import com.tonapps.emoji.ui.EmojiView
+import com.tonapps.tonkeeper.ui.component.label.applyWalletPhoto
 import com.tonapps.tonkeeper.extensions.fixW5Title
 import com.tonapps.tonkeeper.extensions.isLightTheme
 import com.tonapps.tonkeeperx.R
@@ -80,6 +81,7 @@ class WalletHeaderView @JvmOverloads constructor(
     private val settingsView: View
     private val walletView: View
     private val emojiView: EmojiView
+    private val photoView: AppCompatImageView
     private val nameView: AppCompatTextView
     private val arrowView: AppCompatImageView
     private val settingsDot: View
@@ -137,6 +139,7 @@ class WalletHeaderView @JvmOverloads constructor(
         walletView = findViewById(R.id.wallet)
         walletView.setOnTouchListener { v, event -> swipeDetector.onTouchEvent(event) }
         emojiView = findViewById(R.id.wallet_emoji)
+        photoView = findViewById(R.id.wallet_photo)
         nameView = findViewById(R.id.wallet_name)
         arrowView = findViewById(R.id.wallet_arrow)
 
@@ -205,6 +208,14 @@ class WalletHeaderView @JvmOverloads constructor(
 
     override fun setDivider(value: Boolean) {
         drawable.setDivider(value)
+    }
+
+    /**
+     * Фотография приходит отдельно от метки: она хранится в настройках кошелька,
+     * а сюда прилетает только Wallet.Label, в котором идентификатора кошелька нет.
+     */
+    fun setWalletPhoto(photoPath: String?) {
+        applyWalletPhoto(emojiView, photoView, photoPath)
     }
 
     fun setWallet(walletLabel: Wallet.Label) {
