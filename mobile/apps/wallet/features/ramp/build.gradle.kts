@@ -53,6 +53,7 @@ dependencies {
     implementation(projects.ui.uikit.core)
 
     implementation(projects.lib.qr)
+    implementation(projects.lib.emoji)
     implementation(projects.lib.bus)
     implementation(projects.lib.icu)
     implementation(projects.lib.ledger)
