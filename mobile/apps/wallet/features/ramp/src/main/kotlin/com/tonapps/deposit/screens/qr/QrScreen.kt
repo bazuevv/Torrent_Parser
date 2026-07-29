@@ -53,8 +53,10 @@ import com.tonapps.blockchain.contract.Blockchain
 import com.tonapps.blockchain.contract.TokenType
 import com.tonapps.blockchain.model.legacy.TokenEntity
 import com.tonapps.blockchain.model.legacy.WalletType
+import com.tonapps.blockchain.ton.extensions.tonAddressDigitCode
 import com.tonapps.core.helper.rememberClipboardManager
 import com.tonapps.core.helper.rememberShareManager
+import com.tonapps.extensions.short4
 import com.tonapps.extensions.uri
 import com.tonapps.mvi.props.observeSafeState
 import com.tonapps.qr.ui.QRView
@@ -236,19 +238,44 @@ fun QrContent(
 
         Spacer(modifier = Modifier.height(Dimens.offsetMedium))
 
-        Text(
-            text = walletAddress,
-            style = UIKit.typography.mono,
-            color = Color.Black,
-            textAlign = TextAlign.Center,
+        // Для TON показываем сокращённый адрес и под ним цифровой код,
+        // для остальных сетей (TRON) кода нет — остаётся полный адрес.
+        val digitCode = remember(walletAddress) { walletAddress.tonAddressDigitCode() }
+
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onCopyClick() }
-                .semantics(mergeDescendants = false) {
-                    testTagsAsResourceId = true
-                    testTag = "wallet_address_text"
-                }
-        )
+                .clickable { onCopyClick() },
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = if (digitCode == null) walletAddress else walletAddress.short4,
+                style = UIKit.typography.mono,
+                color = Color.Black,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics(mergeDescendants = false) {
+                        testTagsAsResourceId = true
+                        testTag = "wallet_address_text"
+                    }
+            )
+
+            if (digitCode != null) {
+                Text(
+                    text = digitCode,
+                    style = UIKit.typography.mono,
+                    color = Color.Black,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics(mergeDescendants = false) {
+                            testTagsAsResourceId = true
+                            testTag = "wallet_address_digit_code_text"
+                        }
+                )
+            }
+        }
 
         if (walletType == WalletType.Watch) {
             Spacer(modifier = Modifier.height(Dimens.offsetMedium))
