@@ -137,6 +137,8 @@
     <string name="wallet">Cüzdan</string>
     <string name="activity">Etkinlik</string>
     <string name="history">Geçmiş</string>
+    <string name="tv">TV</string>
+    <string name="tv_channels_empty">Kanal listesi burada görünecek</string>
     <string name="price">Fiyat</string>
     <string name="scan">Tara</string>
     <string name="stake">Paylaş</string>

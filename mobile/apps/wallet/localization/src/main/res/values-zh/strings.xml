@@ -137,6 +137,8 @@
     <string name="wallet">钱包</string>
     <string name="activity">活动</string>
     <string name="history">历史</string>
+    <string name="tv">电视</string>
+    <string name="tv_channels_empty">频道列表将显示在这里</string>
     <string name="price">价格</string>
     <string name="scan">扫描</string>
     <string name="stake">质押</string>

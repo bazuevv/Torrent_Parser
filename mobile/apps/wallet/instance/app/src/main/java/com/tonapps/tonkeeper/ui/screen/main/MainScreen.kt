@@ -28,6 +28,7 @@ import com.tonapps.tonkeeper.ui.screen.payments.PaymentsScreen
 import com.tonapps.tonkeeper.ui.screen.root.RootEvent
 import com.tonapps.tonkeeper.ui.screen.root.RootViewModel
 import com.tonapps.tonkeeper.ui.screen.swap.SwapScreen
+import com.tonapps.tonkeeper.ui.screen.tv.TvScreen
 import com.tonapps.tonkeeper.ui.screen.wallet.main.WalletScreen
 import com.tonapps.tonkeeper.ui.screen.wallet.picker.PickerScreen
 import com.tonapps.tonkeeperx.R
@@ -328,6 +329,7 @@ class MainScreen: BaseWalletScreen<ScreenContext.None>(R.layout.fragment_main, S
             R.id.trading -> "trading"
             R.id.collectibles -> "collectibles"
             R.id.payments -> "payments"
+            R.id.tv -> "tv"
             R.id.browser -> "browser"
             else -> "unknown"
         }
@@ -346,6 +348,7 @@ class MainScreen: BaseWalletScreen<ScreenContext.None>(R.layout.fragment_main, S
             R.id.trading -> ShelvesFragment()
             R.id.collectibles -> CollectiblesScreen.newInstance(wallet)
             R.id.payments -> PaymentsScreen.newInstance(wallet)
+            R.id.tv -> TvScreen.newInstance(wallet)
             R.id.browser -> BrowserBaseScreen.newInstance(wallet)
             else -> throw IllegalArgumentException("Unknown itemId: $itemId")
         }
@@ -437,6 +440,8 @@ class MainScreen: BaseWalletScreen<ScreenContext.None>(R.layout.fragment_main, S
             return R.id.collectibles
         } else if (deeplink.startsWith("tonkeeper://trading")) {
             return R.id.trading
+        } else if (deeplink.startsWith("tonkeeper://tv")) {
+            return R.id.tv
         }
         return R.id.wallet
 

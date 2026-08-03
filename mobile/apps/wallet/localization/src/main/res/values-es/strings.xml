@@ -134,6 +134,8 @@
     <string name="wallet">Cartera</string>
     <string name="activity">Actividad</string>
     <string name="history">Historia</string>
+    <string name="tv">TV</string>
+    <string name="tv_channels_empty">Los canales aparecerán aquí</string>
     <string name="price">Precio</string>
     <string name="scan">Escanear</string>
     <string name="stake">Participación</string>

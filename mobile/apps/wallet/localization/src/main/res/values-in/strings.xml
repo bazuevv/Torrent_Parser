@@ -134,6 +134,8 @@
     <string name="wallet">Dompet</string>
     <string name="activity">Aktivitas</string>
     <string name="history">Sejarah</string>
+    <string name="tv">TV</string>
+    <string name="tv_channels_empty">Daftar saluran akan muncul di sini</string>
     <string name="price">Harga</string>
     <string name="scan">Pindai</string>
     <string name="stake">Taruhan</string>

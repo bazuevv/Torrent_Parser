@@ -283,6 +283,8 @@
     <string name="wallet">Wallet</string>
     <string name="activity">Activity</string>
     <string name="history">History</string>
+    <string name="tv">TV</string>
+    <string name="tv_channels_empty">Channel list will appear here</string>
     <string name="price">Price</string>
     <string name="scan">Scan</string>
     <string name="stake">Stake</string>

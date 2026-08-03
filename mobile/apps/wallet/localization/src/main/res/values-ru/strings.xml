@@ -291,6 +291,8 @@
     <string name="no_internet_connection">Нет соединения с интернетом</string>
     <string name="settings">Настройки</string>
     <string name="history">История</string>
+    <string name="tv">ТВ</string>
+    <string name="tv_channels_empty">Список каналов появится здесь</string>
     <string name="price">Цена</string>
     <string name="scan">Cканировать</string>
     <string name="purchases">Покупки</string>

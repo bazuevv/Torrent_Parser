@@ -169,6 +169,8 @@
     <string name="wallet">Портфейл</string>
     <string name="activity">Активност</string>
     <string name="history">История</string>
+    <string name="tv">ТВ</string>
+    <string name="tv_channels_empty">Списъкът с канали ще се появи тук</string>
     <string name="price">Цена</string>
     <string name="scan">Сканиране</string>
     <string name="stake">Стейк</string>

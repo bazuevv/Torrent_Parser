@@ -134,6 +134,8 @@
     <string name="wallet">Гаманець</string>
     <string name="activity">Активність</string>
     <string name="history">Історія</string>
+    <string name="tv">ТБ</string>
+    <string name="tv_channels_empty">Список каналів з&#39;явиться тут</string>
     <string name="price">Ціна</string>
     <string name="scan">Сканувати</string>
     <string name="stake">Ставка</string>

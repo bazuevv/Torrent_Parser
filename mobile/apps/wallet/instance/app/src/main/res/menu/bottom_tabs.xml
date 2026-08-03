@@ -23,6 +23,11 @@
         android:icon="@drawable/ic_creditcard_28"
         android:title="@string/payments" />
     <item
+        android:id="@+id/tv"
+        android:checkable="true"
+        android:icon="@drawable/ic_tv_28"
+        android:title="@string/tv" />
+    <item
         android:id="@+id/browser"
         android:checkable="true"
         android:icon="@drawable/ic_explore_28"

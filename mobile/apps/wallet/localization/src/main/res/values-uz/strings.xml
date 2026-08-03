@@ -137,6 +137,8 @@
     <string name="wallet">Hamyon</string>
     <string name="activity">Faoliyat</string>
     <string name="history">Tarix</string>
+    <string name="tv">TV</string>
+    <string name="tv_channels_empty">Kanallar roʻyxati shu yerda paydo boʻladi</string>
     <string name="price">Narxi</string>
     <string name="scan">Skanerlash</string>
     <string name="stake">Tikish</string>
