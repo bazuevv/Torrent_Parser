@@ -140,6 +140,9 @@
     <string name="tv_channels_error">Gagal memuat</string>
     <string name="tv_channels_error_subtitle">Periksa koneksi internet Anda dan coba lagi</string>
     <string name="tv_channels_retry">Muat ulang</string>
+    <string name="tv_player_error">Gagal memutar</string>
+    <string name="tv_player_error_subtitle">Saluran mungkin tidak tersedia untuk sementara</string>
+    <string name="tv_player_retry">Coba lagi</string>
     <string name="price">Harga</string>
     <string name="scan">Pindai</string>
     <string name="stake">Taruhan</string>

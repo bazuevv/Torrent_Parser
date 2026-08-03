@@ -13,6 +13,7 @@ import com.tonapps.tonkeeper.extensions.isLightTheme
 import com.tonapps.tonkeeper.ui.screen.main.MainScreen
 import com.tonapps.tonkeeper.ui.screen.tv.entity.TvChannelEntity
 import com.tonapps.tonkeeper.ui.screen.tv.list.Adapter
+import com.tonapps.tonkeeper.ui.screen.tv.player.TvPlayerScreen
 import com.tonapps.tonkeeperx.R
 import com.tonapps.uikit.color.backgroundPageColor
 import com.tonapps.uikit.color.backgroundTransparentColor
@@ -111,7 +112,7 @@ class TvScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_tv, wa
     }
 
     private fun openChannel(channel: TvChannelEntity) {
-        // Плеер появится в следующей фазе
+        navigation?.add(TvPlayerScreen.newInstance(channel))
     }
 
     override fun getRecyclerView(): RecyclerView? {

@@ -143,6 +143,9 @@
     <string name="tv_channels_error">Yuklab boʻlmadi</string>
     <string name="tv_channels_error_subtitle">Internet aloqasini tekshirib, qayta urinib koʻring</string>
     <string name="tv_channels_retry">Yangilash</string>
+    <string name="tv_player_error">Ijro etib boʻlmadi</string>
+    <string name="tv_player_error_subtitle">Kanal vaqtincha mavjud boʻlmasligi mumkin</string>
+    <string name="tv_player_retry">Qayta urinish</string>
     <string name="price">Narxi</string>
     <string name="scan">Skanerlash</string>
     <string name="stake">Tikish</string>

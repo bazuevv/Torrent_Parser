@@ -83,6 +83,9 @@ dependencies {
     implementation(libs.androidx.lifecycle)
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.browser)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.exoplayer.hls)
+    implementation(libs.androidx.media3.ui)
 
     implementation(libs.material)
     implementation(libs.flexbox)

@@ -43,6 +43,7 @@ androidx-browser = "1.10.0"
 androidx-swiperefreshlayout = "1.2.0"
 androidx-profileinstaller = "1.4.1"
 androidx-webkit = "1.15.0"
+androidx-media3 = "1.10.1"
 androidx-lifecycle = "2.10.0"
 androidx-emoji = "1.6.0"
 androidx-benchmark = "1.4.1"
@@ -197,6 +198,9 @@ androidx-browser = { module = "androidx.browser:browser", version.ref = "android
 androidx-swiperefreshlayout = { module = "androidx.swiperefreshlayout:swiperefreshlayout", version.ref = "androidx-swiperefreshlayout" }
 androidx-profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version.ref = "androidx-profileinstaller" }
 androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "androidx-webkit" }
+androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "androidx-media3" }
+androidx-media3-exoplayer-hls = { module = "androidx.media3:media3-exoplayer-hls", version.ref = "androidx-media3" }
+androidx-media3-ui = { module = "androidx.media3:media3-ui", version.ref = "androidx-media3" }
 androidx-lifecycle = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidx-lifecycle" }
 androidx-lifecycleProcess = { module = "androidx.lifecycle:lifecycle-process", version.ref = "androidx-lifecycle" }
 androidx-lifecycleSavedState = { module = "androidx.lifecycle:lifecycle-viewmodel-savedstate", version.ref = "androidx-lifecycle" }

@@ -143,6 +143,9 @@
     <string name="tv_channels_error">Yüklenemedi</string>
     <string name="tv_channels_error_subtitle">İnternet bağlantınızı kontrol edip tekrar deneyin</string>
     <string name="tv_channels_retry">Yenile</string>
+    <string name="tv_player_error">Oynatılamadı</string>
+    <string name="tv_player_error_subtitle">Kanal geçici olarak kullanılamıyor olabilir</string>
+    <string name="tv_player_retry">Tekrar dene</string>
     <string name="price">Fiyat</string>
     <string name="scan">Tara</string>
     <string name="stake">Paylaş</string>

@@ -175,6 +175,9 @@
     <string name="tv_channels_error">Зареждането е неуспешно</string>
     <string name="tv_channels_error_subtitle">Проверете интернет връзката и опитайте отново</string>
     <string name="tv_channels_retry">Обнови</string>
+    <string name="tv_player_error">Възпроизвеждането е неуспешно</string>
+    <string name="tv_player_error_subtitle">Каналът може да е временно недостъпен</string>
+    <string name="tv_player_retry">Опитай отново</string>
     <string name="price">Цена</string>
     <string name="scan">Сканиране</string>
     <string name="stake">Стейк</string>

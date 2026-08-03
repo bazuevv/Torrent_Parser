@@ -57,7 +57,7 @@ class TvPlaylistRepository(private val context: Context) {
         val url = playlistUrl
         if (!forceRefresh) {
             readCache(url)?.let { content ->
-                val channels = M3UParser.parse(content)
+                val channels = parsePlaylist(content)
                 if (channels.isNotEmpty()) {
                     memoryCache = channels
                     return channels
@@ -70,7 +70,7 @@ class TvPlaylistRepository(private val context: Context) {
         } catch (e: Throwable) {
             L.e(e, "TV playlist download failed")
             // Сеть отвалилась — отдаём просроченную копию, если она есть
-            val stale = readCache(url, ignoreTtl = true)?.let { M3UParser.parse(it) }
+            val stale = readCache(url, ignoreTtl = true)?.let { parsePlaylist(it) }
             if (stale.isNullOrEmpty()) {
                 throw e
             }
@@ -78,12 +78,27 @@ class TvPlaylistRepository(private val context: Context) {
             return stale
         }
 
-        val channels = M3UParser.parse(content)
+        val channels = parsePlaylist(content)
         if (channels.isNotEmpty()) {
             writeCache(url, content)
         }
         memoryCache = channels
         return channels
+    }
+
+    /**
+     * Каналы по `http://` отбрасываются: `network_security_config.xml` разрешает
+     * открытый текст только для `*.ton`, и такой поток всё равно не проиграется.
+     * Снимать запрет ради IPTV в кошельке не стоит — послабление распространится
+     * и на dapp-браузер. Чтобы вернуть эти каналы, нужно сначала разрешить
+     * cleartext в конфиге, и только потом менять флаг.
+     */
+    private fun parsePlaylist(content: String): List<TvChannelEntity> {
+        val channels = M3UParser.parse(content)
+        if (ALLOW_CLEARTEXT_STREAMS) {
+            return channels
+        }
+        return channels.filter { it.url.startsWith("https://", ignoreCase = true) }
     }
 
     private fun readCache(url: String, ignoreTtl: Boolean = false): String? {
@@ -123,6 +138,7 @@ class TvPlaylistRepository(private val context: Context) {
         const val PREFS_NAME = "tv_playlist"
         const val KEY_CACHED_URL = "cached_url"
         const val KEY_CACHED_AT = "cached_at"
+        const val ALLOW_CLEARTEXT_STREAMS = false
 
         val CACHE_TTL_MS = TimeUnit.HOURS.toMillis(6)
     }

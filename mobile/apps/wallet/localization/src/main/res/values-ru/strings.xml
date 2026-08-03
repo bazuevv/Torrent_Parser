@@ -297,6 +297,9 @@
     <string name="tv_channels_error">Не удалось загрузить</string>
     <string name="tv_channels_error_subtitle">Проверьте подключение к интернету и попробуйте ещё раз</string>
     <string name="tv_channels_retry">Обновить</string>
+    <string name="tv_player_error">Не удалось воспроизвести</string>
+    <string name="tv_player_error_subtitle">Возможно, канал временно недоступен</string>
+    <string name="tv_player_retry">Повторить</string>
     <string name="price">Цена</string>
     <string name="scan">Cканировать</string>
     <string name="purchases">Покупки</string>

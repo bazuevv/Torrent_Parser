@@ -289,6 +289,9 @@
     <string name="tv_channels_error">Failed to load</string>
     <string name="tv_channels_error_subtitle">Check your internet connection and try again</string>
     <string name="tv_channels_retry">Refresh</string>
+    <string name="tv_player_error">Playback failed</string>
+    <string name="tv_player_error_subtitle">The channel may be temporarily unavailable</string>
+    <string name="tv_player_retry">Try again</string>
     <string name="price">Price</string>
     <string name="scan">Scan</string>
     <string name="stake">Stake</string>

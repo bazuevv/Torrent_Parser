@@ -140,6 +140,9 @@
     <string name="tv_channels_error">Не вдалося завантажити</string>
     <string name="tv_channels_error_subtitle">Перевірте підключення до інтернету та спробуйте ще раз</string>
     <string name="tv_channels_retry">Оновити</string>
+    <string name="tv_player_error">Не вдалося відтворити</string>
+    <string name="tv_player_error_subtitle">Можливо, канал тимчасово недоступний</string>
+    <string name="tv_player_retry">Повторити</string>
     <string name="price">Ціна</string>
     <string name="scan">Сканувати</string>
     <string name="stake">Ставка</string>
