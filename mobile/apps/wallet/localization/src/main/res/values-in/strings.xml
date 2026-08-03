@@ -143,6 +143,12 @@
     <string name="tv_player_error">Gagal memutar</string>
     <string name="tv_player_error_subtitle">Saluran mungkin tidak tersedia untuk sementara</string>
     <string name="tv_player_retry">Coba lagi</string>
+    <string name="tv_channels_not_found">Tidak ditemukan</string>
+    <string name="tv_channels_not_found_subtitle">Coba nama saluran lain</string>
+    <string name="tv_playlist_title">Daftar putar</string>
+    <string name="tv_playlist_description">Alamat daftar putar M3U. Biarkan kosong untuk kembali ke daftar bawaan.</string>
+    <string name="tv_playlist_url">Tautan daftar putar</string>
+    <string name="tv_playlist_reset">Hapus</string>
     <string name="price">Harga</string>
     <string name="scan">Pindai</string>
     <string name="stake">Taruhan</string>

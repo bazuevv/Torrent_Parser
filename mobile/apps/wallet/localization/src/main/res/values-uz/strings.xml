@@ -146,6 +146,12 @@
     <string name="tv_player_error">Ijro etib boʻlmadi</string>
     <string name="tv_player_error_subtitle">Kanal vaqtincha mavjud boʻlmasligi mumkin</string>
     <string name="tv_player_retry">Qayta urinish</string>
+    <string name="tv_channels_not_found">Hech narsa topilmadi</string>
+    <string name="tv_channels_not_found_subtitle">Boshqa kanal nomini kiriting</string>
+    <string name="tv_playlist_title">Pleylist</string>
+    <string name="tv_playlist_description">M3U pleylist manzili. Standart roʻyxatga qaytish uchun maydonni boʻsh qoldiring.</string>
+    <string name="tv_playlist_url">Pleylist havolasi</string>
+    <string name="tv_playlist_reset">Tozalash</string>
     <string name="price">Narxi</string>
     <string name="scan">Skanerlash</string>
     <string name="stake">Tikish</string>

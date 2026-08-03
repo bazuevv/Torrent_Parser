@@ -146,6 +146,12 @@
     <string name="tv_player_error">播放失败</string>
     <string name="tv_player_error_subtitle">该频道可能暂时不可用</string>
     <string name="tv_player_retry">重试</string>
+    <string name="tv_channels_not_found">未找到结果</string>
+    <string name="tv_channels_not_found_subtitle">请尝试其他频道名称</string>
+    <string name="tv_playlist_title">播放列表</string>
+    <string name="tv_playlist_description">M3U 播放列表地址。留空即可恢复默认列表。</string>
+    <string name="tv_playlist_url">播放列表链接</string>
+    <string name="tv_playlist_reset">清除</string>
     <string name="price">价格</string>
     <string name="scan">扫描</string>
     <string name="stake">质押</string>

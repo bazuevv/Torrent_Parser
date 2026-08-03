@@ -6,6 +6,8 @@ import com.tonapps.log.L
 import com.tonapps.network.get
 import com.tonapps.tonkeeper.ui.screen.tv.entity.TvChannelEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -38,8 +40,29 @@ class TvPlaylistRepository(private val context: Context) {
     @Volatile
     private var memoryCache: List<TvChannelEntity>? = null
 
+    private val _playlistUrlFlow = MutableStateFlow(readPlaylistUrl())
+    val playlistUrlFlow = _playlistUrlFlow.asStateFlow()
+
     val playlistUrl: String
-        get() = TvPlaylist.DEFAULT_URL
+        get() = _playlistUrlFlow.value
+
+    val isCustomPlaylistUrl: Boolean
+        get() = playlistUrl != TvPlaylist.DEFAULT_URL
+
+    /**
+     * Свой адрес плейлиста. Пустая строка возвращает подборку по умолчанию,
+     * поэтому «сбросить» и «очистить поле» — одно и то же действие.
+     */
+    fun setPlaylistUrl(url: String?) {
+        val value = url?.trim()?.ifBlank { null }
+        prefs.edit { putString(KEY_CUSTOM_URL, value) }
+        memoryCache = null
+        _playlistUrlFlow.value = value ?: TvPlaylist.DEFAULT_URL
+    }
+
+    private fun readPlaylistUrl(): String {
+        return prefs.getString(KEY_CUSTOM_URL, null)?.ifBlank { null } ?: TvPlaylist.DEFAULT_URL
+    }
 
     suspend fun getChannels(forceRefresh: Boolean = false): List<TvChannelEntity> {
         if (!forceRefresh) {
@@ -138,6 +161,7 @@ class TvPlaylistRepository(private val context: Context) {
         const val PREFS_NAME = "tv_playlist"
         const val KEY_CACHED_URL = "cached_url"
         const val KEY_CACHED_AT = "cached_at"
+        const val KEY_CUSTOM_URL = "custom_url"
         const val ALLOW_CLEARTEXT_STREAMS = false
 
         val CACHE_TTL_MS = TimeUnit.HOURS.toMillis(6)

@@ -6,6 +6,7 @@ import android.view.View
 import android.widget.Button
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.appcompat.widget.LinearLayoutCompat
+import androidx.core.view.doOnLayout
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.tonapps.blockchain.model.legacy.WalletEntity
@@ -14,15 +15,18 @@ import com.tonapps.tonkeeper.ui.screen.main.MainScreen
 import com.tonapps.tonkeeper.ui.screen.tv.entity.TvChannelEntity
 import com.tonapps.tonkeeper.ui.screen.tv.list.Adapter
 import com.tonapps.tonkeeper.ui.screen.tv.player.TvPlayerScreen
+import com.tonapps.tonkeeper.ui.screen.tv.settings.TvSettingsScreen
 import com.tonapps.tonkeeperx.R
 import com.tonapps.uikit.color.backgroundPageColor
 import com.tonapps.uikit.color.backgroundTransparentColor
 import com.tonapps.uikit.color.textPrimaryColor
+import com.tonapps.uikit.icon.UIKitIcon
 import com.tonapps.wallet.localization.Localization
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import uikit.drawable.BarDrawable
 import uikit.extensions.collectFlow
 import uikit.widget.HeaderView
+import uikit.widget.SearchInput
 
 /**
  * Вкладка «ТВ»: список каналов из M3U-плейлиста. Кошелёк экрану не нужен,
@@ -39,6 +43,7 @@ class TvScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_tv, wa
     private lateinit var headerView: HeaderView
     private lateinit var refreshView: SwipeRefreshLayout
     private lateinit var listView: RecyclerView
+    private lateinit var searchView: SearchInput
     private lateinit var placeholderView: LinearLayoutCompat
     private lateinit var placeholderTitleView: AppCompatTextView
     private lateinit var placeholderSubtitleView: AppCompatTextView
@@ -54,6 +59,8 @@ class TvScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_tv, wa
         headerView.titleView.setTextAppearance(uikit.R.style.TextAppearance_H1)
         headerView.titleView.setTextColor(requireContext().textPrimaryColor)
         headerView.hideCloseIcon()
+        headerView.setAction(UIKitIcon.ic_gear_28)
+        headerView.doOnActionClick = { navigation?.add(TvSettingsScreen.newInstance()) }
         if (requireContext().isLightTheme) {
             headerView.setColor(requireContext().backgroundPageColor)
         } else {
@@ -65,6 +72,12 @@ class TvScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_tv, wa
 
         listView = view.findViewById(R.id.list)
         listView.adapter = adapter
+
+        searchView = view.findViewById(R.id.search)
+        searchView.doOnTextChanged = { viewModel.setQuery(it?.toString()) }
+        // Поиск закреплён под шапкой, а её высота = barHeight + вырез статус-бара,
+        // поэтому отступ берём фактический, а не из константы
+        headerView.doOnLayout { searchView.translationY = it.measuredHeight.toFloat() }
 
         placeholderView = view.findViewById(R.id.placeholder)
         placeholderTitleView = view.findViewById(R.id.placeholder_title)
@@ -83,6 +96,15 @@ class TvScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_tv, wa
                     headerView.setSubtitle(null)
                     showPlaceholder(Localization.tv_channels_empty, Localization.tv_channels_empty_subtitle)
                 }
+                is TvUiState.NotFound -> {
+                    refreshView.isRefreshing = false
+                    headerView.setSubtitle(null)
+                    showPlaceholder(
+                        titleResId = Localization.tv_channels_not_found,
+                        subtitleResId = Localization.tv_channels_not_found_subtitle,
+                        withRetry = false,
+                    )
+                }
                 is TvUiState.Error -> {
                     refreshView.isRefreshing = false
                     headerView.setSubtitle(null)
@@ -99,9 +121,11 @@ class TvScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_tv, wa
         }
     }
 
-    private fun showPlaceholder(titleResId: Int, subtitleResId: Int) {
+    private fun showPlaceholder(titleResId: Int, subtitleResId: Int, withRetry: Boolean = true) {
         placeholderTitleView.setText(titleResId)
         placeholderSubtitleView.setText(subtitleResId)
+        // По пустому поиску обновлять нечего — там помогает только другой запрос
+        placeholderButton.visibility = if (withRetry) View.VISIBLE else View.GONE
         placeholderView.visibility = View.VISIBLE
         listView.visibility = View.GONE
     }

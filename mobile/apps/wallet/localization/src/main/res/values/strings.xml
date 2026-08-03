@@ -292,6 +292,12 @@
     <string name="tv_player_error">Playback failed</string>
     <string name="tv_player_error_subtitle">The channel may be temporarily unavailable</string>
     <string name="tv_player_retry">Try again</string>
+    <string name="tv_channels_not_found">Nothing found</string>
+    <string name="tv_channels_not_found_subtitle">Try a different channel name</string>
+    <string name="tv_playlist_title">Playlist</string>
+    <string name="tv_playlist_description">M3U playlist address. Leave the field empty to return to the default list.</string>
+    <string name="tv_playlist_url">Playlist URL</string>
+    <string name="tv_playlist_reset">Clear</string>
     <string name="price">Price</string>
     <string name="scan">Scan</string>
     <string name="stake">Stake</string>

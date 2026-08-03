@@ -143,6 +143,12 @@
     <string name="tv_player_error">Error de reproducción</string>
     <string name="tv_player_error_subtitle">Puede que el canal no esté disponible temporalmente</string>
     <string name="tv_player_retry">Reintentar</string>
+    <string name="tv_channels_not_found">No se encontró nada</string>
+    <string name="tv_channels_not_found_subtitle">Prueba con otro nombre de canal</string>
+    <string name="tv_playlist_title">Lista de reproducción</string>
+    <string name="tv_playlist_description">Dirección de la lista M3U. Deja el campo vacío para volver a la lista predeterminada.</string>
+    <string name="tv_playlist_url">Enlace de la lista</string>
+    <string name="tv_playlist_reset">Borrar</string>
     <string name="price">Precio</string>
     <string name="scan">Escanear</string>
     <string name="stake">Participación</string>

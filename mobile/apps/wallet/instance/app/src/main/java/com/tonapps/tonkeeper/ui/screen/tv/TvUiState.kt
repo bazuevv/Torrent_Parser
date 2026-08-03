@@ -8,6 +8,8 @@ sealed class TvUiState {
 
     data object Empty : TvUiState()
 
+    data object NotFound : TvUiState()
+
     data object Error : TvUiState()
 
     data class Items(val items: List<BaseListItem>) : TvUiState()

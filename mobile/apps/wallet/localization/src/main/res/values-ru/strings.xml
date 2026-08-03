@@ -300,6 +300,12 @@
     <string name="tv_player_error">Не удалось воспроизвести</string>
     <string name="tv_player_error_subtitle">Возможно, канал временно недоступен</string>
     <string name="tv_player_retry">Повторить</string>
+    <string name="tv_channels_not_found">Ничего не найдено</string>
+    <string name="tv_channels_not_found_subtitle">Попробуйте другое название канала</string>
+    <string name="tv_playlist_title">Плейлист</string>
+    <string name="tv_playlist_description">Адрес M3U-плейлиста. Оставьте поле пустым, чтобы вернуть подборку по умолчанию.</string>
+    <string name="tv_playlist_url">Ссылка на плейлист</string>
+    <string name="tv_playlist_reset">Очистить</string>
     <string name="price">Цена</string>
     <string name="scan">Cканировать</string>
     <string name="purchases">Покупки</string>
