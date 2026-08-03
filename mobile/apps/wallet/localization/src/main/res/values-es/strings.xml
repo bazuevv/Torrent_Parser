@@ -135,7 +135,11 @@
     <string name="activity">Actividad</string>
     <string name="history">Historia</string>
     <string name="tv">TV</string>
-    <string name="tv_channels_empty">Los canales aparecerán aquí</string>
+    <string name="tv_channels_empty">Sin canales</string>
+    <string name="tv_channels_empty_subtitle">La lista está vacía. Intenta actualizarla.</string>
+    <string name="tv_channels_error">Error al cargar</string>
+    <string name="tv_channels_error_subtitle">Comprueba tu conexión a internet e inténtalo de nuevo</string>
+    <string name="tv_channels_retry">Actualizar</string>
     <string name="price">Precio</string>
     <string name="scan">Escanear</string>
     <string name="stake">Participación</string>

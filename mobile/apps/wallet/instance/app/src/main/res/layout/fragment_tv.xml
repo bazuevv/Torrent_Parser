@@ -3,23 +3,57 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <androidx.core.widget.NestedScrollView
-        android:id="@+id/content"
+    <com.tonapps.tonkeeper.ui.component.MainSwipeRefreshLayout
+        android:id="@+id/refresh"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipToPadding="false">
+        android:layout_height="match_parent">
+
+        <com.tonapps.tonkeeper.ui.component.MainRecyclerView
+            android:id="@+id/list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:paddingHorizontal="@dimen/offsetMedium"
+            android:clipToPadding="false" />
+
+    </com.tonapps.tonkeeper.ui.component.MainSwipeRefreshLayout>
+
+    <androidx.appcompat.widget.LinearLayoutCompat
+        android:id="@+id/placeholder"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_margin="@dimen/offsetMedium"
+        android:orientation="vertical"
+        android:visibility="gone">
 
         <androidx.appcompat.widget.AppCompatTextView
-            android:id="@+id/tv_empty"
+            android:id="@+id/placeholder_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/offsetMedium"
-            android:paddingHorizontal="@dimen/offsetMedium"
-            android:text="@string/tv_channels_empty"
-            android:textAppearance="@style/TextAppearance.Body2"
+            android:gravity="center"
+            android:textAppearance="@style/TextAppearance.H2"
+            android:textColor="?attr/textPrimaryColor" />
+
+        <androidx.appcompat.widget.AppCompatTextView
+            android:id="@+id/placeholder_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/offsetExtraSmall"
+            android:gravity="center"
+            android:textAppearance="@style/TextAppearance.Body1"
             android:textColor="?attr/textSecondaryColor" />
 
-    </androidx.core.widget.NestedScrollView>
+        <Button
+            android:id="@+id/placeholder_button"
+            style="@style/Widget.App.Button.Secondary"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="@dimen/offsetMedium"
+            android:text="@string/tv_channels_retry"
+            android:textAppearance="@style/TextAppearance.Label1" />
+
+    </androidx.appcompat.widget.LinearLayoutCompat>
 
     <uikit.widget.HeaderView
         android:id="@+id/header"

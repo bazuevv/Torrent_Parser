@@ -170,7 +170,11 @@
     <string name="activity">Активност</string>
     <string name="history">История</string>
     <string name="tv">ТВ</string>
-    <string name="tv_channels_empty">Списъкът с канали ще се появи тук</string>
+    <string name="tv_channels_empty">Няма канали</string>
+    <string name="tv_channels_empty_subtitle">Плейлистът е празен — опитайте да го обновите</string>
+    <string name="tv_channels_error">Зареждането е неуспешно</string>
+    <string name="tv_channels_error_subtitle">Проверете интернет връзката и опитайте отново</string>
+    <string name="tv_channels_retry">Обнови</string>
     <string name="price">Цена</string>
     <string name="scan">Сканиране</string>
     <string name="stake">Стейк</string>

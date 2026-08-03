@@ -138,7 +138,11 @@
     <string name="activity">Faoliyat</string>
     <string name="history">Tarix</string>
     <string name="tv">TV</string>
-    <string name="tv_channels_empty">Kanallar roʻyxati shu yerda paydo boʻladi</string>
+    <string name="tv_channels_empty">Kanallar yoʻq</string>
+    <string name="tv_channels_empty_subtitle">Pleylist boʻsh — yangilab koʻring</string>
+    <string name="tv_channels_error">Yuklab boʻlmadi</string>
+    <string name="tv_channels_error_subtitle">Internet aloqasini tekshirib, qayta urinib koʻring</string>
+    <string name="tv_channels_retry">Yangilash</string>
     <string name="price">Narxi</string>
     <string name="scan">Skanerlash</string>
     <string name="stake">Tikish</string>

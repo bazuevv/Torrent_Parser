@@ -135,7 +135,11 @@
     <string name="activity">Активність</string>
     <string name="history">Історія</string>
     <string name="tv">ТБ</string>
-    <string name="tv_channels_empty">Список каналів з&#39;явиться тут</string>
+    <string name="tv_channels_empty">Немає каналів</string>
+    <string name="tv_channels_empty_subtitle">Плейлист порожній — спробуйте оновити</string>
+    <string name="tv_channels_error">Не вдалося завантажити</string>
+    <string name="tv_channels_error_subtitle">Перевірте підключення до інтернету та спробуйте ще раз</string>
+    <string name="tv_channels_retry">Оновити</string>
     <string name="price">Ціна</string>
     <string name="scan">Сканувати</string>
     <string name="stake">Ставка</string>

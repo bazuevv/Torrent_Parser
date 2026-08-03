@@ -138,7 +138,11 @@
     <string name="activity">Etkinlik</string>
     <string name="history">Geçmiş</string>
     <string name="tv">TV</string>
-    <string name="tv_channels_empty">Kanal listesi burada görünecek</string>
+    <string name="tv_channels_empty">Kanal yok</string>
+    <string name="tv_channels_empty_subtitle">Çalma listesi boş. Yenilemeyi deneyin.</string>
+    <string name="tv_channels_error">Yüklenemedi</string>
+    <string name="tv_channels_error_subtitle">İnternet bağlantınızı kontrol edip tekrar deneyin</string>
+    <string name="tv_channels_retry">Yenile</string>
     <string name="price">Fiyat</string>
     <string name="scan">Tara</string>
     <string name="stake">Paylaş</string>

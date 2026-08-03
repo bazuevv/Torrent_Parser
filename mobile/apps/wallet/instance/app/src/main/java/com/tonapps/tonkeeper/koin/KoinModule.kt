@@ -38,6 +38,8 @@ import com.tonapps.tonkeeper.ui.screen.settings.security.SecurityViewModel
 import com.tonapps.tonkeeper.ui.screen.settings.theme.ThemeViewModel
 import com.tonapps.tonkeeper.ui.screen.stories.w5.W5StoriesViewModel
 import com.tonapps.tonkeeper.ui.screen.tonconnect.TonConnectViewModel
+import com.tonapps.tonkeeper.ui.screen.tv.TvViewModel
+import com.tonapps.tonkeeper.ui.screen.tv.data.TvPlaylistRepository
 import com.tonapps.deposit.usecase.emulation.EmulationUseCase
 import com.tonapps.deposit.usecase.sign.SignUseCase
 import com.tonapps.tonkeeper.App
@@ -81,6 +83,7 @@ val koinModel = module {
     singleOf(::SafeModeClient)
     singleOf(::APKManager)
     singleOf(::CacheHelper)
+    singleOf(::TvPlaylistRepository)
     singleOf(::ReferrerClientHelper)
     singleOf(AnalyticsHelper::Default)
 
@@ -110,5 +113,6 @@ val koinModel = module {
     viewModelOf(::W5StoriesViewModel)
     viewModelOf(::AddWalletViewModel)
     viewModelOf(::BatteryViewModel)
+    viewModelOf(::TvViewModel)
     viewModelOf(BaseWalletVM::EmptyViewViewModel)
 }
