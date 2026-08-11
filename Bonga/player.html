@@ -165,7 +165,7 @@
   <button id="live" title="Вернуться к прямому эфиру">В эфир</button>
   <button id="accounts" title="Взять список ников из буфера обмена">Обновить аккаунты</button>
   <button id="pip" title="Картинка в картинке">PiP</button>
-  <button id="copy" title="Скопировать .m3u8 для VLC/mpv">Копировать URL</button>
+  <button id="profile" title="Открыть страницу модели на сайте в новой вкладке">Открыть профиль</button>
 
   <div id="status">Укажите ник и нажмите «Смотреть».</div>
   <span id="url" title="Ссылка на поток">—</span>
@@ -925,12 +925,14 @@
     } catch (e) { say('PiP не открылся: ' + e.message, 'err'); }
   };
 
-  $('copy').onclick = () => {
-    const url = $('url').textContent;
-    if (url === '—') return say('Сначала запустите поток.', 'err');
-    navigator.clipboard.writeText(url)
-      .then(() => say('URL скопирован — можно открыть в VLC: Медиа → Открыть URL.', 'ok'))
-      .catch(() => say('Скопируйте URL из строки внизу вручную.', 'err'));
+  // Профиль на сайте. Регистр в пути важен, поэтому берём правильное написание
+  // из базы, если ник там есть, — иначе сайт отдаст 404.
+  $('profile').onclick = () => {
+    const typed = $('user').value.trim();
+    if (!typed) return say('Сначала укажите ник.', 'err');
+    const user = canon.get(typed.toLowerCase()) || typed;
+    window.open(`https://ru17.bongacams.com/profile/${encodeURIComponent(user)}`,
+                '_blank', 'noopener,noreferrer');
   };
 
   // ?u=ник&e=edge либо #ник в адресе — сразу запускаем
