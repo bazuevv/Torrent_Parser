@@ -45,7 +45,27 @@
   }
   #history { width: 200px; border-right: 1px solid #2a2f3a; }
   #online  { width: 258px; border-left: 1px solid #2a2f3a; }
-  body.no-panels aside { display: none; }
+  body.no-left #history { display: none; }
+  body.no-right #online { display: none; }
+
+  /* Полоса-ручка между панелью и видео: клик сворачивает соседнюю панель.
+     Остаётся на месте и в свёрнутом виде — иначе панель было бы не вернуть. */
+  .grip {
+    flex: 0 0 12px; display: flex; align-items: center; justify-content: center;
+    background: #14161a; pointer-events: none;      /* кликается только сама ручка */
+  }
+  .grip span {
+    pointer-events: auto; cursor: pointer; user-select: none;
+    display: flex; align-items: center; justify-content: center;
+    width: 12px; height: 52px; border-radius: 4px;
+    background: #2f6fd0; color: #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .45), 0 0 10px rgba(47, 111, 208, .45);
+    font: 12px/1 system-ui, sans-serif; transition: background .12s, box-shadow .12s;
+  }
+  .grip span:hover {
+    background: #4b8ef0;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .45), 0 0 14px rgba(75, 142, 240, .7);
+  }
   .panel-head {
     position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
     padding: 6px 8px; background: #1c1f26; border-bottom: 1px solid #2a2f3a;
@@ -143,7 +163,6 @@
   </select>
 
   <button id="live" title="Вернуться к прямому эфиру">В эфир</button>
-  <button id="panels" title="Скрыть/показать боковые панели">Панели</button>
   <button id="accounts" title="Взять список ников из буфера обмена">Обновить аккаунты</button>
   <button id="pip" title="Картинка в картинке">PiP</button>
   <button id="copy" title="Скопировать .m3u8 для VLC/mpv">Копировать URL</button>
@@ -182,9 +201,13 @@
     <div class="panel-body" id="histBody"></div>
   </aside>
 
+  <div class="grip" id="gripLeft"><span title="Свернуть/развернуть историю"></span></div>
+
   <div id="stage">
     <video id="v" controls autoplay playsinline></video>
   </div>
+
+  <div class="grip" id="gripRight"><span title="Свернуть/развернуть список эфира"></span></div>
 
   <aside id="online">
     <div class="panel-head">
@@ -216,13 +239,22 @@
   };
 
   let catalog = [];
+  let serverBase = [];                   // общая база: одна на все браузеры и устройства
   const known = new Map();
   const canon = new Map();               // ник в нижнем регистре -> правильное написание
 
   function rebuildCatalog() {
     const byName = new Map();
-    for (const m of (window.BONGA_MODELS || [])) byName.set(String(m[0]).toLowerCase(), m);
-    for (const m of Object.values(loadExtra())) byName.set(String(m[0]).toLowerCase(), m);
+    const put = m => {
+      const key = String(m[0]).toLowerCase();
+      const prev = byName.get(key);
+      if (prev && prev[1] && !m[1]) return;      // известный сервер не затираем пустым
+      byName.set(key, m);
+    };
+
+    for (const m of (window.BONGA_MODELS || [])) put(m);   // снимок страницы
+    for (const m of serverBase) put(m);                    // общая база с сервера
+    for (const m of Object.values(loadExtra())) put(m);    // что выучено в этом браузере
 
     catalog = [...byName.values()];
     known.clear();
@@ -255,12 +287,39 @@
     }
   });
 
+  // --- обмен с сервером ------------------------------------------------------
+  // accounts.json на сервере — источник правды, localStorage остаётся локальным
+  // кэшем: если сервер старой версии или недоступен, плеер работает как раньше.
+  async function pullAccounts() {
+    try {
+      const res = await fetch('api/accounts', { cache: 'no-store' });
+      const data = await res.json();
+      if (!Array.isArray(data.accounts)) return false;
+      serverBase = data.accounts;
+      rebuildCatalog();
+      return true;
+    } catch { return false; }
+  }
+
+  async function pushAccounts(rows) {
+    if (!rows.length) return null;
+    try {
+      const res = await fetch('api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rows),
+      });
+      return await res.json();
+    } catch { return null; }
+  }
+
   // Успешно открытый ник запоминаем навсегда — со второго раза он уже в списке.
   function learn(user, edge) {
     const extra = loadExtra(), key = user.toLowerCase();
     extra[key] = [user, String(edge), extra[key] ? extra[key][2] : 0];
     saveExtra(extra);
     rebuildCatalog();
+    pushAccounts([[user, String(edge), 0]]);       // и в общую базу, без ожидания
   }
 
   rebuildCatalog();
@@ -484,6 +543,13 @@
   const when = ts => new Date(ts).toLocaleString('ru-RU',
     { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
+  // В строке истории — время просмотра, а если ему больше суток, то дата:
+  // «22:28» полезнее, пока запись сегодняшняя, «11.08» — когда она уже нет.
+  const DAY = 24 * 60 * 60 * 1000;
+  const stamp = ts => Date.now() - ts < DAY
+    ? new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    : new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+
   function renderHist() {
     const body = $('histBody'), hist = loadHist();
     body.textContent = '';
@@ -495,6 +561,7 @@
       const row = document.createElement('div');
       row.className = 'item';
       row.dataset.user = rec.u;
+      row.dataset.ts = String(rec.t);
       row.dataset.base = `edge ${rec.e} · ${when(rec.t)}`;
 
       const dot = document.createElement('span');
@@ -506,7 +573,7 @@
 
       const meta = document.createElement('span');
       meta.className = 'meta';
-      meta.textContent = when(rec.t).slice(0, 5);      // только дата, время — в подсказке
+      meta.textContent = stamp(rec.t);                 // полная метка — в подсказке строки
 
       const del = document.createElement('span');
       del.className = 'del';
@@ -536,6 +603,11 @@
 
   function paintHist() {
     for (const row of $('histBody').querySelectorAll('.item')) {
+      // Заодно освежаем метку: за долгую сессию запись может пережить сутки
+      // и должна смениться со времени на дату.
+      const meta = row.querySelector('.meta');
+      if (meta && row.dataset.ts) meta.textContent = stamp(Number(row.dataset.ts));
+
       const st = liveStatus.get((row.dataset.user || '').toLowerCase());
       row.dataset.live = st ? '1' : '0';
       row.title = `${row.dataset.base} · ` +
@@ -766,6 +838,10 @@
 
     saveExtra(extra);
     rebuildCatalog();
+    pushAccounts(arr).then(res => {                 // отдаём список в общую базу
+      if (res) say(`В общей базе теперь ${res.total} ников — они видны во всех браузерах.`, 'ok');
+      pullAccounts();
+    });
     return { total, added, edged };
   }
 
@@ -803,10 +879,24 @@
     refreshOnline();
   };
 
-  $('panels').onclick = () => {
-    const off = document.body.classList.toggle('no-panels');
-    localStorage.setItem('panels', off ? 'off' : 'on');
+  // --- сворачивание боковых панелей -----------------------------------------
+  const hidden = side => localStorage.getItem('hide' + side) === '1';
+
+  function applyPanels() {
+    document.body.classList.toggle('no-left', hidden('Left'));
+    document.body.classList.toggle('no-right', hidden('Right'));
+    // Стрелка показывает, что произойдёт по клику: наружу — свернуть, внутрь — вернуть.
+    $('gripLeft').firstElementChild.textContent = hidden('Left') ? '›' : '‹';
+    $('gripRight').firstElementChild.textContent = hidden('Right') ? '‹' : '›';
+  }
+
+  const togglePanel = side => {
+    localStorage.setItem('hide' + side, hidden(side) ? '0' : '1');
+    applyPanels();
   };
+
+  $('gripLeft').onclick = () => togglePanel('Left');
+  $('gripRight').onclick = () => togglePanel('Right');
 
   $('play').onclick = startByUser;
   $('user').onkeydown = e => { if (e.key === 'Enter') startByUser(); };
@@ -848,13 +938,30 @@
   const initial = params.get('u') || decodeURIComponent(location.hash.slice(1)) || 'AlyonaKatya';
   $('user').value = initial;
   $('edge').value = params.get('e') || known.get(initial.toLowerCase()) || '';
-  if (localStorage.getItem('panels') === 'off') document.body.classList.add('no-panels');
+  if (localStorage.getItem('panels') === 'off' && !localStorage.getItem('hideLeft')) {
+    localStorage.setItem('hideLeft', '1');            // перенос старой настройки
+    localStorage.setItem('hideRight', '1');
+  }
+  applyPanels();
   $('auto').value = localStorage.getItem('auto') || '0';
   armCarousel();
   renderHist();
   if (params.get('u') || location.hash) start();
-  // проверку эфира откладываем, чтобы 200 запросов не мешали старту потока
-  setTimeout(refreshOnline, 1500);
+  // Сначала синхронизируем базу с сервером, потом уже проверяем эфир — иначе
+  // первый обход пойдёт по неполному списку. Заодно подсеиваем на сервер то,
+  // что этот браузер накопил в localStorage раньше (импорт делали в Chrome).
+  (async () => {
+    if (await pullAccounts()) {
+      const onServer = new Set(serverBase.map(m => String(m[0]).toLowerCase()));
+      const mine = Object.values(loadExtra()).filter(m => !onServer.has(String(m[0]).toLowerCase()));
+      if (mine.length) {
+        const res = await pushAccounts(mine);
+        if (res) say(`Отправил в общую базу ${res.added} ников из этого браузера. Всего: ${res.total}.`, 'ok');
+        await pullAccounts();
+      }
+    }
+    setTimeout(refreshOnline, 300);
+  })();
   setTimeout(checkHistory, 3000);
 
   setInterval(refreshThumbs, 10000);      // живые превью справа
