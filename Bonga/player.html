@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>HLS-плеер BongaCams</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: #14161a; color: #e6e8ec;
+    font: 14px/1.45 system-ui, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    flex: 0 0 auto;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 8px 12px; background: #1c1f26; border-bottom: 1px solid #2a2f3a;
+  }
+  input, select, button {
+    font: inherit; color: #e6e8ec; background: #262b34;
+    border: 1px solid #39404d; border-radius: 6px; padding: 6px 9px;
+  }
+  input:focus, select:focus { outline: 2px solid #4b7bec; outline-offset: -1px; }
+  button { cursor: pointer; }
+  button:hover { background: #303743; }
+  button.primary { background: #2f6fd0; border-color: #2f6fd0; }
+  button.primary:hover { background: #3a80e8; }
+  button:disabled { opacity: .5; cursor: default; }
+  #user { width: 190px; }
+  #edge { width: 78px; }
+  label { color: #98a1b0; }
+  /* статус ужимается в ту же строку, пока хватает ширины, и не переносит шапку */
+  #status {
+    flex: 1 1 220px; min-width: 0; color: #98a1b0; font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #status.err { color: #ff7b72; }
+  #status.ok { color: #7ee787; }
+  /* три колонки: история — видео — доступные сейчас */
+  #main { flex: 1 1 auto; min-height: 0; display: flex; }
+  aside {
+    flex: 0 0 auto; display: flex; flex-direction: column;
+    background: #171a20; overflow-y: auto; overflow-x: hidden;
+  }
+  #history { width: 200px; border-right: 1px solid #2a2f3a; }
+  #online  { width: 258px; border-left: 1px solid #2a2f3a; }
+  body.no-panels aside { display: none; }
+  .panel-head {
+    position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; background: #1c1f26; border-bottom: 1px solid #2a2f3a;
+    font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: #98a1b0;
+  }
+  .panel-head span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .panel-head button { padding: 1px 7px; font-size: 12px; line-height: 1.4; }
+  .panel-body { padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+  .empty { padding: 10px 8px; color: #6b7484; font-size: 12px; }
+
+  .item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 6px; border-radius: 6px; cursor: pointer;
+  }
+  .item:hover { background: #232833; }
+  .item.current { background: #23324a; }
+  .item .nick { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .meta { flex: 0 0 auto; color: #6b7484; font-size: 11px; }
+  .item .dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: #454c57; }
+  .item[data-live="1"] .dot { background: #7ee787; box-shadow: 0 0 6px rgba(126, 231, 135, .5); }
+  .item .del { flex: 0 0 auto; color: #5c646f; padding: 0 4px; border-radius: 4px; }
+  .item .del:hover { color: #ff7b72; background: #2a2f3a; }
+
+  .card { border-radius: 8px; overflow: hidden; background: #20242c; cursor: pointer; }
+  .card:hover { outline: 2px solid #2f6fd0; outline-offset: -2px; }
+  .card.current { outline: 2px solid #7ee787; outline-offset: -2px; }
+  .card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+  .card .cap { display: flex; gap: 6px; padding: 4px 6px; font-size: 12px; }
+  .card .cap b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                 white-space: nowrap; font-weight: 500; }
+  .card .cap i { flex: 0 0 auto; color: #6b7484; font-style: normal; font-size: 11px; }
+
+  /* видео занимает ровно остаток высоты окна — контролы плеера не срезаются */
+  #stage {
+    flex: 1 1 auto; min-width: 0; min-height: 0;
+    display: flex; align-items: center; justify-content: center; background: #000;
+  }
+  video { height: 100%; width: auto; max-width: 100%; object-fit: contain; background: #000; display: block; }
+  dialog {
+    width: min(640px, 92vw); background: #1c1f26; color: #e6e8ec;
+    border: 1px solid #39404d; border-radius: 10px; padding: 16px;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, .6); }
+  dialog h3 { margin: 0 0 6px; font-size: 15px; }
+  dialog ol { margin: 8px 0 10px; padding-left: 20px; color: #98a1b0; font-size: 13px; }
+  dialog li { margin: 4px 0; }
+  dialog a { color: #6ea8fe; font-weight: 600; }
+  dialog p { color: #98a1b0; font-size: 13px; margin: 0 0 6px; }
+  #importText {
+    width: 100%; height: 92px; resize: vertical;
+    font: 12px ui-monospace, Consolas, monospace;
+  }
+  .dlg-btns { display: flex; gap: 8px; margin-top: 10px; }
+
+  /* URL потока — в шапке, прижат вправо; клик выделяет ссылку целиком */
+  #url {
+    flex: 0 1 auto; min-width: 60px; margin-left: auto;
+    font: 12px/1.6 ui-monospace, "Cascadia Code", Consolas, monospace; color: #7f8899;
+    background: #21262e; border: 1px solid #2a2f3a; border-radius: 6px; padding: 4px 8px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    cursor: text; user-select: all;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <label for="user">Ник</label>
+  <input id="user" list="models" spellcheck="false" placeholder="AlyonaKatya">
+  <datalist id="models"></datalist>
+
+  <label for="edge">edge</label>
+  <input id="edge" spellcheck="false" placeholder="67" title="Номер видеосервера: 67 или us14">
+
+  <button id="play" class="primary">Смотреть</button>
+  <button id="find">Найти edge</button>
+
+  <label for="quality">Качество</label>
+  <select id="quality"><option value="-1">авто</option></select>
+
+  <label for="buffer" title="Сколько эфира держать в памяти для перемотки назад">Буфер</label>
+  <select id="buffer">
+    <option value="60">1 мин</option>
+    <option value="300">5 мин</option>
+    <option value="900">15 мин</option>
+    <option value="1800">30 мин</option>
+  </select>
+
+  <label for="auto" title="Само переключает комнату по кругу — работает и когда открыт PiP">Авто</label>
+  <select id="auto">
+    <option value="0">выкл</option>
+    <option value="30">30 с</option>
+    <option value="60">1 мин</option>
+    <option value="180">3 мин</option>
+  </select>
+
+  <button id="live" title="Вернуться к прямому эфиру">В эфир</button>
+  <button id="panels" title="Скрыть/показать боковые панели">Панели</button>
+  <button id="accounts" title="Взять список ников из буфера обмена">Обновить аккаунты</button>
+  <button id="pip" title="Картинка в картинке">PiP</button>
+  <button id="copy" title="Скопировать .m3u8 для VLC/mpv">Копировать URL</button>
+
+  <div id="status">Укажите ник и нажмите «Смотреть».</div>
+  <span id="url" title="Ссылка на поток">—</span>
+</header>
+
+<dialog id="baseDlg">
+  <h3>База ников</h3>
+  <p id="baseCount"></p>
+  <ol>
+    <li>Перетащите ссылку <a id="bmLink" href="#">Собрать ники BongaCams</a> на панель закладок браузера
+        (один раз).</li>
+    <li>Откройте bongacams.com и нажмите эту закладку. Она пройдёт по каталогу
+        (<code>/tools/listing_v3.php</code> — ник и номер сервера) и по <code>/sitemap.xml</code>
+        из robots.txt (только имена), а результат положит в буфер обмена.</li>
+    <li>Вернитесь сюда и нажмите «Обновить аккаунты» — список подхватится из буфера сам.
+        Если браузер не даёт читать буфер, вставьте JSON в поле ниже вручную.</li>
+  </ol>
+  <p>Списки складываются: повторный сбор на других вкладках каталога (парни, пары)
+     только дополнит базу.</p>
+  <textarea id="importText" placeholder='[["ник",67,4589], …]'></textarea>
+  <div class="dlg-btns">
+    <button id="importOk" class="primary">Импортировать</button>
+    <button id="baseClose">Закрыть</button>
+  </div>
+</dialog>
+
+<div id="main">
+  <aside id="history">
+    <div class="panel-head">
+      <span>История</span>
+      <button id="histClear" title="Очистить историю">Очистить</button>
+    </div>
+    <div class="panel-body" id="histBody"></div>
+  </aside>
+
+  <div id="stage">
+    <video id="v" controls autoplay playsinline></video>
+  </div>
+
+  <aside id="online">
+    <div class="panel-head">
+      <span id="onlineCount">Доступные</span>
+      <button id="onlineRefresh" title="Проверить, кто в эфире">↻</button>
+    </div>
+    <div class="panel-body" id="onlineBody"></div>
+  </aside>
+</div>
+
+<script src="models.js"></script>
+<script src="hls.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const video = $('v');
+  let hls = null, stallTimer = 0;
+  let userInitiated = false;      // переключение сделано человеком -> звук разрешён
+  let liveList = [];              // кто сейчас в эфире: порядок перелистывания комнат
+
+  // --- база ников ------------------------------------------------------------
+  // models.js — снимок сохранённой страницы, в нём только те, кто попал в первую
+  // порцию листинга. Дополняем его двумя источниками в localStorage: ники,
+  // которые открывали вручную, и импорт полного списка с сайта.
+  const loadExtra = () => { try { return JSON.parse(localStorage.getItem('extra')) || {}; } catch { return {}; } };
+  const saveExtra = obj => {
+    try { localStorage.setItem('extra', JSON.stringify(obj)); return true; }
+    catch (e) { say(`База не поместилась в хранилище браузера: ${e.name}.`, 'err'); return false; }
+  };
+
+  let catalog = [];
+  const known = new Map();
+  const canon = new Map();               // ник в нижнем регистре -> правильное написание
+
+  function rebuildCatalog() {
+    const byName = new Map();
+    for (const m of (window.BONGA_MODELS || [])) byName.set(String(m[0]).toLowerCase(), m);
+    for (const m of Object.values(loadExtra())) byName.set(String(m[0]).toLowerCase(), m);
+
+    catalog = [...byName.values()];
+    known.clear();
+    canon.clear();
+    for (const [name, vsid] of catalog) {
+      known.set(name.toLowerCase(), String(vsid));
+      canon.set(name.toLowerCase(), name);
+    }
+    $('models').textContent = '';       // подсказки наполняются при вводе, см. ниже
+  }
+
+  // В базе бывают десятки тысяч ников: держать столько <option> в datalist
+  // нельзя — ввод начинает заметно тормозить. Поэтому ищем по мере набора
+  // и показываем максимум полсотни совпадений.
+  $('user').addEventListener('input', () => {
+    const query = $('user').value.trim().toLowerCase();
+    const list = $('models');
+    list.textContent = '';
+    if (query.length < 2) return;
+
+    const starts = [], inside = [];
+    for (const [name] of catalog) {
+      const low = name.toLowerCase();
+      if (low.startsWith(query)) starts.push(name);
+      else if (low.includes(query)) inside.push(name);
+      if (starts.length >= 50) break;
+    }
+    for (const name of [...starts, ...inside].slice(0, 50)) {
+      list.appendChild(Object.assign(document.createElement('option'), { value: name }));
+    }
+  });
+
+  // Успешно открытый ник запоминаем навсегда — со второго раза он уже в списке.
+  function learn(user, edge) {
+    const extra = loadExtra(), key = user.toLowerCase();
+    extra[key] = [user, String(edge), extra[key] ? extra[key][2] : 0];
+    saveExtra(extra);
+    rebuildCatalog();
+  }
+
+  rebuildCatalog();
+
+  const say = (text, cls = '') => { $('status').className = cls; $('status').textContent = text; };
+
+  // edge бывает числовой (67 -> mobile-edge67) и американский (us14 -> mobile-edge-us14)
+  const host = edge => /^\d+$/.test(edge) ? `mobile-edge${edge}` : `mobile-edge-${edge}`;
+  const playlistUrl = (user, edge) =>
+    `https://${host(edge)}.bcvcdn.com/hls/stream_${encodeURIComponent(user)}/playlist.m3u8`;
+
+  const candidates = [
+    ...Array.from({ length: 80 }, (_, i) => String(i + 1)),
+    ...Array.from({ length: 25 }, (_, i) => `us${i + 1}`),
+  ];
+
+  // Внимание: почти любой edge отвечает 200 на любой ник, отдавая пустышку
+  // «#EXTM3U + #EXT-X-VERSION» без единого варианта качества. Поэтому признак
+  // живого потока — наличие EXT-X-STREAM-INF, а не код ответа.
+  async function alive(user, edge, signal) {
+    try {
+      const r = await fetch(playlistUrl(user, edge), { cache: 'no-store', signal });
+      if (!r.ok) return false;
+      return (await r.text()).includes('EXT-X-STREAM-INF');
+    } catch { return false; }
+  }
+
+  // Пул одновременных задач: список, размер пула, что делать с элементом.
+  async function runPool(items, size, fn) {
+    let i = 0;
+    const worker = async () => { while (i < items.length) { const k = i++; await fn(items[k], k); } };
+    await Promise.all(Array.from({ length: size }, worker));
+  }
+
+  // Перебор edge-серверов пулом по 8 запросов; первый ответивший 200 — наш.
+  async function findEdge(user) {
+    const ctrl = new AbortController();
+    let queue = candidates.slice(), found = null;
+    const remembered = localStorage.getItem('edge:' + user.toLowerCase());
+    if (remembered) queue = [remembered, ...queue.filter(e => e !== remembered)];
+
+    const worker = async () => {
+      while (queue.length && !found) {
+        const edge = queue.shift();
+        if (await alive(user, edge, ctrl.signal)) { found = found || edge; ctrl.abort(); }
+      }
+    };
+    await Promise.all(Array.from({ length: 8 }, worker));
+    return found;
+  }
+
+  // Автозапуск со звуком браузеры блокируют, пока пользователь не кликнул по
+  // странице. Если переключение пришло от мыши/кнопки — жест уже был, звук
+  // включаем сразу. Молчаливый старт остаётся только при загрузке по ссылке.
+  function tryPlay() {
+    if (userInitiated) video.muted = false;
+    video.play().catch(() => {
+      video.muted = true;
+      video.play()
+        .then(() => say('Играет без звука — включите его в плеере (автозапуск со звуком запрещён браузером).'))
+        .catch(() => say('Нажмите ▶ в плеере.'));
+    });
+  }
+
+  function attach(url) {
+    if (hls) { hls.destroy(); hls = null; }
+
+    // Сторож против «вечного спиннера»: поток мог закончиться между проверкой
+    // и запуском — тогда данные просто не приходят и плеер молча висит.
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      if (video.readyState < 3 && !video.currentTime) {
+        say('12 секунд без данных — похоже, эфир закончился. Попробуйте «Найти edge».', 'err');
+      }
+    }, 12000);
+    $('url').textContent = url;
+    $('url').title = url;              // полная ссылка в подсказке, если обрезалась многоточием
+    $('quality').innerHTML = '<option value="-1">авто</option>';
+
+    if (window.Hls && Hls.isSupported()) {
+      // backBufferLength — глубина перемотки назад: сколько секунд эфира
+      // остаётся в памяти. lowLatencyMode выключен: он подгоняет playhead
+      // к живому краю и мешает ручной перемотке.
+      hls = new Hls({ lowLatencyMode: false, backBufferLength: bufferSeconds() });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+        if (!data.levels.length) {           // пустышка вместо плейлиста
+          hls.destroy(); hls = null;
+          return say('Сервер отдал пустой плейлист — эфира на этом edge нет. ' +
+                     'Нажмите «Найти edge».', 'err');
+        }
+        // Дорожки названы суффиксом: …_240 / …_480 / …_720, а верхняя идёт
+        // без суффикса в родном разрешении. Ориентируемся на суффикс: у
+        // вертикальных трансляций (960x1280) высоты 720 не бывает вовсе,
+        // и по lvl.height дорожка «720p» не нашлась бы никогда.
+        const tier = lvl => {
+          const uri = (lvl.url && lvl.url[0]) || lvl.uri || '';
+          const m = /_(\d+)\/[^/]*$/.exec(uri);
+          return m ? Number(m[1]) : Math.min(lvl.width, lvl.height);
+        };
+
+        data.levels.forEach((lvl, i) => {
+          const opt = document.createElement('option');
+          opt.value = i;
+          opt.textContent = `${tier(lvl)}p`;
+          $('quality').appendChild(opt);
+        });
+
+        // По умолчанию 720p. Если такой дорожки нет, findIndex вернёт -1 —
+        // а это ровно то значение, которым hls.js обозначает автовыбор.
+        const i720 = data.levels.findIndex(lvl => tier(lvl) === 720);
+        hls.currentLevel = i720;
+        $('quality').value = String(i720);
+
+        tryPlay();
+        say(i720 >= 0 ? 'Играет, 720p.' : 'Играет: дорожки 720p нет, включён автовыбор.', 'ok');
+      });
+      hls.on(Hls.Events.ERROR, (_, err) => {
+        if (!err.fatal) return;
+        if (err.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+        else if (err.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+        else { hls.destroy(); hls = null; say('Поток оборвался: ' + err.details, 'err'); }
+      });
+    } else {
+      video.src = url;                       // Safari умеет HLS сам
+      tryPlay();
+      say('Играет (нативный HLS).', 'ok');
+    }
+  }
+
+  async function start() {
+    let user = $('user').value.trim();
+    if (!user) return say('Введите ник модели.', 'err');
+
+    // Пути на CDN регистрозависимы: bambitwo != BambiTwo. Если ник знаком по
+    // снимку — молча приводим к правильному написанию.
+    const proper = canon.get(user.toLowerCase());
+    if (proper && proper !== user) { user = proper; $('user').value = user; }
+
+    let edge = $('edge').value.trim() || known.get(user.toLowerCase()) || '';
+    $('play').disabled = true;
+
+    try {
+      if (edge && await alive(user, edge)) {
+        // ок, edge подошёл
+      } else {
+        say(edge ? `edge ${edge} не отвечает, ищу нужный…` : 'Ищу edge-сервер…');
+        edge = await findEdge(user);
+        if (!edge) {
+          return say(`Поток «${user}» не найден ни на одном сервере: модель офлайн, ` +
+                     'идёт приватное шоу или ошибка в регистре ника (BambiTwo ≠ bambitwo).', 'err');
+        }
+      }
+      $('edge').value = edge;
+      localStorage.setItem('edge:' + user.toLowerCase(), edge);
+      location.hash = user;
+      attach(playlistUrl(user, edge));
+      pushHist(user, edge);
+      learn(user, edge);
+      updateMediaSession(user, edge);
+      markCurrent();
+    } catch (e) {
+      say('Сеть недоступна или CORS заблокирован: ' + e.message +
+          ' — откройте страницу через ./serve.sh, а не двойным кликом.', 'err');
+    } finally {
+      $('play').disabled = false;
+    }
+  }
+
+  // --- перемотка по живому эфиру -------------------------------------------
+  // DVR у сервера нет: назад доступно ровно то, что hls.js держит в памяти.
+  // 720p ≈ 3,4 Мбит/с, то есть 5 минут буфера ≈ 130 МБ ОЗУ, 30 минут ≈ 750 МБ.
+  function bufferSeconds() {
+    return Number(localStorage.getItem('buffer') || 300);
+  }
+
+  $('buffer').value = String(bufferSeconds());
+  $('buffer').onchange = () => {
+    localStorage.setItem('buffer', $('buffer').value);
+    if (hls) hls.config.backBufferLength = Number($('buffer').value);
+    say(`Глубина перемотки назад: ${$('buffer').selectedOptions[0].textContent}.`, 'ok');
+  };
+
+  const liveEdge = () => {
+    if (hls && hls.liveSyncPosition != null) return hls.liveSyncPosition;
+    return video.seekable.length ? video.seekable.end(video.seekable.length - 1) : video.currentTime;
+  };
+
+  $('live').onclick = () => { video.currentTime = liveEdge(); video.play().catch(() => {}); };
+
+  // Ползунок показывает всю длительность с начала просмотра, но старое уже
+  // выброшено из буфера. Вместо отскока в эфир — прижимаем к краю доступного.
+  let clamping = false;
+  video.addEventListener('seeking', () => {
+    if (clamping || !video.seekable.length) return;
+    const start = video.seekable.start(0);
+    const end = video.seekable.end(video.seekable.length - 1);
+    const target = Math.min(Math.max(video.currentTime, start + 0.2), end);
+    if (Math.abs(target - video.currentTime) < 0.5) return;
+
+    const wasBefore = video.currentTime < start;
+    clamping = true;
+    video.currentTime = target;
+    setTimeout(() => { clamping = false; }, 0);
+    say(wasBefore
+      ? `Назад доступно ${Math.round(end - start)} с — это весь буфер. Больше: увеличьте «Буфер».`
+      : 'Это уже прямой эфир, дальше вперёд ничего нет.');
+  });
+
+  // --- левая панель: история просмотренных ников ---------------------------
+  const loadHist = () => { try { return JSON.parse(localStorage.getItem('history')) || []; } catch { return []; } };
+  const saveHist = h => localStorage.setItem('history', JSON.stringify(h.slice(0, 60)));
+
+  function pushHist(user, edge) {
+    const rest = loadHist().filter(x => x.u.toLowerCase() !== user.toLowerCase());
+    saveHist([{ u: user, e: edge, t: Date.now() }, ...rest]);
+    renderHist();
+  }
+
+  const when = ts => new Date(ts).toLocaleString('ru-RU',
+    { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+  function renderHist() {
+    const body = $('histBody'), hist = loadHist();
+    body.textContent = '';
+    if (!hist.length) {
+      body.innerHTML = '<div class="empty">Пусто. Открытые потоки появятся здесь.</div>';
+      return;
+    }
+    for (const rec of hist) {
+      const row = document.createElement('div');
+      row.className = 'item';
+      row.dataset.user = rec.u;
+      row.dataset.base = `edge ${rec.e} · ${when(rec.t)}`;
+
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+
+      const nick = document.createElement('span');
+      nick.className = 'nick';
+      nick.textContent = rec.u;
+
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = when(rec.t).slice(0, 5);      // только дата, время — в подсказке
+
+      const del = document.createElement('span');
+      del.className = 'del';
+      del.textContent = '×';
+      del.title = 'Убрать из истории';
+      del.onclick = e => {
+        e.stopPropagation();
+        saveHist(loadHist().filter(x => x.u !== rec.u));
+        renderHist();
+      };
+
+      row.append(dot, nick, meta, del);
+      row.onclick = () => openStream(rec.u, rec.e);
+      body.appendChild(row);
+    }
+    paintHist();
+    markCurrent();
+  }
+
+  // --- периодическая проверка: кто из истории в эфире -----------------------
+  // Проверяем по edge, записанному при последнем просмотре: перебирать все
+  // 105 серверов на каждый ник каждые полминуты — слишком дорого. Поэтому
+  // «офлайн» здесь означает «не вещает на прежнем сервере»; если модель
+  // переехала, точка будет серой, но клик по строке всё равно найдёт поток.
+  const liveStatus = new Map();
+  let histChecking = false;
+
+  function paintHist() {
+    for (const row of $('histBody').querySelectorAll('.item')) {
+      const st = liveStatus.get((row.dataset.user || '').toLowerCase());
+      row.dataset.live = st ? '1' : '0';
+      row.title = `${row.dataset.base} · ` +
+        (st === undefined ? 'статус проверяется' : st ? 'в эфире' : 'офлайн или сменила сервер');
+    }
+  }
+
+  async function checkHistory() {
+    if (histChecking || document.hidden) return;
+    const hist = loadHist();
+    if (!hist.length) return;
+    histChecking = true;
+    await runPool(hist, 8, async rec => {
+      liveStatus.set(rec.u.toLowerCase(), await alive(rec.u, rec.e));
+    });
+    paintHist();
+    histChecking = false;
+  }
+
+  $('histClear').onclick = () => { localStorage.removeItem('history'); renderHist(); };
+
+  // --- правая панель: кто в эфире прямо сейчас ------------------------------
+  // Живой листинг сайта закрыт Cloudflare, поэтому статус берём с того же
+  // открытого CDN: превью-кадр stream_<ник>.jpg отдаётся, только пока модель
+  // в эфире на своём edge. Ник из снимка, сменивший сервер, покажется офлайн —
+  // для такого есть кнопка «Найти edge».
+  const thumbUrl = (user, edge) =>
+    `https://${host(String(edge))}.bcvcdn.com/stream_${encodeURIComponent(user)}.jpg`;
+
+  let probing = false;
+
+  async function refreshOnline() {
+    if (probing) return;
+    probing = true;
+    $('onlineRefresh').disabled = true;
+    $('onlineCount').textContent = 'Проверяю…';
+
+    // Ники без номера сервера (пришедшие из sitemap) проверить нечем: перебирать
+    // ради каждого все 105 edge слишком дорого. Они живут в подсказках поля «Ник»,
+    // а сервер для них найдётся при первом открытии — и запомнится.
+    const all = catalog.filter(m => m[1]);
+    const live = [];
+    let done = 0;
+
+    // Хосты у всех разные, поэтому лимит «6 соединений на хост» почти не мешает:
+    // 24 параллельные проверки проходят весь список за несколько секунд.
+    // Превью-кадр (.jpg) остаётся на CDN и после ухода модели, поэтому
+    // спрашиваем плейлист — он врать не умеет.
+    await runPool(all, 24, async m => {
+      if (await alive(m[0], m[1])) live.push(m);
+      if (++done % 10 === 0) $('onlineCount').textContent = `Проверяю… ${done}/${all.length}`;
+    });
+
+    live.sort((a, b) => b[2] - a[2]);                  // по зрителям из снимка
+    renderOnline(live);
+    $('onlineCount').textContent = `В эфире: ${live.length} из ${all.length}`;
+    $('onlineCount').title = `Проверено ников с известным сервером: ${all.length}. ` +
+      `Ещё ${catalog.length - all.length} в базе без сервера — они есть в подсказках поля «Ник».`;
+    $('onlineRefresh').disabled = false;
+    probing = false;
+  }
+
+  // Обновляем только видимые превью: панель длинная, за экраном картинки не нужны.
+  const visObserver = new IntersectionObserver(entries => {
+    for (const e of entries) e.target.dataset.visible = e.isIntersecting ? '1' : '0';
+  }, { root: $('online'), rootMargin: '150px' });
+
+  function refreshThumbs() {
+    if (document.hidden) return;
+    const stamp = Date.now();
+    for (const img of $('onlineBody').querySelectorAll('img[data-visible="1"]')) {
+      img.src = `${img.dataset.base}?t=${stamp}`;
+    }
+  }
+
+  function renderOnline(live) {
+    const body = $('onlineBody'), stamp = Date.now();
+    liveList = live;                       // порядок для перелистывания комнат
+    visObserver.disconnect();
+    body.textContent = '';
+    if (!live.length) {
+      body.innerHTML = '<div class="empty">Никого не нашлось. Список — снимок сохранённой страницы.</div>';
+      return;
+    }
+    for (const [user, edge, viewers] of live) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.user = user;
+      card.title = `${user} · edge ${edge}`;
+
+      const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.alt = user;
+      img.dataset.base = thumbUrl(user, edge);
+      img.dataset.visible = '1';
+      img.src = `${img.dataset.base}?t=${stamp}`;
+
+      // Карточку убираем, только если кадр не пришёл ни разу: при обновлении
+      // раз в 10 секунд разовая сетевая ошибка не должна стирать модель из списка.
+      let everLoaded = false;
+      img.onload = () => { everLoaded = true; };
+      img.onerror = () => { if (!everLoaded) card.remove(); };
+      visObserver.observe(img);
+
+      const cap = document.createElement('div');
+      cap.className = 'cap';
+      cap.innerHTML = '<b></b><i></i>';
+      cap.querySelector('b').textContent = user;
+      cap.querySelector('i').textContent = viewers ? `${viewers}👁` : '';
+
+      card.append(img, cap);
+      card.onclick = () => openStream(user, edge);
+      body.appendChild(card);
+    }
+    markCurrent();
+  }
+
+  $('onlineRefresh').onclick = refreshOnline;
+
+  // --- переключение комнат, в том числе из окна «картинка в картинке» -------
+  // Кнопки ⏮/⏭ в окне PiP рисует сам браузер, но только если страница объявила
+  // обработчики Media Session. Видеоэлемент при смене комнаты не пересоздаётся
+  // (меняется лишь источник у hls.js), поэтому окно PiP остаётся открытым.
+  function switchRoom(dir) {
+    const list = liveList.length
+      ? liveList.map(m => [m[0], m[1]])
+      : loadHist().map(r => [r.u, r.e]);          // пока эфир не проверен — идём по истории
+    if (!list.length) return;
+
+    const now = $('user').value.trim().toLowerCase();
+    const at = list.findIndex(m => String(m[0]).toLowerCase() === now);
+    const [user, edge] = list[at < 0 ? 0 : (at + dir + list.length) % list.length];
+    openStream(user, edge);
+    armCarousel();                                // ручное переключение отодвигает автосмену
+  }
+
+  // Автопереключение по кругу. В отличие от обновления превью намеренно
+  // работает и в скрытой вкладке: при открытом PiP вкладка как раз скрыта.
+  let carousel = 0;
+
+  function armCarousel() {
+    clearInterval(carousel);
+    const sec = Number($('auto').value);
+    if (sec) carousel = setInterval(() => switchRoom(1), sec * 1000);
+  }
+
+  $('auto').onchange = () => {
+    localStorage.setItem('auto', $('auto').value);
+    armCarousel();
+    say(Number($('auto').value)
+      ? `Автопереключение комнат раз в ${$('auto').selectedOptions[0].textContent}.`
+      : 'Автопереключение выключено.', 'ok');
+  };
+
+  function updateMediaSession(user, edge) {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: user,
+        artist: `edge ${edge} · BongaCams`,
+        artwork: [{ src: `${thumbUrl(user, edge)}?t=${Date.now()}`, sizes: '320x180', type: 'image/jpeg' }],
+      });
+      navigator.mediaSession.playbackState = 'playing';
+      navigator.mediaSession.setActionHandler('nexttrack', () => switchRoom(1));
+      navigator.mediaSession.setActionHandler('previoustrack', () => switchRoom(-1));
+    } catch { /* набор поддерживаемых действий у браузеров разный */ }
+  }
+
+  // те же переходы с клавиатуры в основном окне
+  document.addEventListener('keydown', e => {
+    if (!e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); switchRoom(1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); switchRoom(-1); }
+  });
+
+  // общий вход из обеих панелей
+  // единственный вход, доступный человеку: клик по панели, кнопка, Enter
+  const startByUser = () => { userInitiated = true; start(); };
+
+  function openStream(user, edge) {
+    $('user').value = user;
+    $('edge').value = String(edge);
+    startByUser();
+  }
+
+  function markCurrent() {
+    const now = $('user').value.trim().toLowerCase();
+    for (const el of document.querySelectorAll('.item, .card')) {
+      el.classList.toggle('current', (el.dataset.user || '').toLowerCase() === now);
+    }
+  }
+
+  // --- пополнение базы ников -------------------------------------------------
+  // Листинг сайта закрыт Cloudflare для внешних запросов, но в браузере, где
+  // страница сайта уже открыта, тот же список лежит в её JSON-блоках. Закладка
+  // просто собирает его и кладёт в буфер — никакой защиты это не обходит.
+  // Код закладки лежит в bookmarklet.js — тянем его и вешаем как javascript:-ссылку.
+  fetch('bookmarklet.js')
+    .then(r => r.text())
+    .then(src => { $('bmLink').href = 'javascript:' + encodeURIComponent(src); })
+    .catch(() => { $('bmLink').removeAttribute('href'); $('bmLink').textContent = 'bookmarklet.js не найден'; });
+
+  // Разбор списка. Возвращает null, если это не наш JSON — тогда вызывающий
+  // сам решает, ругаться или открыть окно с инструкцией.
+  function importList(text) {
+    let arr;
+    try { arr = JSON.parse(text); } catch { return null; }
+    if (!Array.isArray(arr) || !arr.length) return null;
+
+    const extra = loadExtra();
+    let added = 0, total = 0, edged = 0;
+    for (const row of arr) {
+      const user = Array.isArray(row) ? row[0] : row && row.username;
+      const raw = Array.isArray(row) ? row[1] : row && row.vsid;
+      const edge = raw === undefined || raw === null ? '' : String(raw);
+      if (typeof user !== 'string' || !user || !/^(\d+|us\d+)?$/.test(edge)) continue;
+
+      const key = user.toLowerCase();
+      if (!known.has(key)) added++;
+      if (edge) edged++;
+      // Ник без сервера не должен затирать уже известный с сервером.
+      const prev = extra[key];
+      extra[key] = [user, edge || (prev ? prev[1] : '') || known.get(key) || '',
+                    Number(Array.isArray(row) ? row[2] : row && row.viewers) || 0];
+      total++;
+    }
+    if (!total) return null;
+
+    saveExtra(extra);
+    rebuildCatalog();
+    return { total, added, edged };
+  }
+
+  function openBaseDialog() {
+    const extra = Object.keys(loadExtra()).length;
+    $('baseCount').textContent =
+      `Сейчас в базе ${catalog.length} ников: ${(window.BONGA_MODELS || []).length} из сохранённой ` +
+      `страницы и ${extra} добавленных. С известным сервером — ${catalog.filter(m => m[1]).length}.`;
+    $('baseDlg').showModal();
+  }
+
+  $('baseClose').onclick = () => $('baseDlg').close();
+
+  // Кнопка в шапке: сама берёт список из буфера, а если браузер не даёт его
+  // прочитать (Firefox странице буфер не отдаёт) — открывает окно с инструкцией.
+  $('accounts').onclick = async () => {
+    let text = '';
+    try { text = await navigator.clipboard.readText(); } catch { /* нет доступа к буферу */ }
+
+    const res = text && importList(text);
+    if (!res) return openBaseDialog();
+
+    say(`Разобрано ников: ${res.total}, новых: ${res.added}, с номером сервера: ${res.edged}. ` +
+        `Всего в базе: ${catalog.length}.`, 'ok');
+    refreshOnline();
+  };
+
+  $('importOk').onclick = () => {
+    const res = importList($('importText').value);
+    if (!res) return say('Это не список ников — соберите его закладкой ещё раз.', 'err');
+    $('baseDlg').close();
+    $('importText').value = '';
+    say(`Разобрано ников: ${res.total}, новых: ${res.added}, с номером сервера: ${res.edged}. ` +
+        `Всего в базе: ${catalog.length}.`, 'ok');
+    refreshOnline();
+  };
+
+  $('panels').onclick = () => {
+    const off = document.body.classList.toggle('no-panels');
+    localStorage.setItem('panels', off ? 'off' : 'on');
+  };
+
+  $('play').onclick = startByUser;
+  $('user').onkeydown = e => { if (e.key === 'Enter') startByUser(); };
+  $('edge').onkeydown = e => { if (e.key === 'Enter') startByUser(); };
+
+  $('find').onclick = async () => {
+    const user = $('user').value.trim();
+    if (!user) return say('Введите ник модели.', 'err');
+    $('find').disabled = true;
+    say('Перебираю edge-серверы…');
+    const edge = await findEdge(user);
+    $('find').disabled = false;
+    if (edge) { $('edge').value = edge; say(`Нашёл: edge ${edge}.`, 'ok'); }
+    else say('Ни один edge не отдаёт этот поток — скорее всего модель офлайн.', 'err');
+  };
+
+  $('quality').onchange = () => { if (hls) hls.currentLevel = Number($('quality').value); };
+
+  $('pip').onclick = async () => {
+    if (!document.pictureInPictureEnabled) {
+      return say('В Firefox жмите Ctrl+Shift+] или кнопку PiP при наведении на видео.', 'err');
+    }
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await video.requestPictureInPicture();
+    } catch (e) { say('PiP не открылся: ' + e.message, 'err'); }
+  };
+
+  $('copy').onclick = () => {
+    const url = $('url').textContent;
+    if (url === '—') return say('Сначала запустите поток.', 'err');
+    navigator.clipboard.writeText(url)
+      .then(() => say('URL скопирован — можно открыть в VLC: Медиа → Открыть URL.', 'ok'))
+      .catch(() => say('Скопируйте URL из строки внизу вручную.', 'err'));
+  };
+
+  // ?u=ник&e=edge либо #ник в адресе — сразу запускаем
+  const params = new URLSearchParams(location.search);
+  const initial = params.get('u') || decodeURIComponent(location.hash.slice(1)) || 'AlyonaKatya';
+  $('user').value = initial;
+  $('edge').value = params.get('e') || known.get(initial.toLowerCase()) || '';
+  if (localStorage.getItem('panels') === 'off') document.body.classList.add('no-panels');
+  $('auto').value = localStorage.getItem('auto') || '0';
+  armCarousel();
+  renderHist();
+  if (params.get('u') || location.hash) start();
+  // проверку эфира откладываем, чтобы 200 запросов не мешали старту потока
+  setTimeout(refreshOnline, 1500);
+  setTimeout(checkHistory, 3000);
+
+  setInterval(refreshThumbs, 10000);      // живые превью справа
+  setInterval(checkHistory, 30000);       // статус эфира у ников слева
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { refreshThumbs(); checkHistory(); }
+  });
+})();
+</script>
+</body>
+</html>
