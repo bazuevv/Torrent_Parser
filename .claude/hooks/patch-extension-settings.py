@@ -82,10 +82,22 @@ SETTING_KEY = "claudeCode.emojiButtonPlacement"
 DESCRIPTION_EN = (
     "Custom patch: where to show the emoji picker button in the chat input."
 )
+# markdownDescription VSCode рендерит как Markdown и предпочитает
+# обычному description. Эмодзи + жирный заголовок визуально отделяют
+# наши пункты от родных настроек расширения — покрасить строку
+# средствами Settings UI нельзя, оболочка VSCode нам не подконтрольна.
+MARKDOWN_DESCRIPTION_EN = (
+    "🧩 **Added by local patch** (`.claude/patches/`). "
+    "Where to show the emoji picker button in the chat input. "
+    "Filter all patched settings: `@tag:claude-custom-patch`"
+)
 ENUM_DESCRIPTIONS_EN = [
     "Next to the microphone (top-right corner of the input)",
     "In the footer, next to the / menu button",
 ]
+# Свой тег — по нему Settings UI умеет фильтровать: `@tag:claude-custom-patch`
+# покажет ровно наши пункты и ничего больше.
+SETTING_TAG = "claude-custom-patch"
 
 
 def _read_locale() -> str:
@@ -135,6 +147,8 @@ def _desired_property(translations: dict) -> dict:
         "enumDescriptions": [tr(t) for t in ENUM_DESCRIPTIONS_EN],
         "default": "mic",
         "description": tr(DESCRIPTION_EN),
+        "markdownDescription": tr(MARKDOWN_DESCRIPTION_EN),
+        "tags": [SETTING_TAG],
     }
 
 
@@ -234,21 +248,25 @@ def _read_ext_version(ext_dir: str) -> str:
 
 
 def _cache_is_stale() -> bool:
-    """Есть ли кэш манифестов, в котором нашего пункта ещё нет.
+    """Есть ли кэш манифестов, отставший от нашего манифеста.
 
     Читаем как текст: структура кэша — внутреннее дело VSCode, а нам
-    достаточно факта присутствия ключа. Если кэшей нет вообще (первый
-    запуск, другой профиль) — считаем, что всё в порядке: VSCode
-    построит кэш сам и прочитает актуальный манифест.
+    достаточно факта присутствия ключа и тега. Тег проверяется отдельно,
+    потому что он появился позже самого пункта: без этой проверки кэш
+    с уже знакомым ключом, но старым описанием, считался бы свежим.
+    Если кэшей нет вообще (первый запуск, другой профиль) — считаем,
+    что всё в порядке: VSCode построит кэш сам и прочитает актуальный
+    манифест.
     """
     for pattern in CACHE_GLOBS:
         for path in glob.glob(pattern):
             try:
                 with open(path, "r", encoding="utf-8") as f:
-                    if SETTING_KEY not in f.read():
-                        return True
+                    raw = f.read()
             except OSError:
                 continue
+            if SETTING_KEY not in raw or SETTING_TAG not in raw:
+                return True
     return False
 
 
@@ -333,7 +351,9 @@ def main() -> int:
     # показывать старый набор настроек — VSCode держит разобранные
     # манифесты в кэше и не перечитывает их, пока не изменится mtime
     # extensions.json. Проверяем кэш и при рассинхроне инвалидируем.
-    if _cache_is_stale() and _invalidate_cache():
+    # marker_changed ловит правку формулировок: ключ и тег в кэше на
+    # месте, а тексты уже другие — сам кэш об этом не расскажет.
+    if (_cache_is_stale() or marker_changed) and _invalidate_cache():
         messages.append(
             "[ext-settings WARNING] Кэш манифестов VSCode ещё не знает про "
             f"`{SETTING_KEY}` — Settings UI показывал бы старый список. "

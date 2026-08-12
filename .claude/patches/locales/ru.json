@@ -27,7 +27,8 @@
       "Prefer setting environment variables in Claude's settings.json.\nSee documentation: https://code.claude.com/docs/en/settings": "Рекомендуется задавать переменные окружения в settings.json Claude.\nДокументация: https://code.claude.com/docs/en/settings",
       "Custom patch: where to show the emoji picker button in the chat input.": "Кастомный патч: где показывать кнопку вставки смайликов в поле ввода чата.",
       "Next to the microphone (top-right corner of the input)": "Рядом с микрофоном (правый верхний угол поля ввода)",
-      "In the footer, next to the / menu button": "В футере, рядом с кнопкой меню /"
+      "In the footer, next to the / menu button": "В футере, рядом с кнопкой меню /",
+      "🧩 **Added by local patch** (`.claude/patches/`). Where to show the emoji picker button in the chat input. Filter all patched settings: `@tag:claude-custom-patch`": "🧩 **Добавлено локальным патчем** (`.claude/patches/`). Где показывать кнопку вставки смайликов в поле ввода чата. Фильтр всех патч-настроек: `@tag:claude-custom-patch`"
     },
     "ui": {
       "_description": "UI-строки, ФИЗИЧЕСКИ присутствующие в package.json расширения как самостоятельные текстовые литералы (label/title/description в contributes.*). Сейчас пуст: в текущей версии Claude Code 2.1.126 таких строк не нашлось — все UI-литералы рендерятся через JS, а короткие слова вроде 'Support'/'Permissions' нельзя патчить статически (они встречаются как подстроки внутри идентификаторов вроде 'allowDangerouslySkipPermissions' или 'updateSupported' и сломали бы конфигурацию). Все ui-переводы лежат в runtime.ui."

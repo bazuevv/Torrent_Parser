@@ -256,6 +256,10 @@ package.json из бэкапа, стирал только что добавле�
   settings.json VSCode в конфиг bootstrap, а `claude-custom.js`
   опрашивает `http-server.py` (`/vscode-settings`) раз в 5 секунд —
   поэтому смена настройки применяется без `Reload Window`.
+  Все наши пункты помечены тегом `claude-custom-patch` (фильтр
+  `@tag:claude-custom-patch` в Settings UI) и маркером 🧩 в
+  `markdownDescription` — покрасить строку нельзя, Settings UI живёт
+  в оболочке VSCode, куда наш инжектор не достаёт.
 - **EMOJI AUTOREPLACE** (`emojiAutoReplace`) — автозамена при наборе:
   `:)` → 🙂, `<3` → ❤️, `:rocket:` → 🚀.
 
