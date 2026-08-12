@@ -24,7 +24,10 @@
       "Automatically activate the workspace's Python environment when running Claude. Requires the [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python) extension.": "Автоматически активировать Python-окружение. Требуется расширение [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python).",
       "Sidebar (Right)": "Боковая панель (справа)",
       "Panel (New Tab)": "Панель (новая вкладка)",
-      "Prefer setting environment variables in Claude's settings.json.\nSee documentation: https://code.claude.com/docs/en/settings": "Рекомендуется задавать переменные окружения в settings.json Claude.\nДокументация: https://code.claude.com/docs/en/settings"
+      "Prefer setting environment variables in Claude's settings.json.\nSee documentation: https://code.claude.com/docs/en/settings": "Рекомендуется задавать переменные окружения в settings.json Claude.\nДокументация: https://code.claude.com/docs/en/settings",
+      "Custom patch: where to show the emoji picker button in the chat input.": "Кастомный патч: где показывать кнопку вставки смайликов в поле ввода чата.",
+      "Next to the microphone (top-right corner of the input)": "Рядом с микрофоном (правый верхний угол поля ввода)",
+      "In the footer, next to the / menu button": "В футере, рядом с кнопкой меню /"
     },
     "ui": {
       "_description": "UI-строки, ФИЗИЧЕСКИ присутствующие в package.json расширения как самостоятельные текстовые литералы (label/title/description в contributes.*). Сейчас пуст: в текущей версии Claude Code 2.1.126 таких строк не нашлось — все UI-литералы рендерятся через JS, а короткие слова вроде 'Support'/'Permissions' нельзя патчить статически (они встречаются как подстроки внутри идентификаторов вроде 'allowDangerouslySkipPermissions' или 'updateSupported' и сломали бы конфигурацию). Все ui-переводы лежат в runtime.ui."

@@ -16,11 +16,23 @@ Settings UI (Settings → Extensions → Claude Code), а не только
 в манифесте — без неё VSCode считает ключ неизвестным и не рисует
 его в UI.
 
-ПОРЯДОК ХУКОВ ВАЖЕН. `localize.py` при каждом запуске восстанавливает
-package.json из `package.json.original` и заново применяет переводы
-(см. _apply_package_json). Любая наша правка, сделанная ДО него,
-будет затёрта. Поэтому в `.claude/settings.json` этот хук
-зарегистрирован последним в цепочке SessionStart — после localize.py.
+ПОЧЕМУ ПАТЧИТСЯ И БЭКАП. `localize.py` при каждом запуске
+восстанавливает package.json из `package.json.original` и заново
+применяет переводы (см. _apply_package_json), затирая всё, чего в
+бэкапе нет. Порядок хуков от этого не спасает: harness запускает
+хуки одного события ПАРАЛЛЕЛЬНО, и позиция в массиве
+`.claude/settings.json` ничего не гарантирует — 2026-08-12 наш
+лёгкий хук стабильно финишировал на ~35 мс раньше тяжёлого
+localize.py, и пункт настройки исчезал.
+
+Поэтому свойство пишется в оба файла: в package.json — на языке
+локали, в package.json.original — по-английски (localize.py сам
+переведёт его по словарю static.settings, как и остальные строки).
+Тогда результат одинаков при любом порядке выполнения.
+
+Переводы берутся из `.claude/patches/locales/<locale>.json` — того же
+файла, которым пользуется localize.py, чтобы формулировка не
+разъезжалась по двум местам.
 
 Идемпотентен: если свойство уже описано ровно так, как надо,
 файл не переписывается.
@@ -63,28 +75,17 @@ SETTING_KEY = "claudeCode.emojiButtonPlacement"
 # Описания на двух языках: расширение локализуется хуком localize.py
 # по параметру `locale`, и наш пункт не должен выбиваться из общего
 # языка настроек.
-DESCRIPTIONS = {
-    "ru": {
-        "description": (
-            "Кастомный патч: где показывать кнопку вставки смайликов "
-            "в поле ввода чата."
-        ),
-        "enumDescriptions": [
-            "Рядом с микрофоном (правый верхний угол поля ввода)",
-            "В футере, рядом с кнопкой меню /",
-        ],
-    },
-    "en": {
-        "description": (
-            "Custom patch: where to show the emoji picker button "
-            "in the chat input."
-        ),
-        "enumDescriptions": [
-            "Next to the microphone (top-right corner of the input)",
-            "In the footer, next to the / menu button",
-        ],
-    },
-}
+# Канонические (английские) строки пункта. Русский вариант не хранится
+# здесь: он живёт в `.claude/patches/locales/<locale>.json`, откуда его
+# берёт и localize.py. Два источника правды разъехались бы при первой же
+# правке формулировки.
+DESCRIPTION_EN = (
+    "Custom patch: where to show the emoji picker button in the chat input."
+)
+ENUM_DESCRIPTIONS_EN = [
+    "Next to the microphone (top-right corner of the input)",
+    "In the footer, next to the / menu button",
+]
 
 
 def _read_locale() -> str:
@@ -95,19 +96,45 @@ def _read_locale() -> str:
     except (OSError, tomllib.TOMLDecodeError):
         return "en"
     locale = cfg.get("locale")
-    if isinstance(locale, str) and locale in DESCRIPTIONS:
+    if isinstance(locale, str) and len(locale) >= 2:
         return locale
     return "en"
 
 
-def _desired_property(locale: str) -> dict:
-    texts = DESCRIPTIONS.get(locale, DESCRIPTIONS["en"])
+def _load_translations(locale: str) -> dict:
+    """Словарь {английская строка: перевод} из static.settings локали.
+
+    Тот же файл и та же секция, которыми пользуется localize.py, —
+    поэтому перевод пункта достаточно добавить в одном месте.
+    """
+    if locale == "en":
+        return {}
+    path = os.path.join(
+        PROJECT_DIR, ".claude", "patches", "locales", f"{locale}.json"
+    )
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    settings = data.get("static", {}).get("settings", {})
+    if not isinstance(settings, dict):
+        return {}
+    return {k: v for k, v in settings.items() if isinstance(v, str)}
+
+
+def _desired_property(translations: dict) -> dict:
+    """Описание пункта; строки переводятся, если перевод есть в словаре."""
+    def tr(text: str) -> str:
+        value = translations.get(text)
+        return value if isinstance(value, str) and value else text
+
     return {
         "type": "string",
         "enum": ["mic", "footer"],
-        "enumDescriptions": texts["enumDescriptions"],
+        "enumDescriptions": [tr(t) for t in ENUM_DESCRIPTIONS_EN],
         "default": "mic",
-        "description": texts["description"],
+        "description": tr(DESCRIPTION_EN),
     }
 
 
@@ -255,14 +282,25 @@ def _emit_context(lines: list[str]) -> None:
 
 
 def main() -> int:
-    desired = _desired_property(_read_locale())
+    locale = _read_locale()
+    desired = _desired_property(_load_translations(locale))
+    desired_en = _desired_property({})
     messages: list[str] = []
     marker = _load_marker()
     marker_changed = False
 
     for ext_dir in glob.glob(EXT_GLOB):
         name = os.path.basename(ext_dir)
-        status = _patch_manifest(os.path.join(ext_dir, "package.json"), desired)
+        pkg_path = os.path.join(ext_dir, "package.json")
+        status = _patch_manifest(pkg_path, desired)
+        # Тот же пункт — в бэкап, из которого localize.py восстанавливает
+        # манифест. Без этого всё держалось бы на порядке хуков, а harness
+        # запускает хуки одного события параллельно: localize.py успевает
+        # откатить package.json уже ПОСЛЕ того, как мы его пропатчили,
+        # и пункт пропадает (ровно это и произошло 2026-08-12).
+        # В бэкапе — английский оригинал: localize.py переведёт его сам
+        # по словарю, как и остальные строки настроек.
+        _patch_manifest(pkg_path + ".original", desired_en)
         if status in ("patched", "already"):
             seen = marker.get(name)
             current = {"version": _read_ext_version(ext_dir), "property": desired}
