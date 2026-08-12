@@ -42,6 +42,7 @@ import glob
 import json
 import os
 import sys
+import time
 import tomllib
 
 HOME = os.path.expanduser("~")
@@ -160,11 +161,13 @@ def _patch_manifest(pkg_path: str, desired: dict) -> str:
     """
     if not os.path.isfile(pkg_path):
         return "no_file"
+    pkg = _read_json_retry(pkg_path)
+    if not isinstance(pkg, dict):
+        return "unreadable"
     try:
         with open(pkg_path, "r", encoding="utf-8") as f:
             raw = f.read()
-        pkg = json.loads(raw)
-    except (OSError, json.JSONDecodeError):
+    except OSError:
         return "unreadable"
 
     contributes = pkg.get("contributes")
@@ -239,12 +242,33 @@ def _save_marker(marker: dict) -> None:
         pass
 
 
+def _read_json_retry(path: str, attempts: int = 3, delay: float = 0.15):
+    """Читает JSON, переживая гонку с чужой неатомарной записью.
+
+    localize.py переписывает package.json через open(w)+write, а хуки
+    одного события идут параллельно — попасть в момент, когда файл
+    пуст или обрезан, вполне реально. Один такой промах стоил нам
+    маркера с пустой версией: он навсегда расходился с текущей,
+    и предупреждение про Reload Window приходило каждую сессию.
+    """
+    for attempt in range(attempts):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            if attempt == attempts - 1:
+                return None
+            time.sleep(delay)
+        except OSError:
+            return None
+    return None
+
+
 def _read_ext_version(ext_dir: str) -> str:
-    try:
-        with open(os.path.join(ext_dir, "package.json"), "r", encoding="utf-8") as f:
-            return str(json.load(f).get("version", ""))
-    except (OSError, json.JSONDecodeError):
+    data = _read_json_retry(os.path.join(ext_dir, "package.json"))
+    if not isinstance(data, dict):
         return ""
+    return str(data.get("version", ""))
 
 
 def _cache_is_stale() -> bool:
@@ -321,7 +345,13 @@ def main() -> int:
         _patch_manifest(pkg_path + ".original", desired_en)
         if status in ("patched", "already"):
             seen = marker.get(name)
-            current = {"version": _read_ext_version(ext_dir), "property": desired}
+            version = _read_ext_version(ext_dir)
+            current = {"version": version, "property": desired}
+            # Версию не удалось прочитать даже с ретраями — маркер не
+            # трогаем: записанное «пусто» разошлось бы с реальной
+            # версией и превратило разовое уведомление в постоянный шум.
+            if not version:
+                continue
             if seen != current:
                 marker[name] = current
                 marker_changed = True
