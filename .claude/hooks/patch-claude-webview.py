@@ -121,6 +121,20 @@ REQUIRED_PARAMS = [
 MARKER_BEGIN = "/* claude-green-timestamp */"
 MARKER_END = "/* /claude-green-timestamp */"
 
+# Настройки, которые пользователь меняет не в TOML, а в VSCode Settings UI
+# (пункты в манифест расширения вписывает patch-extension-settings.py).
+# Ключ VSCode → ключ в window.__CLAUDE_CUSTOM_CONFIG__, значение по
+# умолчанию и допустимые варианты.
+VSCODE_SETTINGS = [
+    ("claudeCode.emojiButtonPlacement", "emojiButtonPlacement", "mic", ("mic", "footer")),
+]
+
+USER_SETTINGS_PATHS = [
+    os.path.join(HOME, ".config/Code/User/settings.json"),
+    os.path.join(HOME, ".config/Code - Insiders/User/settings.json"),
+    os.path.join(HOME, ".vscode-server/data/Machine/settings.json"),
+]
+
 # Шаблон bootstrap, дописываемого в webview/index.js.
 # Сначала прокидываем конфиг в `window.__CLAUDE_CUSTOM_CONFIG__`, затем
 # подцепляем claude-custom.css через <link> (для CSS CSP лояльна), затем
@@ -285,6 +299,96 @@ def _read_config() -> tuple[dict, list[str]]:
     return (cfg, issues)
 
 
+def _strip_jsonc(text: str) -> str:
+    """Убирает из JSONC комментарии и висячие запятые.
+
+    settings.json VSCode — это JSONC: в нём легально `// комментарий`,
+    `/* блок */` и запятая перед закрывающей скобкой. json.loads на
+    таком падает, а тащить сюда внешний парсер ради одного ключа
+    незачем. Идём по символам, чтобы не срезать `//` внутри строкового
+    значения (например, в пути `http://localhost`).
+    """
+    out = []
+    i = 0
+    n = len(text)
+    in_string = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:  # экранированная кавычка
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+
+    cleaned = "".join(out)
+    # Висячие запятые: `,` перед `}` или `]` (возможно через пробелы).
+    return re.sub(r",(\s*[}\]])", r"\1", cleaned)
+
+
+def _read_jsonc(path: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read()
+    except OSError:
+        return {}
+    try:
+        data = json.loads(_strip_jsonc(raw))
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _vscode_settings() -> dict:
+    """Настройки VSCode: user-уровень, поверх — workspace-уровень.
+
+    Именно такой приоритет использует сам VSCode, поэтому настройка,
+    выставленная для проекта, перебивает глобальную.
+    """
+    merged: dict = {}
+    for path in USER_SETTINGS_PATHS:
+        merged.update(_read_jsonc(path))
+    merged.update(_read_jsonc(os.path.join(PROJECT_DIR, ".vscode", "settings.json")))
+    return merged
+
+
+def _apply_vscode_settings(config: dict) -> dict:
+    """Подмешивает в конфиг значения из VSCode Settings UI.
+
+    Значение из settings.json приоритетнее TOML: пункт в UI — то, что
+    пользователь трогает руками чаще всего. Невалидное значение
+    игнорируется, чтобы опечатка в settings.json не ломала webview.
+    """
+    settings = _vscode_settings()
+    for vs_key, cfg_key, default, allowed in VSCODE_SETTINGS:
+        value = settings.get(vs_key)
+        if value not in allowed:
+            value = config.get(cfg_key) if config.get(cfg_key) in allowed else default
+        config[cfg_key] = value
+    return config
+
+
 def _build_bootstrap(custom_js: str, config: dict) -> str:
     """Подставляет конфиг и инлайн-код кастомного JS в шаблон bootstrap."""
     config_json = json.dumps(config, ensure_ascii=False)
@@ -393,6 +497,7 @@ def main() -> int:
 
     js_canonical = _read(CANONICAL_JS) if os.path.isfile(CANONICAL_JS) else ""
     config, config_issues = _read_config()
+    config = _apply_vscode_settings(config)
     bootstrap = _build_bootstrap(js_canonical, config)
 
 
