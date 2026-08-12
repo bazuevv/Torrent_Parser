@@ -116,6 +116,11 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, bool),
         "должен быть true или false",
     ),
+    (
+        "fixSettingsMenuItem",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"

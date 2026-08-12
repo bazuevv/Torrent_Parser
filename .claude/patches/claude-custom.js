@@ -4650,3 +4650,213 @@
     init();
   }
 })();
+
+/* ============================================================
+ * SETTINGS MENU FIX — чиним пункт меню `/` «Общие настройки…»
+ * ============================================================
+ *
+ * Симптом: выбор пункта «Настройки → Общие настройки…» не открывает
+ * настройки расширения, а отправляет в чат слэш-команду `/config`
+ * (та печатает usage вида `key=value`). Оба пункта при этом
+ * подсвечиваются в меню одновременно.
+ *
+ * Причина — коллизия идентификаторов в самом расширении (2.1.220).
+ * Пункт меню регистрируется так:
+ *
+ *     k6 = { config: "slash-command-config", ... }
+ *     registerAction({ id: k6.config, label: "General config…" },
+ *                    "Settings", () => t.openConfig())
+ *
+ * а слэш-команды CLI — так:
+ *
+ *     let l = `slash-command-${invocation}`;      // /config → "slash-command-config"
+ *     registerAction({ id: l, label: `/${invocation}` },
+ *                    "Slash Commands", () => send(`/${invocation}`))
+ *
+ * Пока в CLI не было команды `/config`, конфликта не возникало.
+ * Теперь она есть, id совпадают буквально, и обработчик пункта меню
+ * перекрывается обработчиком слэш-команды.
+ *
+ * Что делает патч: перехватывает click в capture-фазе (тот же приём,
+ * что в compactClickInterceptor), опознаёт пункт по лейблу и вызывает
+ * `openConfig()` — метод контекста приложения, который достаётся
+ * через React-fiber. Если контекст найти не удалось, событие
+ * не блокируется: пусть отработает штатное (пусть и неверное)
+ * поведение, это лучше мёртвой кнопки.
+ *
+ * Управление: `fixSettingsMenuItem` в claude-custom-config.toml.
+ * ============================================================ */
+(function () {
+  if (window.__claudeSettingsMenuFixInstalled) return;
+  window.__claudeSettingsMenuFixInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (cfg.fixSettingsMenuItem !== true) return;
+
+  // Лейбл зависит от локали (localize.py переводит меню) и от того,
+  // каким символом расширение набрало многоточие.
+  var LABELS = [
+    'общие настройки…',
+    'общие настройки...',
+    'general config…',
+    'general config...',
+  ];
+
+  var cachedContext = null;
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[settings-menu-fix]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  function getFiber(el) {
+    var keys = Object.keys(el);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf('__reactFiber') === 0) return el[keys[i]];
+    }
+    return null;
+  }
+
+  /** Контекст приложения — объект с методами openConfig/openHelp. */
+  function looksLikeContext(obj) {
+    return !!obj && typeof obj === 'object' &&
+      typeof obj.openConfig === 'function' &&
+      typeof obj.openHelp === 'function';
+  }
+
+  /** Ищет контекст среди значений props (и в самом props). */
+  function contextFromProps(props) {
+    if (!props || typeof props !== 'object') return null;
+    if (looksLikeContext(props)) return props;
+    if (looksLikeContext(props.context)) return props.context;
+    var keys = Object.keys(props);
+    for (var i = 0; i < keys.length; i++) {
+      if (looksLikeContext(props[keys[i]])) return props[keys[i]];
+    }
+    return null;
+  }
+
+  /** Ищет контекст в цепочке хуков компонента. */
+  function contextFromState(fiber) {
+    var state = fiber.memoizedState;
+    var hops = 0;
+    while (state && hops < 40) {
+      if (looksLikeContext(state.memoizedState)) return state.memoizedState;
+      // Signals/стейт часто лежат ещё на уровень глубже, в .value.
+      if (state.memoizedState && looksLikeContext(state.memoizedState.value)) {
+        return state.memoizedState.value;
+      }
+      state = state.next;
+      hops++;
+    }
+    return null;
+  }
+
+  /**
+   * Поднимается от кликнутого пункта вверх по дереву фиберов —
+   * контекст почти наверняка прокинут в один из родительских
+   * компонентов меню, так что до полного обхода дело не доходит.
+   */
+  function findContextUpwards(el) {
+    var fiber = getFiber(el);
+    var hops = 0;
+    while (fiber && hops < 40) {
+      var found = contextFromProps(fiber.memoizedProps) || contextFromState(fiber);
+      if (found) return found;
+      fiber = fiber.return;
+      hops++;
+    }
+    return null;
+  }
+
+  /** Запасной путь: обход дерева от корня React. */
+  function findContextFromRoot() {
+    var root = document.getElementById('root');
+    if (!root) return null;
+    var keys = Object.keys(root);
+    var containerKey = null;
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf('__reactContainer') === 0) { containerKey = keys[i]; break; }
+    }
+    if (!containerKey) return null;
+
+    var stack = [root[containerKey]];
+    var seen = new Set();
+    var visited = 0;
+    while (stack.length && visited < 6000) {
+      var fiber = stack.pop();
+      if (!fiber || seen.has(fiber)) continue;
+      seen.add(fiber);
+      visited++;
+      var found = contextFromProps(fiber.memoizedProps) || contextFromState(fiber);
+      if (found) return found;
+      if (fiber.child) stack.push(fiber.child);
+      if (fiber.sibling) stack.push(fiber.sibling);
+    }
+    return null;
+  }
+
+  function getContext(el) {
+    if (looksLikeContext(cachedContext)) return cachedContext;
+    cachedContext = findContextUpwards(el) || findContextFromRoot();
+    logInfo('контекст приложения', cachedContext ? 'найден' : 'НЕ найден');
+    return cachedContext;
+  }
+
+  /** Закрывает выпадашку меню — React слушает Escape на document. */
+  function closeMenu() {
+    var escape = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+      bubbles: true, cancelable: true };
+    document.dispatchEvent(new KeyboardEvent('keydown', escape));
+    var input = document.querySelector('[role="textbox"][contenteditable]');
+    if (input) input.dispatchEvent(new KeyboardEvent('keydown', escape));
+  }
+
+  function isTargetItem(item) {
+    var labelEl = item.querySelector('[class*="commandLabel_"]');
+    var text = ((labelEl ? labelEl.textContent : item.textContent) || '')
+      .trim().toLowerCase();
+    if (!text) return false;
+    // Слэш-команда `/config` живёт в том же меню и лейбл у неё
+    // начинается со слэша — её трогать нельзя.
+    if (text.charAt(0) === '/') return false;
+    return LABELS.indexOf(text) >= 0;
+  }
+
+  function onClickCapture(e) {
+    if (!e.target.closest) return;
+    var item = e.target.closest('[class*="commandItem_"]');
+    if (!item || !isTargetItem(item)) return;
+
+    var context = getContext(item);
+    if (!context) {
+      // Чинить нечем — пропускаем событие дальше, чтобы поведение
+      // осталось хотя бы прежним, а не исчезло совсем.
+      logInfo('контекст не найден, отдаём событие React-обработчику');
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      context.openConfig();
+      logInfo('openConfig() вызван');
+    } catch (err) {
+      logInfo('openConfig() упал:', (err && err.message) || err);
+    }
+    closeMenu();
+  }
+
+  function init() {
+    document.addEventListener('click', onClickCapture, true);
+    logInfo('installed');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
