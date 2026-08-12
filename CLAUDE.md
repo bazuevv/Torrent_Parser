@@ -181,6 +181,14 @@ CSP-meta тег в `extension.js` не распознан либо `connect-src`
 `http-server.py`. После свежего патча нужен `Developer: Reload Window`:
 Extension Host читает `extension.js` только при загрузке.
 
+**И для маркера `[ext-settings WARNING]`.** Его эмитит
+`.claude/hooks/patch-extension-settings.py`, когда вписал в манифест
+расширения новый пункт настроек (нужен `Developer: Reload Window`,
+иначе пункта не будет в Settings UI) либо не смог этого сделать.
+Повторные сообщения гасятся маркер-файлом
+`hooks-runtime/ext-settings-applied.json`, поэтому если предупреждение
+пришло — оно означает реальное изменение, а не рутину.
+
 Прецедент (2026-08-12): обновление расширения до 2.1.220 сменило
 имена переменных в шаблоне CSP с заглавных (`${L}; ${O}; ${A}`) на
 строчные (`${p}; ${f}; ${m}`). Регулярка хука искала `\$\{[A-Z]\}`,
@@ -227,6 +235,14 @@ Extension Host читает `extension.js` только при загрузке.
   и блоком «Недавние» (localStorage, ключ `claudeCustomEmojiRecent`).
   Микрофон рендерится только при `speechToTextEnabled`, поэтому есть
   запасное место — футер `.inputFooter_*` рядом с меню `/`.
+  Расположение выбирается **не в TOML**, а в VSCode Settings UI —
+  пункт `claudeCode.emojiButtonPlacement` (mic | footer). Цепочка:
+  `patch-extension-settings.py` вписывает пункт в манифест расширения
+  (обязательно ПОСЛЕ `localize.py`, который откатывает package.json
+  из `.original`), `patch-claude-webview.py` читает значение из
+  settings.json VSCode в конфиг bootstrap, а `claude-custom.js`
+  опрашивает `http-server.py` (`/vscode-settings`) раз в 5 секунд —
+  поэтому смена настройки применяется без `Reload Window`.
 - **EMOJI AUTOREPLACE** (`emojiAutoReplace`) — автозамена при наборе:
   `:)` → 🙂, `<3` → ❤️, `:rocket:` → 🚀.
 

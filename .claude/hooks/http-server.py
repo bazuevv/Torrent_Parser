@@ -201,6 +201,31 @@ def _atomic_write_json(path: str, payload: dict) -> None:
     os.replace(tmp, path)
 
 
+_WEBVIEW_PATCHER = None
+
+
+def _load_webview_patcher():
+    """Лениво импортирует patch-claude-webview.py как модуль.
+
+    Через importlib, потому что дефис в имени файла не даёт написать
+    обычный import. Модуль на верхнем уровне только объявляет
+    константы и функции (вся работа — под `if __name__`), так что
+    импорт безопасен. Результат кэшируется: endpoint дёргается
+    периодически.
+    """
+    global _WEBVIEW_PATCHER
+    if _WEBVIEW_PATCHER is None:
+        import importlib.util
+
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "patch-claude-webview.py")
+        spec = importlib.util.spec_from_file_location("claude_webview_patcher", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _WEBVIEW_PATCHER = module
+    return _WEBVIEW_PATCHER
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # тишина в stdout
@@ -228,8 +253,32 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_list_projects()
             return
 
+        if self.path == "/vscode-settings":
+            self._handle_vscode_settings()
+            return
+
         self.send_response(404)
         self.end_headers()
+
+    def _handle_vscode_settings(self) -> None:
+        """Отдаёт webview'у актуальные значения настроек из VSCode
+        Settings UI (сейчас — только emojiButtonPlacement).
+
+        Зачем: те же значения приезжают в bootstrap при следующем
+        UserPromptSubmit, но применяются лишь после Reload Window.
+        Опрос этого endpoint'а позволяет claude-custom.js подхватывать
+        смену настройки почти сразу, как это уже сделано для CSS.
+
+        Логика чтения settings.json (JSONC + приоритет workspace над
+        user) живёт в patch-claude-webview.py и импортируется отсюда,
+        чтобы не держать две расходящиеся копии парсера.
+        """
+        try:
+            settings = _load_webview_patcher()._apply_vscode_settings({})
+        except Exception as e:  # noqa: BLE001 — endpoint не должен ронять сервер
+            self._json_response(500, {"error": f"settings read failed: {e}"})
+            return
+        self._json_response(200, settings)
 
     def _handle_list_projects(self) -> None:
         """Возвращает список папок-проектов в ~/.claude/projects/.

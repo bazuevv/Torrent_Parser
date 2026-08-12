@@ -3745,6 +3745,10 @@
  * Добавляет кнопку 😀 слева от кнопки микрофона, в правом верхнем
  * углу поля ввода (`.micButtonWrapper_*`); если диктовка отключена
  * и микрофона нет — в футер `.inputFooter_*` рядом с меню `/`.
+ * Расположение выбирается в VSCode Settings UI пунктом
+ * `claudeCode.emojiButtonPlacement` (mic | footer): значение приходит
+ * в конфиг bootstrap, а смена подхватывается на лету опросом
+ * http-server.py, без Reload Window.
  * По клику открывается панель: строка поиска, табы категорий,
  * сетка смайликов и блок «Недавние» (localStorage). Выбранный
  * смайлик вставляется в позицию каретки composer'а; сообщение при
@@ -3766,7 +3770,8 @@
  * MutationObserver'ом + подстраховочным таймером (как в SESSION MOVER).
  *
  * Управление: `emojiPicker` и `emojiRecentLimit` в
- * .claude/patches/claude-custom-config.toml.
+ * .claude/patches/claude-custom-config.toml, расположение кнопки —
+ * `claudeCode.emojiButtonPlacement` в настройках VSCode.
  * ============================================================ */
 (function () {
   if (window.__claudeEmojiPickerInstalled) return;
@@ -3786,6 +3791,16 @@
   var BTN_CLASS = 'claude-emoji-btn';
   var PANEL_ID = 'claude-emoji-panel';
   var SCAN_INTERVAL_MS = 3000;
+
+  // Расположение кнопки: 'mic' | 'footer'. Значение приходит из
+  // VSCode Settings UI (claudeCode.emojiButtonPlacement) — хук
+  // patch-claude-webview.py кладёт его в конфиг bootstrap. Но
+  // bootstrap перечитывается только при Reload Window, поэтому
+  // текущее значение дополнительно опрашивается у http-server.py:
+  // так смена настройки применяется почти сразу, как и правки CSS.
+  var PLACEMENT_URL = 'http://localhost:18923/vscode-settings';
+  var PLACEMENT_POLL_MS = 5000;
+  var placement = cfg.emojiButtonPlacement === 'footer' ? 'footer' : 'mic';
 
   var panel = null;          // корневой элемент панели (или null)
   var anchorBtn = null;      // кнопка 😀, относительно которой открыта панель
@@ -4316,7 +4331,10 @@
       // поэтому одной проверки хватает на оба варианта размещения.
       if (container.querySelector('.' + BTN_CLASS)) continue;
       if (!container.querySelector('[role="textbox"][contenteditable]')) continue;
-      if (!mountNearMic(container)) mountInFooter(container);
+      // При 'mic' футер остаётся запасным вариантом: микрофона нет,
+      // когда выключена диктовка (speechToTextEnabled).
+      if (placement === 'footer') mountInFooter(container);
+      else if (!mountNearMic(container)) mountInFooter(container);
     }
     // Панель без своей кнопки (React перерисовал поле ввода) —
     // закрываем, чтобы не висела оторванной от анкера.
@@ -4325,11 +4343,50 @@
     }
   }
 
+  /** Снимает кнопку и следы её размещения — перед переносом. */
+  function unmountButtons() {
+    var buttons = document.querySelectorAll('.' + BTN_CLASS);
+    for (var i = 0; i < buttons.length; i++) {
+      var host = buttons[i].parentNode;
+      buttons[i].remove();
+      // Класс на контейнере микрофона нужен только пока кнопка в нём.
+      if (host && host.classList) host.classList.remove('claude-emoji-mic-host');
+    }
+    var marked = document.querySelectorAll('.claude-emoji-inline');
+    for (var j = 0; j < marked.length; j++) {
+      marked[j].classList.remove('claude-emoji-inline');
+    }
+  }
+
+  /**
+   * Опрашивает http-server.py на предмет смены
+   * claudeCode.emojiButtonPlacement в VSCode Settings UI.
+   * Сервер может быть не запущен — тогда молча остаёмся на значении
+   * из bootstrap.
+   */
+  function pollPlacement() {
+    fetch(PLACEMENT_URL, { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        var next = data.emojiButtonPlacement === 'footer' ? 'footer' : 'mic';
+        if (next === placement) return;
+        logInfo('расположение кнопки сменилось:', placement, '→', next);
+        placement = next;
+        if (panel) closePanel(false);
+        unmountButtons();
+        scanInputs();
+      })
+      .catch(function () {});
+  }
+
   function init() {
     scanInputs();
     new MutationObserver(function () { scanInputs(); })
       .observe(document.body, { childList: true, subtree: true });
     setInterval(scanInputs, SCAN_INTERVAL_MS);
+    pollPlacement();
+    setInterval(pollPlacement, PLACEMENT_POLL_MS);
     // Каретку запоминаем всегда, а не только при открытой панели:
     // к моменту клика по 😀 фокус уже может быть в другом месте.
     document.addEventListener('selectionchange', rememberCaret);
