@@ -4010,13 +4010,19 @@
     setPreview(renderedItems[index]);
   }
 
-  /** Сколько ячеек помещается в строку — для навигации стрелками. */
+  /** Сколько ячеек помещается в строку — для навигации стрелками.
+   * Считаем по фактическому переносу (offsetTop), а не делением
+   * ширин: с учётом gap деление даёт погрешность в одну колонку. */
   function columnCount() {
-    var cell = gridEl.querySelector('.claude-emoji-cell');
-    if (!cell) return 1;
-    var width = cell.offsetWidth;
-    if (!width) return 1;
-    return Math.max(1, Math.floor(gridEl.clientWidth / width));
+    var cells = gridEl.querySelectorAll('.claude-emoji-cell');
+    if (!cells.length) return 1;
+    var firstTop = cells[0].offsetTop;
+    var count = 0;
+    for (var i = 0; i < cells.length; i++) {
+      if (cells[i].offsetTop !== firstTop) break;
+      count++;
+    }
+    return Math.max(1, count);
   }
 
   function buildPanel() {
