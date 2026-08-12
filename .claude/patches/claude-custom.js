@@ -3742,7 +3742,9 @@
  * EMOJI PICKER — кнопка 😀 в футере поля ввода чата
  * ============================================================
  *
- * Добавляет кнопку 😀 в `.inputFooter_*` рядом с кнопкой меню `/`.
+ * Добавляет кнопку 😀 слева от кнопки микрофона, в правом верхнем
+ * углу поля ввода (`.micButtonWrapper_*`); если диктовка отключена
+ * и микрофона нет — в футер `.inputFooter_*` рядом с меню `/`.
  * По клику открывается панель: строка поиска, табы категорий,
  * сетка смайликов и блок «Недавние» (localStorage). Выбранный
  * смайлик вставляется в позицию каретки composer'а; сообщение при
@@ -3760,7 +3762,7 @@
  *     selectionchange — на случай, когда фокус всё же ушёл
  *     (например, в поле поиска панели).
  *
- * React перерисовывает футер, поэтому кнопка переустанавливается
+ * React перерисовывает поле ввода, поэтому кнопка переустанавливается
  * MutationObserver'ом + подстраховочным таймером (как в SESSION MOVER).
  *
  * Управление: `emojiPicker` и `emojiRecentLimit` в
@@ -4217,21 +4219,39 @@
     }
   }
 
-  /* ---------- кнопка в футере ---------- */
+  /* ---------- кнопка рядом с микрофоном ----------
+   *
+   * Основное место — `[class*="micButtonWrapper_"]`: absolute-контейнер
+   * в правом верхнем углу поля ввода (top:5px; right:0), где живёт
+   * кнопка диктовки. Кнопка 😀 встаёт слева от микрофона, для чего
+   * wrapper переводится в flex классом `claude-emoji-mic-host`
+   * (по умолчанию элементы внутри блочные и встали бы друг под друга).
+   *
+   * Микрофон рендерится только при `speechToTextEnabled`, поэтому
+   * остаётся запасное место — футер `[class*="inputFooter_"]` рядом
+   * с кнопкой меню `/`.
+   */
 
-  function createButton(footer) {
+  function createButton(host) {
     var btn = document.createElement('button');
-    btn.type = 'button'; // важно: футер внутри <form>, submit нам не нужен
+    btn.type = 'button'; // важно: поле ввода внутри <form>, submit нам не нужен
     btn.className = BTN_CLASS;
     btn.title = 'Вставить смайлик';
     btn.setAttribute('aria-label', 'Вставить смайлик');
     btn.textContent = '😀';
-    // Наследуем нативные классы соседней кнопки меню `/` — так наша
-    // кнопка получает те же размеры и hover, что и штатные, без
-    // привязки к хэшу в имени класса.
-    var sibling = footer.querySelector('button[class*="menuButton_"]');
+    // Наследуем нативные классы соседней кнопки — так наша получает те
+    // же размеры, радиус и hover, что и штатные, без привязки к хэшу
+    // в имени класса.
+    var sibling = host.querySelector('button[class*="micButton_"]') ||
+      host.querySelector('button[class*="menuButton_"]');
     if (sibling && sibling.className) {
-      btn.className = sibling.className + ' ' + BTN_CLASS;
+      // У микрофона класс состояния `recording_*` появляется во время
+      // записи — забирать его себе нельзя.
+      var inherited = sibling.className.split(/\s+/).filter(function (c) {
+        return c && c.indexOf('recording') !== 0;
+      });
+      inherited.push(BTN_CLASS);
+      btn.className = inherited.join(' ');
     }
     btn.addEventListener('mousedown', function (e) {
       // Не отдаём фокус кнопке: каретка должна остаться в composer'е.
@@ -4247,34 +4267,63 @@
     return btn;
   }
 
-  function scanFooters() {
-    var footers = document.querySelectorAll('[class*="inputFooter_"]');
-    for (var i = 0; i < footers.length; i++) {
-      var footer = footers[i];
-      if (footer.querySelector('.' + BTN_CLASS)) continue;
-      var btn = createButton(footer);
-      var menuBtn = footer.querySelector('button[class*="menuButton_"]');
-      if (menuBtn && menuBtn.parentNode === footer) {
-        footer.insertBefore(btn, menuBtn.nextSibling);
-      } else {
-        var spacer = footer.querySelector('[class*="spacer_"]');
-        if (spacer && spacer.parentNode === footer) footer.insertBefore(btn, spacer);
-        else footer.appendChild(btn);
-      }
-      logInfo('кнопка встроена в футер');
+  /** Вставка в контейнер микрофона. Возвращает true, если удалось. */
+  function mountNearMic(container) {
+    var wrapper = container.querySelector('[class*="micButtonWrapper_"]');
+    if (!wrapper) return false;
+    var micBtn = wrapper.querySelector('button[class*="micButton_"]');
+    if (!micBtn) return false;
+    var btn = createButton(wrapper);
+    wrapper.classList.add('claude-emoji-mic-host');
+    wrapper.insertBefore(btn, micBtn);
+    // Полю ввода нужен правый отступ под вторую иконку, иначе текст
+    // уезжает под неё. Ставим маркер на контейнер, а не правим
+    // `messageInput_*` глобально: без нашей кнопки отступ не нужен.
+    var inputWrap = micBtn.closest('[class*="messageInputContainer_"]') || wrapper.parentNode;
+    if (inputWrap && inputWrap.classList) inputWrap.classList.add('claude-emoji-inline');
+    logInfo('кнопка встроена рядом с микрофоном');
+    return true;
+  }
+
+  /** Запасная вставка в футер, рядом с кнопкой меню `/`. */
+  function mountInFooter(container) {
+    var footer = container.querySelector('[class*="inputFooter_"]');
+    if (!footer) return false;
+    var btn = createButton(footer);
+    var menuBtn = footer.querySelector('button[class*="menuButton_"]');
+    if (menuBtn && menuBtn.parentNode === footer) {
+      footer.insertBefore(btn, menuBtn.nextSibling);
+    } else {
+      var spacer = footer.querySelector('[class*="spacer_"]');
+      if (spacer && spacer.parentNode === footer) footer.insertBefore(btn, spacer);
+      else footer.appendChild(btn);
     }
-    // Панель без своей кнопки (футер перерисован) — закрываем, чтобы
-    // не висела оторванной от анкера.
+    logInfo('кнопка встроена в футер (микрофон недоступен)');
+    return true;
+  }
+
+  function scanInputs() {
+    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+    for (var i = 0; i < containers.length; i++) {
+      var container = containers[i];
+      // Футер и поле ввода лежат в одном fieldset.inputContainer_*,
+      // поэтому одной проверки хватает на оба варианта размещения.
+      if (container.querySelector('.' + BTN_CLASS)) continue;
+      if (!container.querySelector('[role="textbox"][contenteditable]')) continue;
+      if (!mountNearMic(container)) mountInFooter(container);
+    }
+    // Панель без своей кнопки (React перерисовал поле ввода) —
+    // закрываем, чтобы не висела оторванной от анкера.
     if (panel && anchorBtn && !document.body.contains(anchorBtn)) {
       closePanel(false);
     }
   }
 
   function init() {
-    scanFooters();
-    new MutationObserver(function () { scanFooters(); })
+    scanInputs();
+    new MutationObserver(function () { scanInputs(); })
       .observe(document.body, { childList: true, subtree: true });
-    setInterval(scanFooters, SCAN_INTERVAL_MS);
+    setInterval(scanInputs, SCAN_INTERVAL_MS);
     // Каретку запоминаем всегда, а не только при открытой панели:
     // к моменту клика по 😀 фокус уже может быть в другом месте.
     document.addEventListener('selectionchange', rememberCaret);
