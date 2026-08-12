@@ -35,6 +35,21 @@ import tomllib
 HOME = os.path.expanduser("~")
 EXT_GLOB = os.path.join(HOME, ".vscode/extensions/anthropic.claude-code-*-linux-x64")
 
+# Индекс установленных расширений. VSCode кэширует разобранные манифесты
+# и считает кэш валидным, пока не изменился mtime ЭТОГО файла — правка
+# package.json внутри каталога расширения его не инвалидирует. Поэтому
+# после патча манифеста файл нужно «тронуть», иначе Settings UI будет
+# показывать старый набор настроек даже после Reload Window.
+EXTENSIONS_INDEX = os.path.join(HOME, ".vscode/extensions/extensions.json")
+
+# Кэш разобранных манифестов (по профилю VSCode).
+CACHE_GLOBS = [
+    os.path.join(HOME, ".config/Code/CachedProfilesData/*/extensions.user.cache"),
+    os.path.join(
+        HOME, ".config/Code - Insiders/CachedProfilesData/*/extensions.user.cache"
+    ),
+]
+
 PROJECT_DIR = os.environ.get("CLAUDE_PROJECT_DIR")
 if not PROJECT_DIR:
     PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -191,6 +206,39 @@ def _read_ext_version(ext_dir: str) -> str:
         return ""
 
 
+def _cache_is_stale() -> bool:
+    """Есть ли кэш манифестов, в котором нашего пункта ещё нет.
+
+    Читаем как текст: структура кэша — внутреннее дело VSCode, а нам
+    достаточно факта присутствия ключа. Если кэшей нет вообще (первый
+    запуск, другой профиль) — считаем, что всё в порядке: VSCode
+    построит кэш сам и прочитает актуальный манифест.
+    """
+    for pattern in CACHE_GLOBS:
+        for path in glob.glob(pattern):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    if SETTING_KEY not in f.read():
+                        return True
+            except OSError:
+                continue
+    return False
+
+
+def _invalidate_cache() -> bool:
+    """Обновляет mtime extensions.json, чтобы VSCode пересобрал кэш
+    манифестов при следующем старте окна. Содержимое не трогаем —
+    файл принадлежит VSCode.
+    """
+    if not os.path.isfile(EXTENSIONS_INDEX):
+        return False
+    try:
+        os.utime(EXTENSIONS_INDEX, None)
+        return True
+    except OSError:
+        return False
+
+
 def _emit_context(lines: list[str]) -> None:
     if not lines:
         return
@@ -242,6 +290,19 @@ def main() -> int:
 
     if marker_changed:
         _save_marker(marker)
+
+    # Манифест может быть уже пропатчен, а Settings UI всё равно
+    # показывать старый набор настроек — VSCode держит разобранные
+    # манифесты в кэше и не перечитывает их, пока не изменится mtime
+    # extensions.json. Проверяем кэш и при рассинхроне инвалидируем.
+    if _cache_is_stale() and _invalidate_cache():
+        messages.append(
+            "[ext-settings WARNING] Кэш манифестов VSCode ещё не знает про "
+            f"`{SETTING_KEY}` — Settings UI показывал бы старый список. "
+            "Кэш инвалидирован (обновлён mtime extensions.json), нужен "
+            "`Developer: Reload Window`, чтобы VSCode пересканировал расширения."
+        )
+
     _emit_context(messages)
     return 0
 
