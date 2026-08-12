@@ -3069,3 +3069,1221 @@
     init();
   }
 })();
+
+/* ============================================================
+ * EMOJI CATALOG — данные смайликов для picker'а и автозамены
+ * ============================================================
+ *
+ * Компактный формат хранения: одна строка на категорию, элементы
+ * разделены `|`, внутри элемента поля разделены пробелом:
+ *
+ *     <символ> <shortcode> <ключевое слово> <ключевое слово> ...
+ *
+ * Первое поле — сам эмодзи, второе — латинский shortcode (по нему
+ * работает автозамена вида `:rocket:`), остальные — ключевые слова
+ * для поиска (русские и английские). Все поля участвуют в поиске.
+ *
+ * Каталог регистрируется в `window.__claudeEmojiCatalog` независимо
+ * от флагов конфига: им пользуются и EMOJI PICKER, и EMOJI AUTOREPLACE,
+ * каждый из которых включается своим параметром.
+ * ============================================================ */
+(function () {
+  if (window.__claudeEmojiCatalog) return;
+
+  var RAW = [
+    { id: 'smileys', name: 'Смайлы', icon: '😀', data:
+      '😀 grinning улыбка радость smile happy|' +
+      '😃 smiley улыбка радость open|' +
+      '😄 laughing смех радость joy|' +
+      '😁 beaming ухмылка зубы grin|' +
+      '😆 grin_squint смех хохот laugh|' +
+      '😅 sweat_smile нервный смех пот|' +
+      '🤣 rofl хохот смех rolling|' +
+      '😂 joy слёзы смех плачу tears|' +
+      '🙂 slight_smile улыбка лёгкая|' +
+      '🙃 upside_down перевёрнутый ирония|' +
+      '😉 wink подмигивание флирт|' +
+      '😊 blush смущение улыбка|' +
+      '😇 innocent ангел нимб|' +
+      '🥰 smiling_hearts влюблён сердечки love|' +
+      '😍 heart_eyes влюблён восторг love|' +
+      '🤩 star_struck звёзды восторг wow|' +
+      '😘 kiss поцелуй воздушный|' +
+      '😗 kissing поцелуй губы|' +
+      '🥲 smile_tear улыбка слеза|' +
+      '😋 yum вкусно язык tasty|' +
+      '😛 tongue язык дразнить|' +
+      '😜 winky_tongue язык подмигивание|' +
+      '🤪 zany безумие дурачусь crazy|' +
+      '😝 squint_tongue язык зажмурился|' +
+      '🤑 money_mouth деньги доллар богатство|' +
+      '🤗 hug обнимаю объятия hugs|' +
+      '🤭 hand_over_mouth ой упс oops|' +
+      '🤫 shush тише секрет quiet|' +
+      '🤔 thinking думаю размышляю hmm|' +
+      '🤐 zipper молчу рот закрыт|' +
+      '🤨 raised_eyebrow бровь скепсис|' +
+      '😐 neutral нейтрально безразлично|' +
+      '😑 expressionless без эмоций|' +
+      '😶 no_mouth без рта молчание|' +
+      '😏 smirk ухмылка хитрость|' +
+      '😒 unamused недовольство скука|' +
+      '🙄 roll_eyes закатываю глаза|' +
+      '😬 grimace неловко гримаса|' +
+      '🤥 lying врёт нос ложь|' +
+      '😌 relieved облегчение спокойствие|' +
+      '😔 pensive грусть печаль sad|' +
+      '😪 sleepy сонный устал|' +
+      '🤤 drooling слюни|' +
+      '😴 sleeping сплю сон zzz|' +
+      '😷 mask маска болезнь|' +
+      '🤒 thermometer температура болен|' +
+      '🤕 head_bandage травма бинт|' +
+      '🤢 nauseated тошнит|' +
+      '🤮 vomiting рвота|' +
+      '🤧 sneezing чихаю|' +
+      '🥵 hot_face жарко жара|' +
+      '🥶 cold_face холодно мороз|' +
+      '🥴 woozy пьяный головокружение|' +
+      '😵 dizzy_face без сознания|' +
+      '🤯 exploding_head взрыв мозга шок|' +
+      '🤠 cowboy ковбой шляпа|' +
+      '🥳 partying праздник вечеринка party|' +
+      '😎 sunglasses крутой очки cool|' +
+      '🤓 nerd ботаник очки|' +
+      '🧐 monocle монокль изучаю|' +
+      '😕 confused растерянность|' +
+      '😟 worried беспокойство|' +
+      '🙁 slight_frown грусть|' +
+      '😮 open_mouth удивление wow|' +
+      '😯 hushed удивление|' +
+      '😲 astonished шок изумление|' +
+      '😳 flushed смущение краснею|' +
+      '🥺 pleading умоляю прошу|' +
+      '😦 frowning хмурюсь|' +
+      '😨 fearful страх испуг|' +
+      '😰 anxious тревога пот|' +
+      '😢 cry плачу слеза sad|' +
+      '😭 sob рыдаю плач|' +
+      '😱 scream крик ужас|' +
+      '😖 confounded мучение|' +
+      '😣 persevere терплю|' +
+      '😞 disappointed разочарование|' +
+      '😩 weary устал|' +
+      '😫 tired измотан|' +
+      '🥱 yawning зевота скука|' +
+      '😤 triumph злость пар|' +
+      '😡 rage ярость злой angry|' +
+      '😠 angry злой сердитый|' +
+      '🤬 cursing ругань мат|' +
+      '😈 smiling_imp чертёнок озорство|' +
+      '👿 imp чёрт злой|' +
+      '💀 skull череп смерть dead|' +
+      '💩 poop какашка|' +
+      '🤡 clown клоун|' +
+      '👻 ghost привидение|' +
+      '👽 alien пришелец|' +
+      '🤖 robot робот бот|' +
+      '😺 smiley_cat кот улыбка|' +
+      '😻 heart_eyes_cat кот влюблён'
+    },
+    { id: 'gestures', name: 'Жесты', icon: '👍', data:
+      '👍 thumbsup лайк класс отлично like|' +
+      '👎 thumbsdown дизлайк плохо|' +
+      '👌 ok_hand окей отлично|' +
+      '🤌 pinched щепотка|' +
+      '✌️ victory виктория мир|' +
+      '🤞 crossed_fingers удача скрещенные|' +
+      '🤟 love_you люблю жест|' +
+      '🤘 horns рок коза|' +
+      '🤙 call_me звони|' +
+      '👈 point_left влево|' +
+      '👉 point_right вправо|' +
+      '👆 point_up вверх|' +
+      '👇 point_down вниз|' +
+      '☝️ index_up вверх один|' +
+      '✋ raised_hand ладонь стоп|' +
+      '🤚 back_hand ладонь|' +
+      '🖐️ hand_splayed ладонь пальцы|' +
+      '🖖 vulcan вулкан спок|' +
+      '👋 wave привет пока hello|' +
+      '🤝 handshake рукопожатие договор deal|' +
+      '🙏 pray спасибо молитва пожалуйста thanks|' +
+      '✍️ writing пишу рука|' +
+      '💪 muscle сила бицепс мощь|' +
+      '🦾 mechanical_arm протез сила|' +
+      '👏 clap аплодисменты браво|' +
+      '🙌 raising_hands ура руки победа|' +
+      '👐 open_hands ладони|' +
+      '🤲 palms_up прошу|' +
+      '🫶 heart_hands сердечко руками|' +
+      '🤦 facepalm рукалицо фейспалм|' +
+      '🤷 shrug пожимаю плечами не знаю|' +
+      '🙋 raising_hand поднял руку вопрос|' +
+      '🙆 ok_person окей жест|' +
+      '🙅 no_good нельзя нет|' +
+      '💁 tipping_hand информация|' +
+      '🫡 salute отдаю честь|' +
+      '🧑‍💻 technologist программист разработчик coder|' +
+      '👨‍💻 man_technologist программист разработчик|' +
+      '👩‍💻 woman_technologist программистка разработчица|' +
+      '🕵️ detective детектив расследование|' +
+      '👀 eyes глаза смотрю внимание look|' +
+      '👁️ eye глаз|' +
+      '🧠 brain мозг ум'
+    },
+    { id: 'nature', name: 'Природа', icon: '🌿', data:
+      '🐶 dog собака пёс|' +
+      '🐱 cat кот кошка|' +
+      '🐭 mouse мышь|' +
+      '🐹 hamster хомяк|' +
+      '🐰 rabbit кролик заяц|' +
+      '🦊 fox лиса|' +
+      '🐻 bear медведь|' +
+      '🐼 panda панда|' +
+      '🐨 koala коала|' +
+      '🐯 tiger тигр|' +
+      '🦁 lion лев|' +
+      '🐮 cow корова|' +
+      '🐷 pig свинья|' +
+      '🐸 frog лягушка|' +
+      '🐵 monkey обезьяна|' +
+      '🙈 see_no_evil обезьяна не вижу|' +
+      '🙉 hear_no_evil обезьяна не слышу|' +
+      '🙊 speak_no_evil обезьяна молчу|' +
+      '🐔 chicken курица|' +
+      '🐧 penguin пингвин|' +
+      '🐦 bird птица|' +
+      '🦆 duck утка|' +
+      '🦉 owl сова|' +
+      '🐺 wolf волк|' +
+      '🐴 horse лошадь|' +
+      '🦄 unicorn единорог|' +
+      '🐝 bee пчела|' +
+      '🐛 caterpillar гусеница червяк|' +
+      '🦋 butterfly бабочка|' +
+      '🐌 snail улитка|' +
+      '🐞 lady_beetle божья коровка|' +
+      '🐜 ant муравей|' +
+      '🕷️ spider паук|' +
+      '🐢 turtle черепаха|' +
+      '🐍 snake змея питон python|' +
+      '🦎 lizard ящерица|' +
+      '🐙 octopus осьминог|' +
+      '🦐 shrimp креветка|' +
+      '🐬 dolphin дельфин|' +
+      '🐳 whale кит|' +
+      '🐟 fish рыба|' +
+      '🦈 shark акула|' +
+      '🐊 crocodile крокодил|' +
+      '🐘 elephant слон|' +
+      '🦒 giraffe жираф|' +
+      '🌵 cactus кактус|' +
+      '🌲 evergreen ёлка дерево|' +
+      '🌳 tree дерево|' +
+      '🌴 palm пальма|' +
+      '🌱 seedling росток|' +
+      '🌿 herb трава зелень|' +
+      '🍀 clover клевер удача|' +
+      '🍁 maple_leaf лист клён|' +
+      '🍂 fallen_leaves листья осень|' +
+      '🌷 tulip тюльпан|' +
+      '🌹 rose роза|' +
+      '🌺 hibiscus цветок|' +
+      '🌻 sunflower подсолнух|' +
+      '💐 bouquet букет|' +
+      '🌸 cherry_blossom сакура цветение|' +
+      '☀️ sunny солнце ясно|' +
+      '🌤️ sun_small_cloud солнце облака|' +
+      '⛅ partly_cloudy облачно|' +
+      '☁️ cloud облако|' +
+      '🌧️ rain дождь|' +
+      '⛈️ thunderstorm гроза|' +
+      '❄️ snowflake снежинка снег|' +
+      '⛄ snowman снеговик|' +
+      '🔥 fire огонь пожар горит|' +
+      '💧 droplet капля вода|' +
+      '🌊 ocean волна море|' +
+      '🌈 rainbow радуга|' +
+      '⭐ star звезда|' +
+      '🌟 glowing_star звезда сияние|' +
+      '✨ sparkles искры блеск магия|' +
+      '⚡ zap молния энергия быстро|' +
+      '🌙 crescent_moon луна ночь|' +
+      '🌍 earth земля планета мир|' +
+      '🪐 planet планета сатурн'
+    },
+    { id: 'food', name: 'Еда', icon: '🍎', data:
+      '🍎 apple яблоко|' +
+      '🍐 pear груша|' +
+      '🍊 tangerine мандарин апельсин|' +
+      '🍋 lemon лимон|' +
+      '🍌 banana банан|' +
+      '🍉 watermelon арбуз|' +
+      '🍇 grapes виноград|' +
+      '🍓 strawberry клубника|' +
+      '🫐 blueberries черника|' +
+      '🍒 cherries вишня черешня|' +
+      '🍑 peach персик|' +
+      '🥭 mango манго|' +
+      '🍍 pineapple ананас|' +
+      '🥥 coconut кокос|' +
+      '🥝 kiwi киви|' +
+      '🍅 tomato помидор|' +
+      '🥑 avocado авокадо|' +
+      '🍆 eggplant баклажан|' +
+      '🥔 potato картошка|' +
+      '🥕 carrot морковь|' +
+      '🌽 corn кукуруза|' +
+      '🌶️ hot_pepper перец острый|' +
+      '🥒 cucumber огурец|' +
+      '🥬 leafy_green салат|' +
+      '🥦 broccoli брокколи|' +
+      '🧄 garlic чеснок|' +
+      '🧅 onion лук|' +
+      '🍄 mushroom гриб|' +
+      '🥜 peanuts арахис орехи|' +
+      '🍞 bread хлеб|' +
+      '🥐 croissant круассан|' +
+      '🥖 baguette багет|' +
+      '🥨 pretzel крендель|' +
+      '🧀 cheese сыр|' +
+      '🥚 egg яйцо|' +
+      '🍳 cooking яичница готовка|' +
+      '🥞 pancakes блины|' +
+      '🧇 waffle вафля|' +
+      '🥓 bacon бекон|' +
+      '🍔 hamburger бургер|' +
+      '🍟 fries картошка фри|' +
+      '🍕 pizza пицца|' +
+      '🌭 hotdog хотдог|' +
+      '🥪 sandwich сэндвич|' +
+      '🌮 taco тако|' +
+      '🌯 burrito буррито|' +
+      '🥗 salad салат|' +
+      '🍝 spaghetti паста макароны|' +
+      '🍜 ramen рамен лапша|' +
+      '🍲 stew суп|' +
+      '🍣 sushi суши|' +
+      '🍤 fried_shrimp креветка|' +
+      '🍚 rice рис|' +
+      '🍦 ice_cream мороженое|' +
+      '🍩 doughnut пончик|' +
+      '🍪 cookie печенье|' +
+      '🎂 birthday торт день рождения|' +
+      '🍰 cake пирожное торт|' +
+      '🍫 chocolate шоколад|' +
+      '🍬 candy конфета|' +
+      '🍭 lollipop леденец|' +
+      '🍯 honey мёд|' +
+      '🥛 milk молоко|' +
+      '☕ coffee кофе|' +
+      '🍵 tea чай|' +
+      '🧃 juice сок|' +
+      '🥤 cup_straw напиток|' +
+      '🍺 beer пиво|' +
+      '🍻 beers пиво тост|' +
+      '🍷 wine вино|' +
+      '🥂 champagne шампанское тост|' +
+      '🍾 bottle_pop шампанское праздник|' +
+      '🥃 whisky виски|' +
+      '🧊 ice лёд'
+    },
+    { id: 'activity', name: 'Активность', icon: '⚽', data:
+      '⚽ soccer футбол мяч|' +
+      '🏀 basketball баскетбол|' +
+      '🏈 football американский футбол|' +
+      '⚾ baseball бейсбол|' +
+      '🎾 tennis теннис|' +
+      '🏐 volleyball волейбол|' +
+      '🎱 pool бильярд|' +
+      '🏓 ping_pong пинг понг|' +
+      '🏸 badminton бадминтон|' +
+      '🥊 boxing бокс|' +
+      '🥋 martial_arts кимоно|' +
+      '⛳ golf гольф|' +
+      '🏹 bow_arrow лук стрела|' +
+      '🎣 fishing рыбалка|' +
+      '🏂 snowboard сноуборд|' +
+      '⛷️ ski лыжи|' +
+      '🏄 surfing сёрфинг|' +
+      '🏊 swimming плавание|' +
+      '🚴 cycling велосипед|' +
+      '🏃 running бег|' +
+      '🧗 climbing скалолазание|' +
+      '🏆 trophy кубок победа|' +
+      '🥇 gold_medal медаль первое место|' +
+      '🥈 silver_medal медаль второе|' +
+      '🥉 bronze_medal медаль третье|' +
+      '🎖️ medal награда|' +
+      '🎯 dart цель дартс точно|' +
+      '🎮 video_game игра геймпад|' +
+      '🕹️ joystick джойстик|' +
+      '🎲 dice кубик игра|' +
+      '🧩 puzzle пазл головоломка|' +
+      '🎨 art искусство палитра|' +
+      '🎭 performing театр маски|' +
+      '🎤 microphone микрофон караоке|' +
+      '🎧 headphones наушники музыка|' +
+      '🎵 note нота музыка|' +
+      '🎶 notes музыка ноты|' +
+      '🎸 guitar гитара|' +
+      '🎹 piano пианино|' +
+      '🥁 drum барабан|' +
+      '🎺 trumpet труба|' +
+      '🎻 violin скрипка|' +
+      '🎬 clapper кино хлопушка|' +
+      '🎉 tada праздник ура поздравляю party|' +
+      '🎊 confetti конфетти праздник|' +
+      '🎈 balloon шарик|' +
+      '🎁 gift подарок|' +
+      '🎃 jack_o_lantern тыква хэллоуин|' +
+      '🎄 christmas_tree ёлка новый год'
+    },
+    { id: 'travel', name: 'Транспорт', icon: '🚗', data:
+      '🚗 car машина авто|' +
+      '🚕 taxi такси|' +
+      '🚙 suv внедорожник|' +
+      '🚌 bus автобус|' +
+      '🏎️ racing_car гонка болид|' +
+      '🚓 police_car полиция|' +
+      '🚑 ambulance скорая|' +
+      '🚒 fire_engine пожарная|' +
+      '🚚 truck грузовик|' +
+      '🚜 tractor трактор|' +
+      '🛴 scooter самокат|' +
+      '🚲 bike велосипед|' +
+      '🏍️ motorcycle мотоцикл|' +
+      '✈️ airplane самолёт полёт|' +
+      '🚀 rocket ракета запуск релиз|' +
+      '🛸 ufo нло|' +
+      '🚁 helicopter вертолёт|' +
+      '⛵ sailboat парусник|' +
+      '🚤 speedboat катер|' +
+      '🛳️ ship корабль|' +
+      '🚂 locomotive поезд паровоз|' +
+      '🚆 train электричка|' +
+      '🚇 metro метро|' +
+      '🗺️ map карта|' +
+      '🧭 compass компас|' +
+      '🏔️ mountain гора|' +
+      '🌋 volcano вулкан|' +
+      '🏕️ camping кемпинг палатка|' +
+      '🏖️ beach пляж|' +
+      '🏝️ island остров|' +
+      '🏠 house дом|' +
+      '🏡 house_garden дом сад|' +
+      '🏢 office офис здание|' +
+      '🏥 hospital больница|' +
+      '🏦 bank банк|' +
+      '🏨 hotel отель|' +
+      '🏫 school школа|' +
+      '🗼 tower башня|' +
+      '🏰 castle замок|' +
+      '🌃 night_city ночь город|' +
+      '🌉 bridge мост|' +
+      '🎡 ferris_wheel колесо обозрения'
+    },
+    { id: 'objects', name: 'Объекты', icon: '💻', data:
+      '💻 laptop ноутбук компьютер computer|' +
+      '🖥️ desktop монитор компьютер|' +
+      '⌨️ keyboard клавиатура|' +
+      '🖱️ computer_mouse мышь|' +
+      '🖨️ printer принтер|' +
+      '💾 floppy дискета сохранить save|' +
+      '💿 cd диск|' +
+      '🔌 plug розетка питание|' +
+      '🔋 battery батарея заряд|' +
+      '📱 mobile телефон смартфон|' +
+      '☎️ telephone телефон|' +
+      '📞 receiver трубка звонок|' +
+      '📷 camera фото камера|' +
+      '📹 video_camera видеокамера|' +
+      '🎥 movie_camera камера кино|' +
+      '📺 tv телевизор|' +
+      '📻 radio радио|' +
+      '🎙️ studio_mic микрофон подкаст|' +
+      '⏱️ stopwatch секундомер время|' +
+      '⏰ alarm_clock будильник время|' +
+      '⌛ hourglass песочные часы ожидание|' +
+      '🔦 flashlight фонарь|' +
+      '💡 bulb идея лампочка idea|' +
+      '🕯️ candle свеча|' +
+      '🧯 extinguisher огнетушитель|' +
+      '💸 money_wings деньги улетели расход|' +
+      '💵 dollar доллар деньги|' +
+      '💰 moneybag мешок денег|' +
+      '💳 credit_card карта оплата|' +
+      '🧾 receipt чек счёт|' +
+      '⚖️ balance весы баланс|' +
+      '🔧 wrench ключ инструмент фикс fix|' +
+      '🔨 hammer молоток|' +
+      '🛠️ tools инструменты настройка|' +
+      '⚙️ gear шестерня настройки config|' +
+      '🧰 toolbox ящик инструментов|' +
+      '🧲 magnet магнит|' +
+      '🔩 nut_bolt болт гайка|' +
+      '⛓️ chains цепи|' +
+      '🔒 lock замок закрыто secure|' +
+      '🔓 unlock открыто замок|' +
+      '🔑 key ключ|' +
+      '🚪 door дверь|' +
+      '🛏️ bed кровать|' +
+      '🚿 shower душ|' +
+      '🧹 broom метла уборка cleanup|' +
+      '🧼 soap мыло|' +
+      '🪣 bucket ведро|' +
+      '📦 package пакет коробка сборка build|' +
+      '📫 mailbox почта ящик|' +
+      '📧 email почта письмо|' +
+      '📤 outbox исходящие|' +
+      '📥 inbox входящие|' +
+      '📜 scroll свиток документ|' +
+      '📄 page документ файл file|' +
+      '📊 bar_chart график диаграмма статистика|' +
+      '📈 chart_up рост график вверх|' +
+      '📉 chart_down падение график вниз|' +
+      '📋 clipboard буфер планшет|' +
+      '📌 pushpin кнопка закрепить|' +
+      '📍 round_pushpin метка место|' +
+      '📎 paperclip скрепка вложение|' +
+      '📏 ruler линейка|' +
+      '✂️ scissors ножницы вырезать|' +
+      '🗄️ file_cabinet шкаф архив|' +
+      '🗑️ wastebasket корзина удалить delete|' +
+      '📁 folder папка каталог|' +
+      '📂 open_folder папка открыта|' +
+      '📅 calendar календарь дата|' +
+      '📓 notebook блокнот тетрадь|' +
+      '📕 closed_book книга|' +
+      '📖 open_book книга чтение документация docs|' +
+      '📚 books книги библиотека|' +
+      '🔖 bookmark закладка|' +
+      '🏷️ label ярлык тег tag|' +
+      '🔍 mag лупа поиск search|' +
+      '🔬 microscope микроскоп исследование|' +
+      '🔭 telescope телескоп|' +
+      '📡 satellite антенна спутник связь|' +
+      '💊 pill таблетка|' +
+      '🩺 stethoscope стетоскоп|' +
+      '🧪 test_tube пробирка тест test|' +
+      '🧬 dna днк|' +
+      '🩹 bandage пластырь патч patch|' +
+      '✏️ pencil карандаш|' +
+      '🖊️ pen ручка|' +
+      '🖌️ paintbrush кисть|' +
+      '📝 memo заметка написать note'
+    },
+    { id: 'symbols', name: 'Символы', icon: '❤️', data:
+      '❤️ heart сердце любовь красное|' +
+      '🧡 orange_heart сердце оранжевое|' +
+      '💛 yellow_heart сердце жёлтое|' +
+      '💚 green_heart сердце зелёное|' +
+      '💙 blue_heart сердце синее|' +
+      '💜 purple_heart сердце фиолетовое|' +
+      '🖤 black_heart сердце чёрное|' +
+      '🤍 white_heart сердце белое|' +
+      '💔 broken_heart разбитое сердце|' +
+      '💕 two_hearts сердечки|' +
+      '💖 sparkling_heart сердце блеск|' +
+      '💘 heart_arrow стрела амур|' +
+      '💝 heart_ribbon подарок сердце|' +
+      '💯 hundred сто отлично точно|' +
+      '💢 anger злость|' +
+      '💥 boom взрыв бум|' +
+      '💫 dizzy_star звёзды|' +
+      '💦 sweat_drops капли|' +
+      '💨 dash дым скорость|' +
+      '✅ white_check_mark готово выполнено ок done|' +
+      '☑️ ballot_check галочка чек|' +
+      '✔️ check_mark галочка|' +
+      '❌ x ошибка нет крест error fail|' +
+      '⭕ o круг|' +
+      '🚫 no_entry_sign запрет нельзя|' +
+      '⛔ no_entry стоп запрет|' +
+      '❗ exclamation восклицательный важно|' +
+      '❓ question вопрос|' +
+      '‼️ bangbang двойной восклицательный|' +
+      '⚠️ warning внимание предупреждение осторожно|' +
+      '☢️ radioactive радиация|' +
+      '♻️ recycle переработка рефакторинг|' +
+      '🔄 arrows_counterclockwise обновить синхронизация refresh|' +
+      '▶️ play плей воспроизвести|' +
+      '⏸️ pause пауза|' +
+      '⏹️ stop стоп|' +
+      '⏭️ next следующий|' +
+      '⏮️ previous предыдущий|' +
+      '⏩ fast_forward перемотка|' +
+      '🔀 shuffle перемешать|' +
+      '🔁 repeat повтор цикл|' +
+      '⬆️ arrow_up вверх|' +
+      '⬇️ arrow_down вниз|' +
+      '⬅️ arrow_left влево|' +
+      '➡️ arrow_right вправо|' +
+      '↩️ arrow_back назад откат|' +
+      '🔝 top наверх|' +
+      '🆕 new новое|' +
+      '🆗 ok_button окей|' +
+      '🆘 sos помощь|' +
+      '🔔 bell колокольчик уведомление|' +
+      '🔕 no_bell без звука|' +
+      '🔊 loud_sound звук громко|' +
+      '🔇 mute без звука|' +
+      '📢 loudspeaker объявление|' +
+      '💬 speech_balloon сообщение чат комментарий|' +
+      '💭 thought_balloon мысль|' +
+      '♾️ infinity бесконечность|' +
+      '⚛️ atom атом|' +
+      '©️ copyright копирайт|' +
+      '™️ tm торговая марка|' +
+      '🔢 numbers цифры номера|' +
+      '🔤 abc алфавит буквы'
+    },
+    { id: 'dev', name: 'Код', icon: '🚀', data:
+      '🚀 deploy деплой релиз запуск|' +
+      '🐛 bug баг ошибка дефект|' +
+      '✅ done готово выполнено|' +
+      '❌ fail провал ошибка|' +
+      '⚠️ warn предупреждение|' +
+      '🔧 fix фикс починка|' +
+      '🔨 build сборка|' +
+      '📦 release пакет релиз|' +
+      '🧪 tests тесты|' +
+      '🔍 review ревью поиск|' +
+      '💡 idea идея|' +
+      '📝 docs документация заметка|' +
+      '🔥 hotfix горит срочно|' +
+      '🎯 goal цель задача|' +
+      '⏱️ perf производительность|' +
+      '🧹 cleanup рефакторинг уборка|' +
+      '🩹 hotpatch патч заплатка|' +
+      '📈 metrics метрики рост|' +
+      '💻 code код разработка|' +
+      '⚙️ config конфиг настройки|' +
+      '🔒 security безопасность|' +
+      '🗑️ remove удалить|' +
+      '🚧 wip в работе стройка|' +
+      '🤖 automation бот автоматизация|' +
+      '🎉 merged влито готово'
+    }
+  ];
+
+  var categories = [];
+  var byCode = {};
+  var all = [];
+
+  for (var i = 0; i < RAW.length; i++) {
+    var raw = RAW[i];
+    var parts = raw.data.split('|');
+    var items = [];
+    for (var j = 0; j < parts.length; j++) {
+      var fields = parts[j].split(/\s+/).filter(function (s) { return s.length > 0; });
+      if (fields.length < 2) continue;
+      var kw = fields.slice(1).join(' ').toLowerCase();
+      var item = {
+        ch: fields[0],
+        code: fields[1],
+        // Строка для поиска: shortcode + все ключевые слова, нижним
+        // регистром, чтобы search() не приводил регистр на каждый вызов.
+        kw: kw,
+        words: kw.split(' '),
+      };
+      items.push(item);
+      all.push(item);
+      // Первый встреченный shortcode выигрывает — категория `dev`
+      // идёт последней и не перетирает канонические коды.
+      if (!byCode[item.code]) byCode[item.code] = item.ch;
+    }
+    categories.push({ id: raw.id, name: raw.name, icon: raw.icon, items: items });
+  }
+
+  window.__claudeEmojiCatalog = {
+    categories: categories,
+    all: all,
+    byCode: byCode,
+    /**
+     * Поиск по подстроке в shortcode и ключевых словах. Результат
+     * ранжируется четырьмя корзинами, иначе запрос «баг» выдаёт
+     * 🥖 (ба-гет) раньше 🐛:
+     *   1. точное совпадение shortcode;
+     *   2. точное совпадение любого ключевого слова;
+     *   3. совпадение с начала слова;
+     *   4. совпадение в середине слова.
+     */
+    search: function (query) {
+      var q = String(query || '').trim().toLowerCase();
+      if (!q) return [];
+      var byShortcode = [];
+      var byWord = [];
+      var byPrefix = [];
+      var rest = [];
+      for (var k = 0; k < all.length; k++) {
+        var it = all[k];
+        if (it.code === q) { byShortcode.push(it); continue; }
+        var pos = it.kw.indexOf(q);
+        if (pos < 0) continue;
+        if (it.words.indexOf(q) >= 0) byWord.push(it);
+        else if (pos === 0 || it.kw.charAt(pos - 1) === ' ') byPrefix.push(it);
+        else rest.push(it);
+      }
+      // Категория `dev` намеренно дублирует символы из других разделов
+      // (🔧 wrench и 🔧 fix), поэтому в выдаче схлопываем по символу.
+      var seen = {};
+      return byShortcode.concat(byWord, byPrefix, rest).filter(function (it) {
+        if (seen[it.ch]) return false;
+        seen[it.ch] = true;
+        return true;
+      });
+    },
+  };
+})();
+
+/* ============================================================
+ * EMOJI PICKER — кнопка 😀 в футере поля ввода чата
+ * ============================================================
+ *
+ * Добавляет кнопку 😀 в `.inputFooter_*` рядом с кнопкой меню `/`.
+ * По клику открывается панель: строка поиска, табы категорий,
+ * сетка смайликов и блок «Недавние» (localStorage). Выбранный
+ * смайлик вставляется в позицию каретки composer'а; сообщение при
+ * этом НЕ отправляется — панель остаётся открытой, можно вставить
+ * несколько подряд.
+ *
+ * Composer в Claude Code 2.x — `div[contenteditable="plaintext-only"]
+ * [role="textbox"]`, а не textarea, и он React-controlled. Поэтому:
+ *   - вставка идёт через document.execCommand('insertText'), который
+ *     эмитит native input-event с корректным inputType (тот же приём,
+ *     что в triggerSlashCommandViaInput);
+ *   - на mousedown внутри панели вызывается preventDefault, чтобы
+ *     фокус (и выделение) не уходили из composer'а;
+ *   - позиция каретки дополнительно запоминается через
+ *     selectionchange — на случай, когда фокус всё же ушёл
+ *     (например, в поле поиска панели).
+ *
+ * React перерисовывает футер, поэтому кнопка переустанавливается
+ * MutationObserver'ом + подстраховочным таймером (как в SESSION MOVER).
+ *
+ * Управление: `emojiPicker` и `emojiRecentLimit` в
+ * .claude/patches/claude-custom-config.toml.
+ * ============================================================ */
+(function () {
+  if (window.__claudeEmojiPickerInstalled) return;
+  window.__claudeEmojiPickerInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (cfg.emojiPicker !== true) return;
+
+  var catalog = window.__claudeEmojiCatalog;
+  if (!catalog) return;
+
+  var RECENT_LIMIT =
+    typeof cfg.emojiRecentLimit === 'number' && cfg.emojiRecentLimit >= 0
+      ? cfg.emojiRecentLimit
+      : 24;
+  var RECENT_KEY = 'claudeCustomEmojiRecent';
+  var BTN_CLASS = 'claude-emoji-btn';
+  var PANEL_ID = 'claude-emoji-panel';
+  var SCAN_INTERVAL_MS = 3000;
+
+  var panel = null;          // корневой элемент панели (или null)
+  var anchorBtn = null;      // кнопка 😀, относительно которой открыта панель
+  var searchInput = null;
+  var gridEl = null;
+  var previewEl = null;
+  var tabsEl = null;
+  var activeCategory = null; // id категории или '__recent__'
+  var activeIndex = -1;      // индекс подсвеченной ячейки в сетке
+  var renderedItems = [];    // элементы, показанные в сетке сейчас
+  var savedRange = null;     // последняя позиция каретки в composer'е
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[emoji-picker]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  /* ---------- composer и каретка ---------- */
+
+  function getComposer() {
+    return (
+      document.querySelector('[role="textbox"][contenteditable][aria-label*="essage" i]') ||
+      document.querySelector('[role="textbox"][contenteditable]') ||
+      document.querySelector('div[contenteditable]')
+    );
+  }
+
+  /** Запоминает каретку, пока она находится внутри composer'а. */
+  function rememberCaret() {
+    var composer = getComposer();
+    if (!composer) return;
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    var range = sel.getRangeAt(0);
+    if (!composer.contains(range.startContainer)) return;
+    savedRange = range.cloneRange();
+  }
+
+  /** Ставит каретку в composer: сохранённая позиция или конец текста. */
+  function restoreCaret(composer) {
+    var sel = window.getSelection();
+    if (!sel) return;
+    if (savedRange && composer.contains(savedRange.startContainer)) {
+      sel.removeAllRanges();
+      sel.addRange(savedRange);
+      return;
+    }
+    if (sel.rangeCount > 0 && composer.contains(sel.getRangeAt(0).startContainer)) {
+      return; // каретка уже в composer'е — не двигаем
+    }
+    var range = document.createRange();
+    range.selectNodeContents(composer);
+    range.collapse(false); // в конец
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  /**
+   * Вставляет символ в позицию каретки composer'а. Возвращает true,
+   * если вставка удалась.
+   */
+  function insertEmoji(ch) {
+    var composer = getComposer();
+    if (!composer) {
+      logInfo('composer не найден, вставка отменена');
+      return false;
+    }
+    var searchWasFocused = !!searchInput && document.activeElement === searchInput;
+    try {
+      composer.focus();
+      restoreCaret(composer);
+      var inserted = document.execCommand('insertText', false, ch);
+      if (!inserted) {
+        // Fallback: ручная вставка текстового узла + синтетический
+        // InputEvent, чтобы React-обработчик onInput увидел изменение.
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          var range = sel.getRangeAt(0);
+          range.deleteContents();
+          var node = document.createTextNode(ch);
+          range.insertNode(node);
+          range.setStartAfter(node);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } else {
+          composer.textContent = (composer.textContent || '') + ch;
+        }
+        composer.dispatchEvent(new InputEvent('input', {
+          bubbles: true, cancelable: true, inputType: 'insertText', data: ch,
+        }));
+      }
+      rememberCaret();
+      pushRecent(ch);
+      if (searchWasFocused) {
+        // Клик мышью по ячейке при активном поиске: фокус возвращаем
+        // в поле, чтобы можно было продолжить набирать запрос.
+        searchInput.focus();
+      }
+      return true;
+    } catch (e) {
+      logInfo('вставка не удалась:', (e && e.message) || e);
+      return false;
+    }
+  }
+
+  /* ---------- недавние ---------- */
+
+  function loadRecent() {
+    if (RECENT_LIMIT === 0) return [];
+    try {
+      var raw = window.localStorage.getItem(RECENT_KEY);
+      if (!raw) return [];
+      var arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+      return arr.filter(function (s) { return typeof s === 'string' && s; })
+        .slice(0, RECENT_LIMIT);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function pushRecent(ch) {
+    if (RECENT_LIMIT === 0) return;
+    var recent = loadRecent().filter(function (s) { return s !== ch; });
+    recent.unshift(ch);
+    recent = recent.slice(0, RECENT_LIMIT);
+    try {
+      window.localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
+    } catch (e) {}
+    // Если сейчас открыт таб «Недавние» — не перерисовываем сетку
+    // прямо под курсором, иначе ячейки прыгают при серии вставок.
+  }
+
+  /** Находит описание смайлика по символу (для tooltip'а «недавних»). */
+  function findByChar(ch) {
+    for (var i = 0; i < catalog.all.length; i++) {
+      if (catalog.all[i].ch === ch) return catalog.all[i];
+    }
+    return { ch: ch, code: '', kw: '' };
+  }
+
+  /* ---------- панель ---------- */
+
+  function itemTitle(item) {
+    return item.code ? ':' + item.code + ':  ' + item.kw : item.ch;
+  }
+
+  function renderGrid(items) {
+    renderedItems = items;
+    activeIndex = -1;
+    gridEl.textContent = '';
+    if (!items.length) {
+      var empty = document.createElement('div');
+      empty.className = 'claude-emoji-empty';
+      empty.textContent = 'Ничего не найдено';
+      gridEl.appendChild(empty);
+      setPreview(null);
+      return;
+    }
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'claude-emoji-cell';
+      cell.textContent = item.ch;
+      cell.title = itemTitle(item);
+      cell.setAttribute('data-index', String(i));
+      gridEl.appendChild(cell);
+    }
+    setPreview(items[0]);
+  }
+
+  function setPreview(item) {
+    if (!previewEl) return;
+    if (!item) {
+      previewEl.textContent = '';
+      return;
+    }
+    previewEl.textContent = '';
+    var ch = document.createElement('span');
+    ch.className = 'claude-emoji-preview-ch';
+    ch.textContent = item.ch;
+    var name = document.createElement('span');
+    name.className = 'claude-emoji-preview-name';
+    name.textContent = item.code ? ':' + item.code + ':' : '';
+    previewEl.appendChild(ch);
+    previewEl.appendChild(name);
+  }
+
+  function showCategory(id) {
+    activeCategory = id;
+    var tabs = tabsEl.querySelectorAll('.claude-emoji-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      var isActive = tabs[i].getAttribute('data-cat') === id;
+      tabs[i].classList.toggle('claude-emoji-tab-active', isActive);
+    }
+    if (id === '__recent__') {
+      renderGrid(loadRecent().map(findByChar));
+      return;
+    }
+    for (var j = 0; j < catalog.categories.length; j++) {
+      if (catalog.categories[j].id === id) {
+        renderGrid(catalog.categories[j].items);
+        return;
+      }
+    }
+  }
+
+  function setActiveIndex(index) {
+    var cells = gridEl.querySelectorAll('.claude-emoji-cell');
+    if (!cells.length) return;
+    if (index < 0) index = 0;
+    if (index > cells.length - 1) index = cells.length - 1;
+    for (var i = 0; i < cells.length; i++) {
+      cells[i].classList.toggle('claude-emoji-cell-active', i === index);
+    }
+    activeIndex = index;
+    cells[index].scrollIntoView({ block: 'nearest' });
+    setPreview(renderedItems[index]);
+  }
+
+  /** Сколько ячеек помещается в строку — для навигации стрелками. */
+  function columnCount() {
+    var cell = gridEl.querySelector('.claude-emoji-cell');
+    if (!cell) return 1;
+    var width = cell.offsetWidth;
+    if (!width) return 1;
+    return Math.max(1, Math.floor(gridEl.clientWidth / width));
+  }
+
+  function buildPanel() {
+    var root = document.createElement('div');
+    root.id = PANEL_ID;
+    root.className = 'claude-emoji-panel';
+
+    var searchRow = document.createElement('div');
+    searchRow.className = 'claude-emoji-search-row';
+    searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'claude-emoji-search';
+    searchInput.placeholder = 'Поиск: улыбка, rocket, баг…';
+    searchInput.setAttribute('aria-label', 'Поиск смайлика');
+    searchRow.appendChild(searchInput);
+    root.appendChild(searchRow);
+
+    tabsEl = document.createElement('div');
+    tabsEl.className = 'claude-emoji-tabs';
+    var tabDefs = [];
+    if (RECENT_LIMIT > 0) {
+      tabDefs.push({ id: '__recent__', icon: '🕘', name: 'Недавние' });
+    }
+    for (var i = 0; i < catalog.categories.length; i++) {
+      tabDefs.push({
+        id: catalog.categories[i].id,
+        icon: catalog.categories[i].icon,
+        name: catalog.categories[i].name,
+      });
+    }
+    for (var j = 0; j < tabDefs.length; j++) {
+      var tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = 'claude-emoji-tab';
+      tab.textContent = tabDefs[j].icon;
+      tab.title = tabDefs[j].name;
+      tab.setAttribute('data-cat', tabDefs[j].id);
+      tabsEl.appendChild(tab);
+    }
+    root.appendChild(tabsEl);
+
+    gridEl = document.createElement('div');
+    gridEl.className = 'claude-emoji-grid';
+    root.appendChild(gridEl);
+
+    previewEl = document.createElement('div');
+    previewEl.className = 'claude-emoji-preview';
+    root.appendChild(previewEl);
+
+    // Фокус не должен уходить из composer'а при кликах по панели —
+    // иначе теряется выделение и вставка уедет не туда. Исключение —
+    // поле поиска, которому фокус как раз нужен.
+    root.addEventListener('mousedown', function (e) {
+      if (e.target === searchInput) return;
+      e.preventDefault();
+    });
+
+    root.addEventListener('click', function (e) {
+      var tabBtn = e.target.closest && e.target.closest('.claude-emoji-tab');
+      if (tabBtn) {
+        searchInput.value = '';
+        showCategory(tabBtn.getAttribute('data-cat'));
+        return;
+      }
+      var cell = e.target.closest && e.target.closest('.claude-emoji-cell');
+      if (cell) {
+        var idx = parseInt(cell.getAttribute('data-index'), 10);
+        var item = renderedItems[idx];
+        if (item) insertEmoji(item.ch);
+      }
+    });
+
+    root.addEventListener('mouseover', function (e) {
+      var cell = e.target.closest && e.target.closest('.claude-emoji-cell');
+      if (!cell) return;
+      var idx = parseInt(cell.getAttribute('data-index'), 10);
+      if (renderedItems[idx]) setPreview(renderedItems[idx]);
+    });
+
+    searchInput.addEventListener('input', function () {
+      var q = searchInput.value.trim();
+      if (!q) {
+        showCategory(activeCategory || tabDefs[0].id);
+        return;
+      }
+      var tabs = tabsEl.querySelectorAll('.claude-emoji-tab');
+      for (var k = 0; k < tabs.length; k++) {
+        tabs[k].classList.remove('claude-emoji-tab-active');
+      }
+      renderGrid(catalog.search(q));
+    });
+
+    root.addEventListener('keydown', onPanelKeydown);
+    document.body.appendChild(root);
+    return root;
+  }
+
+  function onPanelKeydown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closePanel(true);
+      return;
+    }
+    var cols = columnCount();
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      setActiveIndex(activeIndex < 0 ? 0 : activeIndex + 1);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setActiveIndex(activeIndex <= 0 ? 0 : activeIndex - 1);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex(activeIndex < 0 ? 0 : activeIndex + cols);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex(activeIndex < 0 ? 0 : activeIndex - cols);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      var item = renderedItems[activeIndex < 0 ? 0 : activeIndex];
+      if (item) {
+        insertEmoji(item.ch);
+        // Enter вставляет, но фокус оставляем в поиске — так можно
+        // набрать следующий запрос без мыши.
+        if (searchInput) searchInput.focus();
+      }
+    }
+  }
+
+  function positionPanel() {
+    if (!panel || !anchorBtn) return;
+    var rect = anchorBtn.getBoundingClientRect();
+    var pRect = panel.getBoundingClientRect();
+    var top = rect.top - pRect.height - 6;
+    if (top < 6) top = Math.min(rect.bottom + 6, window.innerHeight - pRect.height - 6);
+    if (top < 6) top = 6;
+    var left = rect.left + rect.width / 2 - pRect.width / 2;
+    if (left + pRect.width > window.innerWidth - 6) {
+      left = window.innerWidth - pRect.width - 6;
+    }
+    if (left < 6) left = 6;
+    panel.style.top = top + 'px';
+    panel.style.left = left + 'px';
+  }
+
+  function openPanel(btn) {
+    rememberCaret();
+    anchorBtn = btn;
+    panel = buildPanel();
+    var firstTab = RECENT_LIMIT > 0 && loadRecent().length
+      ? '__recent__'
+      : catalog.categories[0].id;
+    showCategory(firstTab);
+    positionPanel();
+    searchInput.focus();
+    setTimeout(function () {
+      document.addEventListener('mousedown', onOutsideMouseDown, true);
+      document.addEventListener('keydown', onDocumentKeydown, true);
+      window.addEventListener('resize', positionPanel);
+    }, 0);
+    logInfo('панель открыта');
+  }
+
+  function closePanel(focusComposer) {
+    if (!panel) return;
+    panel.remove();
+    panel = null;
+    anchorBtn = null;
+    searchInput = null;
+    gridEl = null;
+    previewEl = null;
+    tabsEl = null;
+    renderedItems = [];
+    activeIndex = -1;
+    document.removeEventListener('mousedown', onOutsideMouseDown, true);
+    document.removeEventListener('keydown', onDocumentKeydown, true);
+    window.removeEventListener('resize', positionPanel);
+    if (focusComposer) {
+      var composer = getComposer();
+      if (composer) {
+        composer.focus();
+        restoreCaret(composer);
+      }
+    }
+    logInfo('панель закрыта');
+  }
+
+  function onOutsideMouseDown(e) {
+    if (!panel) return;
+    if (panel.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('.' + BTN_CLASS)) return; // toggle сам себя
+    closePanel(false);
+  }
+
+  function onDocumentKeydown(e) {
+    if (e.key === 'Escape' && panel) {
+      e.preventDefault();
+      e.stopPropagation();
+      closePanel(true);
+    }
+  }
+
+  /* ---------- кнопка в футере ---------- */
+
+  function createButton(footer) {
+    var btn = document.createElement('button');
+    btn.type = 'button'; // важно: футер внутри <form>, submit нам не нужен
+    btn.className = BTN_CLASS;
+    btn.title = 'Вставить смайлик';
+    btn.setAttribute('aria-label', 'Вставить смайлик');
+    btn.textContent = '😀';
+    // Наследуем нативные классы соседней кнопки меню `/` — так наша
+    // кнопка получает те же размеры и hover, что и штатные, без
+    // привязки к хэшу в имени класса.
+    var sibling = footer.querySelector('button[class*="menuButton_"]');
+    if (sibling && sibling.className) {
+      btn.className = sibling.className + ' ' + BTN_CLASS;
+    }
+    btn.addEventListener('mousedown', function (e) {
+      // Не отдаём фокус кнопке: каретка должна остаться в composer'е.
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (panel) closePanel(true);
+      else openPanel(btn);
+    });
+    return btn;
+  }
+
+  function scanFooters() {
+    var footers = document.querySelectorAll('[class*="inputFooter_"]');
+    for (var i = 0; i < footers.length; i++) {
+      var footer = footers[i];
+      if (footer.querySelector('.' + BTN_CLASS)) continue;
+      var btn = createButton(footer);
+      var menuBtn = footer.querySelector('button[class*="menuButton_"]');
+      if (menuBtn && menuBtn.parentNode === footer) {
+        footer.insertBefore(btn, menuBtn.nextSibling);
+      } else {
+        var spacer = footer.querySelector('[class*="spacer_"]');
+        if (spacer && spacer.parentNode === footer) footer.insertBefore(btn, spacer);
+        else footer.appendChild(btn);
+      }
+      logInfo('кнопка встроена в футер');
+    }
+    // Панель без своей кнопки (футер перерисован) — закрываем, чтобы
+    // не висела оторванной от анкера.
+    if (panel && anchorBtn && !document.body.contains(anchorBtn)) {
+      closePanel(false);
+    }
+  }
+
+  function init() {
+    scanFooters();
+    new MutationObserver(function () { scanFooters(); })
+      .observe(document.body, { childList: true, subtree: true });
+    setInterval(scanFooters, SCAN_INTERVAL_MS);
+    // Каретку запоминаем всегда, а не только при открытой панели:
+    // к моменту клика по 😀 фокус уже может быть в другом месте.
+    document.addEventListener('selectionchange', rememberCaret);
+    logInfo('installed, смайликов в каталоге:', catalog.all.length);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
