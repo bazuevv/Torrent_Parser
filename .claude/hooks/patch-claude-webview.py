@@ -101,6 +101,16 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
         "должен быть неотрицательным целым числом",
     ),
+    (
+        "emojiPicker",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
+    (
+        "emojiRecentLimit",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
+        "должен быть неотрицательным целым числом",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"
