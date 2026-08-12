@@ -79,3 +79,15 @@ emojiPicker = true
 # Хранится в localStorage webview под ключом `claudeCustomEmojiRecent`.
 # 0 — блок «Недавние» не показывается и история не ведётся.
 emojiRecentLimit = 24
+
+# Автозамена текстовых смайликов прямо при наборе в поле ввода
+# (модуль EMOJI AUTOREPLACE в claude-custom.js). Работает независимо
+# от emojiPicker. Две формы записи:
+#   - классические ASCII-смайлы:  :)  :-D  ;)  <3  xD  8)  \o/
+#   - shortcode из каталога:      :rocket:  :bug:  :done:  :fire:
+# Замена срабатывает только когда перед смайликом стоит пробел,
+# перевод строки или начало текста — поэтому `http://` и `C:/` не
+# превращаются в 😕. Откат — обычный Ctrl+Z (замена идёт через
+# execCommand и попадает в undo-стек редактора).
+# true — заменять; false — модуль не активируется.
+emojiAutoReplace = true

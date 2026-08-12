@@ -4287,3 +4287,254 @@
     init();
   }
 })();
+
+/* ============================================================
+ * EMOJI AUTOREPLACE — текстовые смайлики → эмодзи прямо при наборе
+ * ============================================================
+ *
+ * Слушает input-события composer'а и, когда перед кареткой оказалась
+ * распознаваемая последовательность, заменяет её на эмодзи:
+ *
+ *   :)  :-)  =)  ;)  :(  <3      → 🙂 🙂 🙂 😉 🙁 ❤️
+ *   :D  :P  :o  xD  :3           → 😃 😛 😮 😆 😺
+ *   :rocket:  :bug:  :done:      → 🚀 🐛 ✅
+ *
+ * Shortcode-форма `:name:` резолвится по индексу EMOJI CATALOG,
+ * то есть покрывает все смайлики каталога.
+ *
+ * Два режима срабатывания — из-за конфликтов с обычным текстом:
+ *
+ * 1. МГНОВЕННЫЕ — паттерны, у которых не бывает продолжения
+ *    (`:)`, `<3`, `:/`, `\o/`, а также `:name:`). Заменяются сразу
+ *    по вводу последнего символа.
+ *
+ * 2. ОТЛОЖЕННЫЕ — паттерны, которые могут оказаться началом чего-то
+ *    длиннее (`:D`, `:o`, `:3`, `xD`). Заменяются только когда следом
+ *    введён пробел или перевод строки. Иначе `:o` схлопывался бы
+ *    в 😮 прямо посреди набора `:ok_hand:`, а `xD` — посреди слова.
+ *
+ * Ложные срабатывания дополнительно отсекаются требованием границы
+ * слева: перед последовательностью должен быть пробел, перевод строки
+ * или начало текста. Поэтому `http://`, `C:/Users` и `10:00` остаются
+ * как есть.
+ *
+ * Замена выполняется через execCommand('insertText') по выделенному
+ * Range — так React видит штатный input-event, а пользователь может
+ * откатить замену обычным Ctrl+Z.
+ *
+ * Известное ограничение: отложенный паттерн в самом конце сообщения
+ * (`ок :D` + сразу Enter) уходит текстом — разделитель после него
+ * ввести уже не успевают. Мгновенные паттерны этим не страдают.
+ *
+ * Управление: `emojiAutoReplace` в claude-custom-config.toml.
+ * ============================================================ */
+(function () {
+  if (window.__claudeEmojiAutoReplaceInstalled) return;
+  window.__claudeEmojiAutoReplaceInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (cfg.emojiAutoReplace !== true) return;
+
+  // Мгновенные паттерны. Внутри таблицы порядок важен: более длинные
+  // варианты проверяются первыми, иначе `:-)` схлопнется по хвосту
+  // `-)`, а `</3` — по хвосту `<3`.
+  // Голые `8)` и `B)` намеренно не включены — они превращали бы
+  // нумерацию списка («8) сделать») в 😎; оставлены формы с дефисом.
+  var INSTANT = [
+    ['>:(', '😠'],
+    ['</3', '💔'],
+    [":'(", '😢'],
+    ['\\o/', '🙌'],
+    ['8-)', '😎'],
+    ['B-)', '😎'],
+    [':-)', '🙂'],
+    [':-(', '🙁'],
+    [':-D', '😃'],
+    [':-P', '😛'],
+    [':-p', '😛'],
+    [':-O', '😮'],
+    [':-o', '😮'],
+    [':-|', '😐'],
+    [':-/', '😕'],
+    [';-)', '😉'],
+    [':)', '🙂'],
+    ['=)', '🙂'],
+    [':(', '🙁'],
+    [';)', '😉'],
+    [':|', '😐'],
+    [':/', '😕'],
+    [':*', '😘'],
+    ['<3', '❤️'],
+  ];
+
+  // Отложенные: `<двоеточие><буква/цифра>` — потенциальное начало
+  // shortcode (`:o` в `:ok_hand:`), а `xD` — потенциальное начало
+  // слова. Такие заменяются только после ввода пробела.
+  var DEFERRED = [
+    [':D', '😃'],
+    [':P', '😛'],
+    [':p', '😛'],
+    [':O', '😮'],
+    [':o', '😮'],
+    [':3', '😺'],
+    ['xD', '😆'],
+    ['XD', '😆'],
+  ];
+
+  var SHORTCODE_RE = /:([a-z0-9_]{2,24}):$/i;
+  var MAX_LOOKBEHIND = 32;
+  var BOUNDARY_RE = /[\s\u00A0]/;
+
+  var catalog = window.__claudeEmojiCatalog;
+  var replacing = false; // защита от реакции на собственную вставку
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[emoji-autoreplace]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  function getComposer() {
+    return (
+      document.querySelector('[role="textbox"][contenteditable][aria-label*="essage" i]') ||
+      document.querySelector('[role="textbox"][contenteditable]') ||
+      document.querySelector('div[contenteditable]')
+    );
+  }
+
+  /**
+   * Слева от найденной последовательности должен быть пробел или
+   * начало текста — иначе `http:/` превратилось бы в `http😕`.
+   */
+  function hasBoundary(text, startIndex) {
+    if (startIndex <= 0) return true;
+    return BOUNDARY_RE.test(text.charAt(startIndex - 1));
+  }
+
+  function matchTable(table, text) {
+    for (var k = 0; k < table.length; k++) {
+      var pattern = table[k][0];
+      if (text.length < pattern.length) continue;
+      if (text.slice(text.length - pattern.length) !== pattern) continue;
+      if (!hasBoundary(text, text.length - pattern.length)) continue;
+      return { len: pattern.length, ch: table[k][1] };
+    }
+    return null;
+  }
+
+  /**
+   * Ищет, что заменить в тексте перед кареткой.
+   * Возвращает {len, text} — сколько символов снять и что вставить,
+   * либо null.
+   */
+  function findReplacement(before) {
+    var hit = matchTable(INSTANT, before);
+    if (hit) return { len: hit.len, text: hit.ch };
+
+    if (catalog) {
+      var m = SHORTCODE_RE.exec(before);
+      if (m && hasBoundary(before, m.index)) {
+        var ch = catalog.byCode[m[1].toLowerCase()];
+        if (ch) return { len: m[0].length, text: ch };
+      }
+    }
+
+    // Отложенные срабатывают по только что введённому разделителю.
+    // Снимаем паттерн вместе с разделителем и возвращаем его обратно
+    // после эмодзи — тогда каретка остаётся в конце, а не перед пробелом.
+    var last = before.charAt(before.length - 1);
+    if (last && BOUNDARY_RE.test(last)) {
+      var deferredHit = matchTable(DEFERRED, before.slice(0, before.length - 1));
+      if (deferredHit) {
+        return { len: deferredHit.len + 1, text: deferredHit.ch + last };
+      }
+    }
+    return null;
+  }
+
+  /** Заменяет `len` символов перед кареткой на `text`. */
+  function replaceBeforeCaret(node, offset, len, text) {
+    var sel = window.getSelection();
+    if (!sel) return;
+    var range = document.createRange();
+    try {
+      range.setStart(node, offset - len);
+      range.setEnd(node, offset);
+    } catch (e) {
+      return; // узел успел измениться под нами
+    }
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    replacing = true;
+    try {
+      if (!document.execCommand('insertText', false, text)) {
+        // Fallback, если execCommand недоступен: правим данные узла
+        // напрямую и сообщаем React о вводе синтетическим событием.
+        node.deleteData(offset - len, len);
+        node.insertData(offset - len, text);
+        var after = document.createRange();
+        after.setStart(node, offset - len + text.length);
+        after.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(after);
+        var composer = getComposer();
+        if (composer) {
+          composer.dispatchEvent(new InputEvent('input', {
+            bubbles: true, cancelable: true, inputType: 'insertText', data: text,
+          }));
+        }
+      }
+      logInfo('заменено на', JSON.stringify(text));
+    } catch (e) {
+      logInfo('замена не удалась:', (e && e.message) || e);
+    } finally {
+      // Снимаем флаг после того, как отработают обработчики нашего
+      // же input-события, иначе замена вызовет сама себя.
+      setTimeout(function () { replacing = false; }, 0);
+    }
+  }
+
+  function onInput(e) {
+    if (replacing) return;
+    var composer = getComposer();
+    if (!composer || e.target !== composer) return;
+    // Реагируем только на набор текста: удаления и вставки из буфера
+    // (insertFromPaste) не трогаем — пользователь их не набирал.
+    var type = e.inputType || '';
+    if (type !== 'insertText' && type !== 'insertCompositionText' &&
+        type !== 'insertLineBreak' && type !== 'insertParagraph' && type !== '') {
+      return;
+    }
+
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    var range = sel.getRangeAt(0);
+    if (!range.collapsed) return;
+    var node = range.startContainer;
+    if (node.nodeType !== 3) return; // ждём текстовый узел
+    if (!composer.contains(node)) return;
+
+    var offset = range.startOffset;
+    var before = node.data.slice(Math.max(0, offset - MAX_LOOKBEHIND), offset);
+    var found = findReplacement(before);
+    if (!found) return;
+    replaceBeforeCaret(node, offset, found.len, found.text);
+  }
+
+  function init() {
+    // Слушаем на document: composer пересоздаётся React'ом, вешать
+    // обработчик на сам элемент пришлось бы после каждого ре-рендера.
+    document.addEventListener('input', onInput, true);
+    logInfo('installed | мгновенных:', INSTANT.length,
+      '| отложенных:', DEFERRED.length,
+      '| shortcodes:', catalog ? Object.keys(catalog.byCode).length : 0);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
