@@ -369,18 +369,24 @@
 
 <header>
   <label for="user">Ник</label>
-  <input id="user" list="models" spellcheck="false" placeholder="AlyonaKatya">
+  <input id="user" list="models" spellcheck="false" placeholder="AlyonaKatya"
+         title="Имя комнаты как на сайте. Регистр не важен, подсказки берутся из базы ников">
   <datalist id="models"></datalist>
 
   <label for="edge">edge</label>
   <input id="edge" spellcheck="false" placeholder="67" title="Номер видеосервера: 67 или us14">
 
-  <button id="play" class="primary">Смотреть</button>
+  <button id="play" class="primary"
+          title="Открыть трансляцию. Номер сервера подберётся сам, если поле edge пустое">Смотреть</button>
   <button id="stop" title="Остановить трансляцию и запись">Стоп</button>
-  <button id="find">Найти edge</button>
+  <button id="find"
+          title="Опросить все серверы вещания и найти, на каком идёт эфир этого ника. Результат запоминается">Найти edge</button>
 
   <label for="quality" title="Дорожка текущего потока; сбрасывается при переключении комнаты">Качество</label>
-  <select id="quality"><option value="-1">авто</option></select>
+  <select id="quality"
+          title="Дорожки этого эфира. По умолчанию берётся лучшая в пределах «Максимального битрейта» из настроек">
+    <option value="-1">авто</option>
+  </select>
 
   <button id="rec" title="Состояние записи. Нажатие останавливает запись текущей трансляции">Запись ждёт потока</button>
   <button id="fromRec" title="Переключиться на запись — перемотка глубже, чем помещается в памяти">Из записи</button>
@@ -400,6 +406,9 @@
       <label>Пополнение</label>
       <button id="accounts" title="Перечитать базу с сервера и показать сборщик">Обновить аккаунты</button>
     </div>
+    <p class="hint">База ников общая для всех браузеров — она живёт на сервере, а не
+      в памяти страницы. Пополняет её закладка-сборщик, запускаемая на самом сайте:
+      оттуда доступен каталог, закрытый для нас защитой Cloudflare.</p>
     </details>
 
     <details class="sect" open data-sect="view">
@@ -520,6 +529,10 @@
         <option value="60">раз в час</option>
       </select>
     </div>
+    <p class="hint">Серые ники в истории обходятся по всем серверам вещания сразу:
+      модель могла не уйти, а переехать на другой сервер — тогда обычная проверка
+      считает её ушедшей. Обход тяжёлый, поэтому идёт по расписанию; кнопка ↻ над
+      историей запускает его немедленно.</p>
     <div class="row">
       <label for="deepBatch">Ников за заход</label>
       <select id="deepBatch">
@@ -559,6 +572,9 @@
         <option value="300">5 мин</option>
       </select>
     </div>
+    <p class="hint">Как часто левая колонка перепроверяет, идёт ли эфир у просмотренных
+      ранее ников. Спрашивается только их последний известный сервер — это быстро;
+      поиск по всем серверам вынесен в «Искать переехавших».</p>
 
     <div class="row">
       <label for="pull">Перечитывать базу</label>
@@ -569,6 +585,9 @@
         <option value="900">15 мин</option>
       </select>
     </div>
+    <p class="hint">Как часто страница забирает с сервера общую базу ников. Пока
+      закладка-сборщик работает в соседней вкладке, база пополняется каждую минуту,
+      и открытые плееры подхватывают новые номера серверов отсюда.</p>
 
     </details>
 
@@ -631,9 +650,9 @@
      «Сохранить» склеит их в один mp4, «Удалить» — сотрёт.</p>
   <div id="orphanList"></div>
   <div class="dlg-btns">
-    <button id="orphanKeepAll">Сохранить все</button>
-    <button id="orphanDropAll">Удалить все</button>
-    <button id="orphanClose" class="primary">Позже</button>
+    <button id="orphanKeepAll" title="Склеить каждую папку в отдельный mp4 и убрать куски">Сохранить все</button>
+    <button id="orphanDropAll" title="Стереть все незавершённые куски без склейки — отменить будет нельзя">Удалить все</button>
+    <button id="orphanClose" class="primary" title="Оставить как есть: вопрос повторится при следующем запуске">Позже</button>
   </div>
 </dialog>
 
@@ -642,12 +661,13 @@
   <p id="dirPath">…</p>
   <div id="dirList"></div>
   <div class="row">
-    <input id="dirNew" spellcheck="false" placeholder="имя новой подпапки (необязательно)">
+    <input id="dirNew" spellcheck="false" placeholder="имя новой подпапки (необязательно)"
+           title="Создать подпапку внутри текущей и выбрать её. Оставьте пустым, чтобы взять текущую">
   </div>
   <div class="dlg-btns">
-    <button id="dirUp">Наверх</button>
-    <button id="dirPick" class="primary">Выбрать эту папку</button>
-    <button id="dirCancel">Отмена</button>
+    <button id="dirUp" title="Перейти в родительскую папку">Наверх</button>
+    <button id="dirPick" class="primary" title="Записывать сюда. Путь сохранится в настройках сервера">Выбрать эту папку</button>
+    <button id="dirCancel" title="Закрыть, оставив прежнюю папку записей">Отмена</button>
   </div>
 </dialog>
 
@@ -716,22 +736,27 @@
   </div>
 
   <div id="ctxMenu" hidden>
-    <div data-act="stats">Статистика для сисадминов</div>
-    <div data-act="log">Журнал воспроизведения</div>
+    <div data-act="stats"
+         title="Разрешение, битрейт, буфер, потерянные кадры, подвисания и ошибки — обновляется каждую секунду">Статистика для сисадминов</div>
+    <div data-act="log"
+         title="Лента событий плеера: смены качества, обрывы сегментов, восстановления. Пишется и в файл на сервере">Журнал воспроизведения</div>
     <hr>
-    <div class="hint" id="ctxAutoTitle">Автопереключение комнат</div>
-    <div data-act="auto:0">выключить</div>
-    <div data-act="auto:30">каждые 30 секунд</div>
-    <div data-act="auto:60">каждую минуту</div>
-    <div data-act="auto:180">каждые 3 минуты</div>
+    <div class="hint" id="ctxAutoTitle"
+         title="Плеер сам перейдёт в следующую комнату из списка справа через заданный срок">Автопереключение комнат</div>
+    <div data-act="auto:0" title="Оставаться в текущей комнате, пока не переключите вручную">выключить</div>
+    <div data-act="auto:30" title="Менять комнату каждые 30 секунд">каждые 30 секунд</div>
+    <div data-act="auto:60" title="Менять комнату раз в минуту">каждую минуту</div>
+    <div data-act="auto:180" title="Менять комнату раз в 3 минуты">каждые 3 минуты</div>
     <hr>
-    <div data-act="pip">Картинка в картинке</div>
-    <div data-act="full">Во весь экран</div>
-    <div data-act="mute">Звук вкл/выкл</div>
+    <div data-act="pip"
+         title="Вынести видео в отдельное окно поверх других окон — со своими кнопками смены комнат">Картинка в картинке</div>
+    <div data-act="full" title="Развернуть видео на весь экран">Во весь экран</div>
+    <div data-act="mute" title="Приглушить или вернуть звук, не трогая громкость системы">Звук вкл/выкл</div>
     <hr>
-    <div data-act="profile">Открыть профиль на сайте</div>
-    <div data-act="copy">Копировать адрес потока</div>
-    <div data-act="reload">Перезапустить поток</div>
+    <div data-act="profile" title="Открыть страницу модели на bongacams.com в новой вкладке">Открыть профиль на сайте</div>
+    <div data-act="copy" title="Скопировать адрес m3u8 — его понимают VLC, mpv и ffmpeg">Копировать адрес потока</div>
+    <div data-act="reload"
+         title="Пересоздать поток с нуля: помогает, когда картинка замерла или звук ушёл вперёд">Перезапустить поток</div>
     <hr>
     <div class="hint">Shift + правая кнопка — меню браузера</div>
   </div>
