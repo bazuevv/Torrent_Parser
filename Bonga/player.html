@@ -13,10 +13,24 @@
     display: flex; flex-direction: column; overflow: hidden;
   }
   header {
-    flex: 0 0 auto;
+    flex: 0 0 auto; position: relative;
     display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
     padding: 8px 12px; background: #1c1f26; border-bottom: 1px solid #2a2f3a;
   }
+  /* Подробности к строке статуса: системная подсказка не годится — из неё
+     нельзя выделить текст, а он нужен именно для копирования. */
+  #statusDetails {
+    position: absolute; top: 100%; left: 12px; right: 12px; z-index: 20;
+    background: #21262e; border: 1px solid #39404d; border-radius: 8px;
+    padding: 10px 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .55);
+  }
+  #statusText {
+    margin: 0; max-height: 40vh; overflow: auto; white-space: pre-wrap;
+    word-break: break-all; user-select: text; cursor: text;
+    font: 12px/1.5 ui-monospace, Consolas, monospace; color: #c9d1d9;
+  }
+  #statusDetails .dlg-btns { margin-top: 8px; }
+  #status.hasDetails { cursor: help; text-decoration: underline dotted #4b5563; }
   input, select, button {
     font: inherit; color: #e6e8ec; background: #262b34;
     border: 1px solid #39404d; border-radius: 6px; padding: 6px 9px;
@@ -26,6 +40,8 @@
   button:hover { background: #303743; }
   button.primary { background: #2f6fd0; border-color: #2f6fd0; }
   button.primary:hover { background: #3a80e8; }
+  button.on { background: #b5372c; border-color: #b5372c; color: #fff; }
+  button.on:hover { background: #cf4235; }
   button:disabled { opacity: .5; cursor: default; }
   #user { width: 190px; }
   #edge { width: 78px; }
@@ -73,7 +89,43 @@
   }
   .panel-head span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .panel-head button { padding: 1px 7px; font-size: 12px; line-height: 1.4; }
+  #histProgress { flex: 0 0 auto; color: #7ee787; font-size: 11px; letter-spacing: 0; }
+  #histCheck.busy {
+    color: #7ee787; border-color: #2f6fd0;
+    animation: spin 1.1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .panel-body { padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+  .panel-find {
+    position: sticky; top: 27px; z-index: 2; padding: 7px 6px;
+    display: flex; align-items: center;
+    background: #171a20; border-bottom: 1px solid #2a2f3a;
+  }
+  #onlineFind {
+    flex: 1 1 auto; min-width: 0; padding: 6px 26px 6px 9px; font-size: 12px;
+    color: #fff; background: #46536b;          /* заметно светлее панели */
+    border: 1px solid #7c8ba6; border-radius: 6px;
+  }
+  #onlineFind::placeholder { color: #cfd8e6; }
+  /* Крестик лежит поверх правого края поля, поэтому у поля увеличен отступ. */
+  #findClear {
+    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    width: 18px; height: 18px; padding: 0; line-height: 1; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; font-size: 13px;
+    color: #cfd8e6; background: transparent; border: 0;
+  }
+  #findClear:hover { color: #fff; background: #b5372c; }
+  #findClear[hidden] { display: none; }   /* иначе display:flex перебивает hidden */
+  #onlineFind:focus {
+    background: #52627e; border-color: #7fb0ff;
+    outline: none; box-shadow: 0 0 0 2px rgba(127, 176, 255, .3);
+  }
+  .card.hidden { display: none; }
+  #openFound {
+    padding: 8px; border-radius: 6px; background: #23324a; cursor: pointer;
+    font-size: 13px; text-align: center;
+  }
+  #openFound:hover { background: #2f6fd0; }
   .empty { padding: 10px 8px; color: #6b7484; font-size: 12px; }
 
   .item {
@@ -89,10 +141,27 @@
   .item .del { flex: 0 0 auto; color: #5c646f; padding: 0 4px; border-radius: 4px; }
   .item .del:hover { color: #ff7b72; background: #2a2f3a; }
 
-  .card { border-radius: 8px; overflow: hidden; background: #20242c; cursor: pointer; }
+  .card { position: relative; border-radius: 8px; overflow: hidden; background: #20242c; cursor: pointer; }
+  /* Плашка и время — в одну строку: короткое «нет» плюс возраст рядом. */
+  .card .offBox {
+    position: absolute; top: 8px; left: 8px; pointer-events: none;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .card .off {
+    padding: 3px 7px; border-radius: 5px; background: rgba(181, 55, 44, .92);
+    color: #fff; font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+  }
+  .card .offAt {
+    padding: 2px 6px; border-radius: 4px;
+    background: rgba(12, 14, 18, .78); color: #e6e8ec; font-size: 11px;
+  }
+  .card:not(.offline) .offBox { display: none; }
+  .card.offline img { filter: brightness(.62); }
+  .card.offline .cap b { color: #98a1b0; }
   .card:hover { outline: 2px solid #2f6fd0; outline-offset: -2px; }
   .card.current { outline: 2px solid #7ee787; outline-offset: -2px; }
   .card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+  .card img:not([src]) { visibility: hidden; }   /* пока кадр не пришёл — просто тёмное поле */
   .card .cap { display: flex; gap: 6px; padding: 4px 6px; font-size: 12px; }
   .card .cap b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
                  white-space: nowrap; font-weight: 500; }
@@ -100,10 +169,16 @@
 
   /* видео занимает ровно остаток высоты окна — контролы плеера не срезаются */
   #stage {
+    position: relative;                 /* якорь для панели статистики */
     flex: 1 1 auto; min-width: 0; min-height: 0;
     display: flex; align-items: center; justify-content: center; background: #000;
   }
-  video { height: 100%; width: auto; max-width: 100%; object-fit: contain; background: #000; display: block; }
+  video {
+    height: 100%; width: auto; max-width: 100%; object-fit: contain;
+    background: #000; display: block;
+    transform: translateZ(0);           /* своя плоскость композитора: с общей */
+    will-change: transform;             /* Firefox на NVIDIA перестаёт рисовать */
+  }
   dialog {
     width: min(640px, 92vw); background: #1c1f26; color: #e6e8ec;
     border: 1px solid #39404d; border-radius: 10px; padding: 16px;
@@ -114,11 +189,171 @@
   dialog li { margin: 4px 0; }
   dialog a { color: #6ea8fe; font-weight: 600; }
   dialog p { color: #98a1b0; font-size: 13px; margin: 0 0 6px; }
+  dialog summary { color: #98a1b0; font-size: 13px; cursor: pointer; padding: 4px 0; }
+  dialog summary:hover { color: #e6e8ec; }
+  #orphanList { max-height: 46vh; overflow-y: auto; margin: 8px 0; }
+  .orphan {
+    display: flex; align-items: center; gap: 8px; padding: 6px 4px;
+    border-top: 1px solid #2a2f3a; font-size: 13px;
+  }
+  .orphan b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+              white-space: nowrap; font-weight: 500; }
+  .orphan i { flex: 0 0 auto; color: #98a1b0; font-style: normal; font-size: 12px; }
+  .orphan button { padding: 2px 8px; font-size: 12px; }
+
+  #dirPath {
+    font: 12px ui-monospace, Consolas, monospace; color: #7ee787;
+    word-break: break-all; margin: 0 0 8px;
+  }
+  #dirList {
+    max-height: 46vh; overflow-y: auto; border: 1px solid #2a2f3a;
+    border-radius: 8px; padding: 4px; background: #171a20;
+  }
+  #dirList div {
+    padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #dirList div:hover { background: #2f6fd0; }
+  #dirList .empty { cursor: default; color: #6b7484; }
+  #dirList .empty:hover { background: none; }
+  #dirNew { width: 100%; margin-top: 8px; }
   #importText {
-    width: 100%; height: 92px; resize: vertical;
+    width: 100%; height: 92px; resize: vertical; margin-top: 6px;
     font: 12px ui-monospace, Consolas, monospace;
   }
   .dlg-btns { display: flex; gap: 8px; margin-top: 10px; }
+
+  /* Настройки под шестерёнкой: в шапке остаются только частые действия. */
+  #gear { font-size: 15px; line-height: 1; padding: 5px 9px; }
+  #settings {
+    position: absolute; top: 100%; right: 12px; z-index: 30; width: min(420px, 92vw);
+    padding: 14px 16px; background: #1c1f26; border: 1px solid #39404d;
+    border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .6);
+    /* панель длинная — пусть листается, а не уходит за край экрана */
+    max-height: calc(100vh - 64px); overflow-y: auto; overscroll-behavior: contain;
+  }
+  .sect { border-top: 1px solid #2a2f3a; margin-top: 10px; padding-top: 6px; }
+  .sect summary {
+    cursor: pointer; user-select: none; list-style: none;
+    font-size: 13px; font-weight: 600; color: #e6e8ec; padding: 3px 0;
+  }
+  .sect summary::-webkit-details-marker { display: none; }
+  .sect summary::before { content: '▾ '; color: #6b7484; }
+  .sect:not([open]) summary::before { content: '▸ '; }
+  .sect summary:hover { color: #6ea8fe; }
+  #settings h3 { margin: 0 0 10px; font-size: 15px; padding-right: 28px; }
+  #settingsClose {
+    position: absolute; top: 8px; right: 8px;
+    width: 24px; height: 24px; padding: 0; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; color: #98a1b0; background: transparent; border-color: transparent;
+  }
+  #settingsClose:hover { color: #fff; background: #b5372c; border-color: #b5372c; }
+  #settings .row {
+    display: flex; align-items: center; gap: 10px; margin-top: 10px;
+  }
+  #settings .row > label:first-child { flex: 0 0 130px; color: #98a1b0; }
+  #recDir { flex: 1 1 auto; min-width: 0; font-size: 12px; }
+  #recDirHint.err { color: #ff7b72; }
+  #settings .row > select, #settings .row > button { flex: 0 0 auto; }
+  #settings .hint { margin: 4px 0 0 140px; color: #6b7484; font-size: 12px; line-height: 1.4; }
+  #settings .check { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; color: #e6e8ec; }
+  #settings .check input { accent-color: #2f6fd0; }
+
+  /* Своё меню по правой кнопке: расширить системное страница не может.
+     Системное остаётся доступным по Shift+ПКМ. */
+  #ctxMenu {
+    position: fixed; z-index: 60; min-width: 236px; padding: 4px;
+    background: #22272f; border: 1px solid #3a4250; border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .6);
+  }
+  #ctxMenu div {
+    padding: 7px 10px; border-radius: 5px; font-size: 13px; cursor: pointer;
+    white-space: nowrap;
+  }
+  #ctxMenu div:hover { background: #2f6fd0; }
+  #ctxMenu hr { border: 0; border-top: 1px solid #3a4250; margin: 4px 2px; }
+  #ctxMenu .hint { color: #6b7484; cursor: default; font-size: 12px; }
+  #ctxMenu .hint:hover { background: none; }
+
+  /* Панель статистики поверх видео */
+  #stats {
+    position: absolute; z-index: 40; top: 10px; left: 10px; max-width: min(480px, 72%);
+    padding: 10px 34px 10px 12px;       /* справа место под крестик */
+    border-radius: 8px; background: rgba(12, 14, 18, .86);
+    border: 1px solid #39404d; color: #d7dde5;
+    overflow: auto; max-height: 80%;
+  }
+  #statsBody {
+    margin: 0; white-space: pre; user-select: text; cursor: text;
+    font: 12px/1.55 ui-monospace, Consolas, monospace;
+  }
+  #statsClose {
+    position: absolute; top: 6px; right: 6px; z-index: 1;
+    width: 22px; height: 22px; padding: 0; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: #98a1b0; background: transparent; border-color: transparent;
+  }
+  #statsClose:hover { color: #fff; background: #b5372c; border-color: #b5372c; }
+  #keepAsk {
+    position: absolute; z-index: 50; right: 12px; bottom: 12px; width: 300px;
+    padding: 12px 14px; border-radius: 10px; background: #1c1f26;
+    border: 1px solid #39404d; box-shadow: 0 10px 30px rgba(0, 0, 0, .6);
+  }
+  #keepText { font-size: 13px; line-height: 1.45; }
+  #keepText b { color: #7ee787; }
+  #keepText i { color: #98a1b0; font-style: normal; }
+
+  #logPanel {
+    /* отступ снизу — чтобы не перекрывать штатную панель управления видео */
+    position: absolute; z-index: 45; left: 10px; right: 10px; bottom: 62px;
+    max-height: 44%; padding: 8px 10px 8px 12px; border-radius: 8px;
+    background: rgba(12, 14, 18, .9); border: 1px solid #39404d; color: #d7dde5;
+    display: flex; flex-direction: column;
+  }
+  #logHead {
+    flex: 0 0 auto; margin: 0 96px 6px 0; padding-bottom: 5px;
+    border-bottom: 1px solid #2a2f3a; color: #98a1b0; font-size: 12px;
+  }
+  #logPanel[hidden] { display: none; }    /* иначе display:flex перебивает атрибут hidden */
+  #logBody {
+    margin: 0; min-height: 64px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    user-select: text; cursor: text; font: 11px/1.5 ui-monospace, Consolas, monospace;
+  }
+  #logBody .err { color: #ff7b72; }
+  #logBody .act { color: #7ee787; }
+  #logClose, #logCopy {
+    position: absolute; top: 6px; padding: 1px 7px; font-size: 12px;
+    background: #262b34; border-color: #39404d;
+  }
+  #logClose { right: 8px; }
+  #logCopy { right: 46px; }
+  #stats b { color: #7ee787; font-weight: 600; }
+  #stats i { color: #ff7b72; font-style: normal; }
+
+  /* Проверка канала: та же подача, что у статистики, но шире — в строке
+     помещается таблица замеров. */
+  #netPanel {
+    position: absolute; z-index: 46; top: 10px; left: 10px; max-width: min(560px, 86%);
+    padding: 10px 34px 10px 12px; border-radius: 8px;
+    background: rgba(12, 14, 18, .92); border: 1px solid #39404d; color: #d7dde5;
+    overflow: auto; max-height: 84%;
+  }
+  #netBody {
+    margin: 0; white-space: pre; user-select: text; cursor: text;
+    font: 12px/1.55 ui-monospace, Consolas, monospace;
+  }
+  #netBody b { color: #7ee787; font-weight: 600; }   /* чисто */
+  #netBody i { color: #ff7b72; font-style: normal; } /* потери */
+  #netBody u { color: #e3b341; text-decoration: none; }  /* пограничное */
+  #netBody s { color: #6b7484; text-decoration: none; }  /* пояснения */
+  #netClose, #netRun {
+    position: absolute; top: 6px; padding: 1px 7px; font-size: 12px;
+    background: #262b34; border-color: #39404d;
+  }
+  #netClose { right: 8px; width: 22px; padding: 0; color: #98a1b0; }
+  #netClose:hover { color: #fff; background: #b5372c; border-color: #b5372c; }
+  #netRun { right: 38px; }
 
   /* URL потока — в шапке, прижат вправо; клик выделяет ссылку целиком */
   #url {
@@ -141,54 +376,300 @@
   <input id="edge" spellcheck="false" placeholder="67" title="Номер видеосервера: 67 или us14">
 
   <button id="play" class="primary">Смотреть</button>
+  <button id="stop" title="Остановить трансляцию и запись">Стоп</button>
   <button id="find">Найти edge</button>
 
-  <label for="quality">Качество</label>
+  <label for="quality" title="Дорожка текущего потока; сбрасывается при переключении комнаты">Качество</label>
   <select id="quality"><option value="-1">авто</option></select>
 
-  <label for="buffer" title="Сколько эфира держать в памяти для перемотки назад">Буфер</label>
-  <select id="buffer">
-    <option value="60">1 мин</option>
-    <option value="300">5 мин</option>
-    <option value="900">15 мин</option>
-    <option value="1800">30 мин</option>
-  </select>
-
-  <label for="auto" title="Само переключает комнату по кругу — работает и когда открыт PiP">Авто</label>
-  <select id="auto">
-    <option value="0">выкл</option>
-    <option value="30">30 с</option>
-    <option value="60">1 мин</option>
-    <option value="180">3 мин</option>
-  </select>
-
+  <button id="rec" title="Состояние записи. Нажатие останавливает запись текущей трансляции">Запись ждёт потока</button>
+  <button id="fromRec" title="Переключиться на запись — перемотка глубже, чем помещается в памяти">Из записи</button>
   <button id="live" title="Вернуться к прямому эфиру">В эфир</button>
-  <button id="accounts" title="Взять список ников из буфера обмена">Обновить аккаунты</button>
   <button id="pip" title="Картинка в картинке">PiP</button>
   <button id="profile" title="Открыть страницу модели на сайте в новой вкладке">Открыть профиль</button>
+  <button id="net" title="Проверить канал: задержки и потери до роутера, нейтральных узлов и серверов вещания">📡 Связь</button>
+  <button id="gear" title="Настройки">⚙</button>
+
+  <div id="settings" hidden>
+    <button id="settingsClose" title="Закрыть настройки">×</button>
+    <h3>Настройки</h3>
+
+    <details class="sect" open data-sect="base">
+      <summary>База ников</summary>
+    <div class="row">
+      <label>Пополнение</label>
+      <button id="accounts" title="Перечитать базу с сервера и показать сборщик">Обновить аккаунты</button>
+    </div>
+    </details>
+
+    <details class="sect" open data-sect="view">
+      <summary>Просмотр</summary>
+
+    <div class="row">
+      <label for="maxRate">Максимальный битрейт</label>
+      <select id="maxRate">
+        <option value="1000">1 Мбит/с</option>
+        <option value="2000">2 Мбит/с</option>
+        <option value="3000">3 Мбит/с</option>
+        <option value="5000">5 Мбит/с</option>
+        <option value="8000">8 Мбит/с</option>
+        <option value="10000">10 Мбит/с</option>
+        <option value="0">без ограничения</option>
+      </select>
+    </div>
+    <p class="hint">Берётся самое высокое качество, укладывающееся в этот битрейт.
+      Разрешение у моделей разное, а вес — тем более: у части родные 720p идут
+      под 9 Мбит/с. Битрейт каждой дорожки виден в списке «Качество».</p>
+
+    <div class="row">
+      <label for="buffer">Буфер памяти</label>
+      <select id="buffer">
+        <option value="60">1 мин</option>
+        <option value="300">5 мин</option>
+        <option value="900">15 мин</option>
+        <option value="1800">30 мин</option>
+        <option value="3600">60 мин</option>
+      </select>
+    </div>
+    <p class="hint">Глубина мгновенной перемотки. При записи на диск — быстрый кэш
+      поверх файла, без записи — вся доступная глубина. Час 720p ≈ 1 ГБ памяти.</p>
+
+    <div class="row">
+      <label>Панели</label>
+      <span>
+        <label class="check"><input type="checkbox" id="panelLeft"> история</label>
+        <label class="check"><input type="checkbox" id="panelRight"> эфир</label>
+      </span>
+    </div>
+    <p class="hint">То же самое делают синие ручки по краям видео.</p>
+
+    </details>
+
+    <details class="sect" open data-sect="rec">
+      <summary>Запись</summary>
+    <div class="row">
+      <label for="recRate">Максимальный битрейт записи</label>
+      <select id="recRate">
+        <option value="1000">1 Мбит/с</option>
+        <option value="2000">2 Мбит/с</option>
+        <option value="3000">3 Мбит/с</option>
+        <option value="5000">5 Мбит/с</option>
+        <option value="8000">8 Мбит/с</option>
+        <option value="10000">10 Мбит/с</option>
+        <option value="0">как при просмотре</option>
+      </select>
+    </div>
+    <p class="hint">Если поток тяжелее — сервер пережимает его до этого битрейта
+      на видеокарте, разрешение при этом сохраняется. «Как при просмотре» пишет
+      поток как есть, без перекодирования.</p>
+
+    <div class="row">
+      <label for="recMode">Режим записи</label>
+      <select id="recMode">
+        <option value="1">авто</option>
+        <option value="0">вручную</option>
+      </select>
+    </div>
+    <p class="hint">В авто пишется каждая открытая трансляция — это и есть буфер
+      перемотки. Вручную запись начинается только по кнопке в верхней панели.</p>
+
+    <div class="row">
+      <label for="recDir">Папка записей</label>
+      <input id="recDir" spellcheck="false" placeholder="/mnt/DATA/Bonga_rec">
+    </div>
+    <p class="hint" id="recDirHint">Куда сервер кладёт файлы. Допустимы пути внутри
+      /mnt/DATA, /mnt/Projects и /home/vladimir — остальные systemd закроет на запись.
+      Прежние записи остаются там, где лежали.</p>
+
+    <div class="row">
+      <label for="segment">Длина сегмента</label>
+      <select id="segment">
+        <option value="10">10 с</option>
+        <option value="30">30 с</option>
+        <option value="60">60 с</option>
+        <option value="300">5 мин</option>
+      </select>
+    </div>
+    <p class="hint">Куски, на которые ffmpeg режет запись; по её окончании они
+      склеиваются в один mp4. Короткие — больше файлов, зато свежее точка перехода
+      по кнопке «Из записи».</p>
+
+    <div class="row">
+      <label for="keepMin">Спрашивать о сохранении</label>
+      <select id="keepMin">
+        <option value="0">всегда</option>
+        <option value="60">если длиннее минуты</option>
+        <option value="300">если длиннее 5 минут</option>
+        <option value="86400">никогда, удалять</option>
+      </select>
+    </div>
+    <p class="hint">Запись включена всегда — она даёт перемотку глубже оперативной
+      памяти. При переходе в другую комнату плеер спросит, оставить файл или стереть;
+      короткие записи стираются молча, они были нужны лишь как буфер.</p>
+
+    </details>
+
+    <details class="sect" open data-sect="hist">
+      <summary>История</summary>
+    <div class="row">
+      <label for="deep">Искать переехавших</label>
+      <select id="deep">
+        <option value="0">вручную</option>
+        <option value="5">каждые 5 мин</option>
+        <option value="15">каждые 15 мин</option>
+        <option value="60">раз в час</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="deepBatch">Ников за заход</label>
+      <select id="deepBatch">
+        <option value="6">6</option>
+        <option value="12">12</option>
+        <option value="25">25</option>
+        <option value="0">все серые</option>
+      </select>
+    </div>
+    <p class="hint">Ники истории, не ответившие на своём сервере, перебираются по всем
+      105 серверам: модель могла переехать. Один такой ник стоит до 105 запросов и
+      около 10 секунд, поэтому за заход берётся порция, начиная с тех, кого дольше
+      не проверяли — за пару циклов очередь обходит всех. Кнопка ↻ в истории
+      запускает проверку немедленно.</p>
+
+    </details>
+
+    <details class="sect" open data-sect="upd">
+      <summary>Как часто обновлять</summary>
+    <div class="row">
+      <label for="thumbs">Превью справа</label>
+      <select id="thumbs">
+        <option value="0">не обновлять</option>
+        <option value="5">5 с</option>
+        <option value="10">10 с</option>
+        <option value="30">30 с</option>
+      </select>
+    </div>
+    <p class="hint">Сам CDN перерисовывает кадры примерно раз в 10 секунд.</p>
+
+    <div class="row">
+      <label for="hist">Статус в истории</label>
+      <select id="hist">
+        <option value="0">не проверять</option>
+        <option value="30">30 с</option>
+        <option value="60">1 мин</option>
+        <option value="300">5 мин</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label for="pull">Перечитывать базу</label>
+      <select id="pull">
+        <option value="30">30 с</option>
+        <option value="60">1 мин</option>
+        <option value="300">5 мин</option>
+        <option value="900">15 мин</option>
+      </select>
+    </div>
+
+    </details>
+
+    <details class="sect" open data-sect="sweep">
+      <summary>Проверка эфира</summary>
+    <div class="row">
+      <label for="ttl">Результат годен</label>
+      <select id="ttl">
+        <option value="15">15 мин</option>
+        <option value="60">1 час</option>
+        <option value="360">6 часов</option>
+        <option value="1440">сутки</option>
+      </select>
+    </div>
+    <p class="hint">Пока результат свежий, при загрузке страницы список берётся
+      с сервера без обхода.</p>
+
+    <div class="row">
+      <label for="gap">Пауза между обходами</label>
+      <select id="gap">
+        <option value="0">без паузы</option>
+        <option value="5">5 мин</option>
+        <option value="10">10 мин</option>
+        <option value="30">30 мин</option>
+      </select>
+    </div>
+    <p class="hint">Насколько часто плеер может сам запускать полный обход.
+      Кнопка ↻ паузу игнорирует.</p>
+
+    <div class="row">
+      <label for="pool">Запросов разом</label>
+      <select id="pool">
+        <option value="12">12</option>
+        <option value="24">24</option>
+        <option value="48">48</option>
+        <option value="96">96</option>
+      </select>
+    </div>
+    <p class="hint">Больше — быстрее обход, но выше нагрузка на сеть.
+      Сейчас в базе несколько тысяч ников.</p>
+
+    </details>
+
+  </div>
 
   <div id="status">Укажите ник и нажмите «Смотреть».</div>
   <span id="url" title="Ссылка на поток">—</span>
+
+  <div id="statusDetails" hidden>
+    <pre id="statusText"></pre>
+    <div class="dlg-btns">
+      <button id="statusCopy">Копировать</button>
+    </div>
+  </div>
 </header>
+
+<dialog id="orphanDlg">
+  <h3>Незавершённые записи</h3>
+  <p>Сервер перезапускался во время записи, и эти куски остались без хозяина.
+     «Сохранить» склеит их в один mp4, «Удалить» — сотрёт.</p>
+  <div id="orphanList"></div>
+  <div class="dlg-btns">
+    <button id="orphanKeepAll">Сохранить все</button>
+    <button id="orphanDropAll">Удалить все</button>
+    <button id="orphanClose" class="primary">Позже</button>
+  </div>
+</dialog>
+
+<dialog id="dirDlg">
+  <h3>Куда писать записи</h3>
+  <p id="dirPath">…</p>
+  <div id="dirList"></div>
+  <div class="row">
+    <input id="dirNew" spellcheck="false" placeholder="имя новой подпапки (необязательно)">
+  </div>
+  <div class="dlg-btns">
+    <button id="dirUp">Наверх</button>
+    <button id="dirPick" class="primary">Выбрать эту папку</button>
+    <button id="dirCancel">Отмена</button>
+  </div>
+</dialog>
 
 <dialog id="baseDlg">
   <h3>База ников</h3>
   <p id="baseCount"></p>
   <ol>
-    <li>Перетащите ссылку <a id="bmLink" href="#">Собрать ники BongaCams</a> на панель закладок браузера
-        (один раз).</li>
-    <li>Откройте bongacams.com и нажмите эту закладку. Она пройдёт по каталогу
-        (<code>/tools/listing_v3.php</code> — ник и номер сервера) и по <code>/sitemap.xml</code>
-        из robots.txt (только имена), а результат положит в буфер обмена.</li>
-    <li>Вернитесь сюда и нажмите «Обновить аккаунты» — список подхватится из буфера сам.
-        Если браузер не даёт читать буфер, вставьте JSON в поле ниже вручную.</li>
+    <li>Один раз перетащите ссылку <a id="bmLink" href="#">Собрать ники BongaCams</a>
+        на панель закладок.</li>
+    <li>На bongacams.com нажмите закладку один раз — ники уйдут прямо в базу,
+        и дальше она будет обновлять их каждые 60 секунд, пока вкладка сайта открыта.
+        Выключить — плашка в углу той страницы или повторное нажатие закладки.</li>
   </ol>
-  <p>Списки складываются: повторный сбор на других вкладках каталога (парни, пары)
-     только дополнит базу.</p>
-  <textarea id="importText" placeholder='[["ник",67,4589], …]'></textarea>
+  <details>
+    <summary>Если сервер был недоступен — вставить список вручную</summary>
+    <textarea id="importText" placeholder='[["ник",67,4589], …]'></textarea>
+    <div class="dlg-btns">
+      <button id="importOk">Импортировать</button>
+    </div>
+  </details>
   <div class="dlg-btns">
-    <button id="importOk" class="primary">Импортировать</button>
-    <button id="baseClose">Закрыть</button>
+    <button id="baseClose" class="primary">Закрыть</button>
   </div>
 </dialog>
 
@@ -196,7 +677,9 @@
   <aside id="history">
     <div class="panel-head">
       <span>История</span>
+      <span id="histProgress"></span>
       <button id="histClear" title="Очистить историю">Очистить</button>
+      <button id="histCheck" title="Проверить серые ники на всех серверах">↻</button>
     </div>
     <div class="panel-body" id="histBody"></div>
   </aside>
@@ -205,6 +688,52 @@
 
   <div id="stage">
     <video id="v" controls autoplay playsinline></video>
+    <div id="keepAsk" hidden>
+      <div id="keepText"></div>
+      <div class="dlg-btns">
+        <button id="keepYes" class="primary">Сохранить</button>
+        <button id="keepNo">Удалить</button>
+      </div>
+    </div>
+
+    <div id="logPanel" hidden>
+      <div id="logHead">Журнал воспроизведения · пишется в /mnt/DATA/Bonga_rec/playback.log</div>
+      <button id="logClose" title="Закрыть журнал">×</button>
+      <button id="logCopy" title="Скопировать журнал">Копировать</button>
+      <pre id="logBody"></pre>
+    </div>
+
+    <div id="stats" hidden>
+      <button id="statsClose" title="Закрыть статистику">×</button>
+      <pre id="statsBody"></pre>
+    </div>
+
+    <div id="netPanel" hidden>
+      <button id="netClose" title="Закрыть проверку">×</button>
+      <button id="netRun" title="Прогнать замеры заново">Ещё раз</button>
+      <pre id="netBody"></pre>
+    </div>
+  </div>
+
+  <div id="ctxMenu" hidden>
+    <div data-act="stats">Статистика для сисадминов</div>
+    <div data-act="log">Журнал воспроизведения</div>
+    <hr>
+    <div class="hint" id="ctxAutoTitle">Автопереключение комнат</div>
+    <div data-act="auto:0">выключить</div>
+    <div data-act="auto:30">каждые 30 секунд</div>
+    <div data-act="auto:60">каждую минуту</div>
+    <div data-act="auto:180">каждые 3 минуты</div>
+    <hr>
+    <div data-act="pip">Картинка в картинке</div>
+    <div data-act="full">Во весь экран</div>
+    <div data-act="mute">Звук вкл/выкл</div>
+    <hr>
+    <div data-act="profile">Открыть профиль на сайте</div>
+    <div data-act="copy">Копировать адрес потока</div>
+    <div data-act="reload">Перезапустить поток</div>
+    <hr>
+    <div class="hint">Shift + правая кнопка — меню браузера</div>
   </div>
 
   <div class="grip" id="gripRight"><span title="Свернуть/развернуть список эфира"></span></div>
@@ -213,6 +742,10 @@
     <div class="panel-head">
       <span id="onlineCount">Доступные</span>
       <button id="onlineRefresh" title="Проверить, кто в эфире">↻</button>
+    </div>
+    <div class="panel-find">
+      <input id="onlineFind" spellcheck="false" placeholder="Поиск по нику">
+      <button id="findClear" title="Очистить поиск" hidden>×</button>
     </div>
     <div class="panel-body" id="onlineBody"></div>
   </aside>
@@ -223,6 +756,14 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
+
+  // Русские числительные: 1 минуту, 2 минуты, 5 минут.
+  const plural = (n, one, few, many) => {
+    const ten = n % 10, hundred = n % 100;
+    if (ten === 1 && hundred !== 11) return one;
+    if (ten >= 2 && ten <= 4 && (hundred < 12 || hundred > 14)) return few;
+    return many;
+  };
   const video = $('v');
   let hls = null, stallTimer = 0;
   let userInitiated = false;      // переключение сделано человеком -> звук разрешён
@@ -324,7 +865,228 @@
 
   rebuildCatalog();
 
-  const say = (text, cls = '') => { $('status').className = cls; $('status').textContent = text; };
+  // Третий аргумент — подробности для панели под статусом: строка в шапке
+  // короткая и обрезается многоточием, а разбираться в проблеме нужно по
+  // полному тексту, который к тому же должен выделяться и копироваться.
+  let details = '';
+
+  // --- настройки, которые раньше были константами в коде --------------------
+  // Настройки общие для всех устройств, поэтому лежат на сервере рядом с базой
+  // ников. В памяти держим копию: читать их приходится часто и синхронно.
+  const DEFAULTS = { segment: 60, thumbs: 10, hist: 30,
+                     pull: 60, ttl: 60, gap: 10, pool: 24,
+                     buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
+                     keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0 };
+  let settings = { ...DEFAULTS };
+
+  const cfg = key => settings[key];
+
+  async function pullSettings() {
+    try {
+      const res = await fetch('api/settings', { cache: 'no-store' });
+      const data = await res.json();
+      if (data && typeof data === 'object') settings = { ...DEFAULTS, ...data };
+      return true;
+    } catch { return false; }
+  }
+
+  // Пишем сразу в память (чтобы UI не ждал сети) и отправляем на сервер.
+  function pushSettings(patch) {
+    settings = { ...settings, ...patch };
+    fetch('api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }).catch(() => say('Настройка не сохранилась: сервер не ответил.', 'err'));
+  }
+
+  // Периодические задачи заводятся заново при каждой смене интервала.
+  let thumbTimer = 0, histTimer = 0, pullTimer = 0;
+  function armTimers() {
+    clearInterval(thumbTimer); clearInterval(histTimer); clearInterval(pullTimer);
+    if (cfg('thumbs')) thumbTimer = setInterval(refreshThumbs, cfg('thumbs') * 1000);
+    if (cfg('hist')) histTimer = setInterval(checkHistory, cfg('hist') * 1000);
+    pullTimer = setInterval(pullTick, cfg('pull') * 1000);
+    nextPull = Date.now() + cfg('pull') * 1000;
+  }
+
+  // Папка записей — единственная строковая настройка: сервер может её отклонить
+  // (путь вне разрешённых корней или недоступен на запись), и тогда в ответе
+  // придёт прежнее значение — это и есть признак отказа.
+  $('recDir').onchange = async () => {
+    const wanted = $('recDir').value.trim();
+    try {
+      const res = await fetch('api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recDir: wanted }),
+      });
+      const data = await res.json();
+      settings = { ...DEFAULTS, ...data };
+      $('recDir').value = data.recDir || '';
+      const ok = !wanted || data.recDir === wanted;
+      $('recDirHint').classList.toggle('err', !ok);
+      say(ok ? `Записи теперь пишутся в ${data.recDir || 'папку по умолчанию'}.`
+             : 'Путь отклонён: он вне разрешённых корней или недоступен на запись.',
+          ok ? 'ok' : 'err');
+    } catch {
+      say('Сервер не ответил — путь не сохранён.', 'err');
+    }
+  };
+
+  // Незавершённые записи: сервер перезапускали, ffmpeg погиб вместе с ним,
+  // а каталоги с кусками остались. Спрашиваем, что с ними делать.
+  async function checkOrphans() {
+    let list = [];
+    try {
+      const res = await fetch('api/orphans', { cache: 'no-store' });
+      list = (await res.json()).orphans || [];
+    } catch { return; }
+    if (!list.length) { $('orphanDlg').close(); return; }
+
+    $('orphanList').textContent = '';
+    for (const item of list) {
+      const row = document.createElement('div');
+      row.className = 'orphan';
+
+      const name = document.createElement('b');
+      name.textContent = item.user;
+      const info = document.createElement('i');
+      info.textContent = `${item.segments} ${plural(item.segments, 'кусок', 'куска', 'кусков')} · ` +
+                         `${fmtSize(item.bytes)} · ${when(item.at * 1000)}`;
+
+      const keep = document.createElement('button');
+      keep.textContent = 'Сохранить';
+      keep.onclick = () => orphanAct('keep', item.id, keep);
+
+      const drop = document.createElement('button');
+      drop.textContent = 'Удалить';
+      drop.onclick = () => orphanAct('drop', item.id, drop);
+
+      row.append(name, info, keep, drop);
+      $('orphanList').appendChild(row);
+    }
+    if (!$('orphanDlg').open) $('orphanDlg').showModal();
+  }
+
+  async function orphanAct(what, id, button) {
+    const row = button.closest('.orphan');
+    row.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    button.textContent = what === 'keep' ? 'Склеиваю…' : 'Удаляю…';
+    try {
+      const res = await fetch(`api/orphans/${what}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      say(what === 'keep' ? `Сохранено: ${data.merged}` : `Удалено: ${id}`, 'ok');
+    } catch (err) {
+      say(`Не вышло (${err.message}) — файлы на месте.`, 'err');
+    }
+    checkOrphans();
+  }
+
+  $('orphanClose').onclick = () => $('orphanDlg').close();
+  $('orphanKeepAll').onclick = async () => {
+    for (const b of [...$('orphanList').querySelectorAll('button')].filter(b => b.textContent === 'Сохранить')) b.click();
+  };
+  $('orphanDropAll').onclick = async () => {
+    for (const b of [...$('orphanList').querySelectorAll('button')].filter(b => b.textContent === 'Удалить')) b.click();
+  };
+
+  // Обозреватель папок: системный диалог выбора каталога не отдаёт странице
+  // абсолютный путь, поэтому список каталогов даёт наш сервер — он же следит,
+  // чтобы гулять можно было только внутри разрешённых корней.
+  let dirAt = '';
+
+  async function showDirs(path) {
+    try {
+      const res = await fetch('api/browse?path=' + encodeURIComponent(path || ''), { cache: 'no-store' });
+      const data = await res.json();
+      dirAt = data.path || '';
+      $('dirPath').textContent = dirAt || 'Выберите корень';
+      $('dirUp').disabled = data.parent === null;
+      $('dirPick').disabled = !dirAt;
+      $('dirUp').dataset.to = data.parent === null ? '' : data.parent;
+
+      $('dirList').textContent = '';
+      if (data.error) {
+        $('dirList').innerHTML = `<div class="empty">${data.error}</div>`;
+        return;
+      }
+      if (!data.dirs.length) {
+        $('dirList').innerHTML = '<div class="empty">Вложенных папок нет</div>';
+        return;
+      }
+      for (const item of data.dirs) {
+        const row = document.createElement('div');
+        row.textContent = '📁 ' + item.name;
+        row.onclick = () => showDirs(item.path);
+        $('dirList').appendChild(row);
+      }
+    } catch {
+      $('dirList').innerHTML = '<div class="empty">Сервер не ответил</div>';
+    }
+  }
+
+  $('recDir').onclick = () => {
+    $('dirNew').value = '';
+    showDirs($('recDir').value.trim() || '');
+    $('dirDlg').showModal();
+  };
+
+  $('dirUp').onclick = () => showDirs($('dirUp').dataset.to);
+  $('dirCancel').onclick = () => $('dirDlg').close();
+
+  $('dirPick').onclick = () => {
+    const extra = $('dirNew').value.trim().replace(/[/\\]/g, '');
+    $('recDir').value = extra ? `${dirAt}/${extra}` : dirAt;
+    $('dirDlg').close();
+    $('recDir').onchange();                 // сохраняем и показываем ответ сервера
+  };
+
+  // Раскладываем значения по элементам панели и слушаем изменения.
+  function applySettingsToUI() {
+    for (const key of Object.keys(DEFAULTS)) {
+      const el = $(key);
+      if (el && el.tagName === 'SELECT') el.value = String(cfg(key));
+      if (el) el.onchange = () => { pushSettings({ [key]: Number(el.value) }); armTimers(); };
+    }
+    $('recDir').value = settings.recDir || '';
+    armTimers();
+    armCarousel();
+    applyPanels();
+    paintRec();
+  }
+
+  const say = (text, cls = '', extra = '') => {
+    details = extra;
+    $('status').className = cls + (extra ? ' hasDetails' : '');
+    $('status').textContent = text;
+    $('status').title = extra ? 'Наведите курсор — подробности' : text;
+    $('statusText').textContent = extra ? `${text}\n\n${extra}` : text;
+    if (!extra) $('statusDetails').hidden = true;
+  };
+
+  // Панель держим открытой, пока курсор на статусе или на ней самой, —
+  // иначе до текста не дотянуться, чтобы его выделить.
+  let hideDetails = 0;
+  const openDetails = () => { clearTimeout(hideDetails); if (details) $('statusDetails').hidden = false; };
+  const closeDetails = () => { hideDetails = setTimeout(() => { $('statusDetails').hidden = true; }, 300); };
+
+  $('status').addEventListener('mouseenter', openDetails);
+  $('status').addEventListener('mouseleave', closeDetails);
+  $('statusDetails').addEventListener('mouseenter', () => clearTimeout(hideDetails));
+  $('statusDetails').addEventListener('mouseleave', closeDetails);
+
+  $('statusCopy').onclick = () => {
+    navigator.clipboard.writeText($('statusText').textContent)
+      .then(() => { $('statusCopy').textContent = 'Скопировано'; })
+      .catch(() => { $('statusCopy').textContent = 'Не вышло — выделите вручную'; })
+      .finally(() => setTimeout(() => { $('statusCopy').textContent = 'Копировать'; }, 2000));
+  };
 
   // edge бывает числовой (67 -> mobile-edge67) и американский (us14 -> mobile-edge-us14)
   const host = edge => /^\d+$/.test(edge) ? `mobile-edge${edge}` : `mobile-edge-${edge}`;
@@ -339,13 +1101,31 @@
   // Внимание: почти любой edge отвечает 200 на любой ник, отдавая пустышку
   // «#EXTM3U + #EXT-X-VERSION» без единого варианта качества. Поэтому признак
   // живого потока — наличие EXT-X-STREAM-INF, а не код ответа.
-  async function alive(user, edge, signal) {
+  // Часть серверов из списка просто не существует: DNS не резолвится либо
+  // соединение не устанавливается. Такие висят до таймаута и растягивают
+  // перебор — поэтому у каждого запроса свой предел в 3 секунды.
+  const PROBE_MS = 3000;
+
+  async function probe(user, edge, signal) {
+    const ctl = new AbortController();
+    const stop = () => ctl.abort();
+    if (signal) signal.addEventListener('abort', stop, { once: true });
+    const timer = setTimeout(stop, PROBE_MS);
+
     try {
-      const r = await fetch(playlistUrl(user, edge), { cache: 'no-store', signal });
-      if (!r.ok) return false;
-      return (await r.text()).includes('EXT-X-STREAM-INF');
-    } catch { return false; }
+      const r = await fetch(playlistUrl(user, edge), { cache: 'no-store', signal: ctl.signal });
+      if (!r.ok) return { ok: false, dead: false };          // 404 — сервер живой, ника нет
+      return { ok: (await r.text()).includes('EXT-X-STREAM-INF'), dead: false };
+    } catch {
+      // Наш собственный обрыв (нашли на другом сервере) мёртвым не считаем.
+      return { ok: false, dead: !(signal && signal.aborted) };
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', stop);
+    }
   }
+
+  const alive = async (user, edge, signal) => (await probe(user, edge, signal)).ok;
 
   // Пул одновременных задач: список, размер пула, что делать с элементом.
   async function runPool(items, size, fn) {
@@ -354,21 +1134,54 @@
     await Promise.all(Array.from({ length: size }, worker));
   }
 
-  // Перебор edge-серверов пулом по 8 запросов; первый ответивший 200 — наш.
-  async function findEdge(user) {
-    const ctrl = new AbortController();
-    let queue = candidates.slice(), found = null;
-    const remembered = localStorage.getItem('edge:' + user.toLowerCase());
-    if (remembered) queue = [remembered, ...queue.filter(e => e !== remembered)];
+  // Мёртвые серверы помним, чтобы не ждать их снова. Через шесть часов даём
+  // им ещё шанс — список edge у сайта со временем меняется.
+  const DEAD_TTL = 6 * 3600 * 1000;
+  const loadDead = () => { try { return JSON.parse(localStorage.getItem('deadEdges')) || {}; } catch { return {}; } };
+  const saveDead = map => localStorage.setItem('deadEdges', JSON.stringify(map));
 
-    const worker = async () => {
-      while (queue.length && !found) {
-        const edge = queue.shift();
-        if (await alive(user, edge, ctrl.signal)) { found = found || edge; ctrl.abort(); }
-      }
-    };
-    await Promise.all(Array.from({ length: 8 }, worker));
+  // Опрашиваем весь список разом: хосты разные, лимит «6 соединений на хост»
+  // не мешает, а первый же нашедшийся обрывает остальные запросы.
+  async function scanEdges(user, list) {
+    const ctrl = new AbortController();
+    const dead = loadDead();
+    let found = null;
+
+    await Promise.all(list.map(async edge => {
+      const res = await probe(user, edge, ctrl.signal);
+      if (res.dead) dead[edge] = Date.now();
+      else if (dead[edge]) delete dead[edge];
+      if (res.ok && !found) { found = edge; ctrl.abort(); }
+    }));
+
+    saveDead(dead);
     return found;
+  }
+
+  async function findEdge(user) {
+    const dead = loadDead(), now = Date.now();
+    const key = user.toLowerCase();
+
+    // Сначала спрашиваем то, что уже известно: номер из общей базы (её каждую
+    // минуту освежает сборщик с сайта) и номер прошлого просмотра. Если модель
+    // просто переехала, ответ находится за один запрос вместо ста пяти.
+    const hints = [known.get(key), localStorage.getItem('edge:' + key)]
+      .filter(Boolean)
+      .filter((e, i, all) => all.indexOf(e) === i);
+
+    for (const hint of hints) {
+      if ((await probe(user, hint)).ok) return hint;
+    }
+
+    let live = candidates.filter(e => !dead[e] || now - dead[e] > DEAD_TTL);
+    live = live.filter(e => !hints.includes(e));       // их уже проверили
+
+    const found = await scanEdges(user, live);
+    if (found) return found;
+
+    // Не нашли — проверим и те, что считались мёртвыми: вдруг ожили.
+    const skipped = candidates.filter(e => !live.includes(e) && !hints.includes(e));
+    return skipped.length ? scanEdges(user, skipped) : null;
   }
 
   // Автозапуск со звуком браузеры блокируют, пока пользователь не кликнул по
@@ -384,25 +1197,81 @@
     });
   }
 
+  // --- диагностика для панели подробностей -----------------------------------
+  let lastHlsError = '';
+
+  function playbackReport() {
+    const buf = [];
+    for (let i = 0; i < video.buffered.length; i++) {
+      buf.push(`${video.buffered.start(i).toFixed(1)}–${video.buffered.end(i).toFixed(1)}`);
+    }
+    return [
+      `время:      ${new Date().toLocaleString('ru-RU')}`,
+      `ник:        ${$('user').value.trim() || '—'} · edge ${$('edge').value.trim() || '—'}`,
+      `источник:   ${playingFrom === 'disk' ? 'запись на диске' : 'прямой эфир'}`,
+      `адрес:      ${$('url').textContent}`,
+      `видео:      readyState=${video.readyState} networkState=${video.networkState} ` +
+        `currentTime=${video.currentTime.toFixed(1)} paused=${video.paused}`,
+      `буфер:      ${buf.join(', ') || 'пусто'}`,
+      `hls.js:     ${hls ? `дорожек ${hls.levels ? hls.levels.length : 0}, выбрана ${hls.currentLevel}`
+                         : 'не используется (нативное воспроизведение)'}`,
+      lastHlsError ? `ошибка hls: ${lastHlsError}` : '',
+      `запись:     ${session ? `${session.id}, фаза ${session.phase}` : 'не ведётся'}`,
+      `браузер:    ${navigator.userAgent}`,
+    ].filter(Boolean).join('\n');
+  }
+
+  // Спрашиваем плейлист прямо сейчас: чаще всего причина видна именно тут —
+  // либо 404, либо пустышка без дорожек, либо сеть не пускает.
+  async function probeCurrent() {
+    const url = $('url').textContent;
+    if (!url || url === '—') return 'адрес не задан';
+    try {
+      const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) return `HTTP ${res.status} ${res.statusText}`;
+      const text = await res.text();
+      const tracks = (text.match(/EXT-X-STREAM-INF/g) || []).length;
+      const parts = (text.match(/\.ts/g) || []).length;
+      return `HTTP ${res.status}, дорожек ${tracks}, сегментов ${parts}, тело ${text.length} байт` +
+             (tracks || parts ? '' : ' — плейлист пуст');
+    } catch (err) {
+      return `запрос не прошёл: ${err.name} ${err.message}`;
+    }
+  }
+
   function attach(url) {
+    logEvent('плеер', `новый источник: ${url}`, 'act');
     if (hls) { hls.destroy(); hls = null; }
+    // Счётчики статистики — на каждый поток свои.
+    errorCount = netErrors = mediaErrors = 0;
+    stallCount = 0; stallTotal = 0; stallStart = 0; lastStallAt = 0;
+    errorLog.length = 0;
+    lastFrag = null;
+    lastHlsError = '';
 
     // Сторож против «вечного спиннера»: поток мог закончиться между проверкой
     // и запуском — тогда данные просто не приходят и плеер молча висит.
     clearTimeout(stallTimer);
-    stallTimer = setTimeout(() => {
-      if (video.readyState < 3 && !video.currentTime) {
-        say('12 секунд без данных — похоже, эфир закончился. Попробуйте «Найти edge».', 'err');
-      }
+    stallTimer = setTimeout(async () => {
+      if (video.readyState >= 3 || video.currentTime) return;
+      const report = playbackReport();
+      say('12 секунд без данных — похоже, эфир закончился. Попробуйте «Найти edge».', 'err',
+          `${report}\nплейлист:   проверяю…`);
+      const probe = await probeCurrent();
+      say('12 секунд без данных — похоже, эфир закончился. Попробуйте «Найти edge».', 'err',
+          `${report}\nплейлист:   ${probe}`);
     }, 12000);
     $('url').textContent = url;
     $('url').title = url;              // полная ссылка в подсказке, если обрезалась многоточием
     $('quality').innerHTML = '<option value="-1">авто</option>';
 
     if (window.Hls && Hls.isSupported()) {
-      // backBufferLength — глубина перемотки назад: сколько секунд эфира
-      // остаётся в памяти. lowLatencyMode выключен: он подгоняет playhead
-      // к живому краю и мешает ручной перемотке.
+      // backBufferLength — сколько эфира держим в оперативной памяти.
+      // При игре с диска это кэш поверх записи: недавнее мотается мгновенно
+      // из памяти, всё что глубже — дочитывается с диска. При прямом эфире
+      // это единственная глубина перемотки, дальше данных попросту нет.
+      // lowLatencyMode выключен: он подгоняет playhead к живому краю и
+      // мешает ручной перемотке.
       hls = new Hls({ lowLatencyMode: false, backBufferLength: bufferSeconds() });
       hls.loadSource(url);
       hls.attachMedia(video);
@@ -410,7 +1279,7 @@
         if (!data.levels.length) {           // пустышка вместо плейлиста
           hls.destroy(); hls = null;
           return say('Сервер отдал пустой плейлист — эфира на этом edge нет. ' +
-                     'Нажмите «Найти edge».', 'err');
+                     'Нажмите «Найти edge».', 'err', playbackReport());
         }
         // Дорожки названы суффиксом: …_240 / …_480 / …_720, а верхняя идёт
         // без суффикса в родном разрешении. Ориентируемся на суффикс: у
@@ -422,27 +1291,60 @@
           return m ? Number(m[1]) : Math.min(lvl.width, lvl.height);
         };
 
+        const rate = lvl => (lvl.bitrate || 0) / 1e6;
         data.levels.forEach((lvl, i) => {
           const opt = document.createElement('option');
           opt.value = i;
-          opt.textContent = `${tier(lvl)}p`;
+          opt.textContent = `${tier(lvl)}p · ${rate(lvl).toFixed(1)} Мбит/с`;
           $('quality').appendChild(opt);
         });
 
-        // По умолчанию 720p. Если такой дорожки нет, findIndex вернёт -1 —
-        // а это ровно то значение, которым hls.js обозначает автовыбор.
-        const i720 = data.levels.findIndex(lvl => tier(lvl) === 720);
-        hls.currentLevel = i720;
-        $('quality').value = String(i720);
+        // Берём самое высокое качество в пределах потолка. Ориентироваться на
+        // разрешение бессмысленно: у одних 720p весит 3 Мбит/с, у других 9.
+        const limit = cfg('maxRate') * 1000;
+        const fits = data.levels.map((lvl, i) => i)
+          .filter(i => !limit || (data.levels[i].bitrate || 0) <= limit);
+        const pick = (fits.length ? fits : data.levels.map((lvl, i) => i))
+          .reduce((best, i) => ((data.levels[i].bitrate || 0) > (data.levels[best].bitrate || 0)
+            ? i : best), fits.length ? fits[0] : 0);
+
+        hls.currentLevel = pick;
+        $('quality').value = String(pick);
 
         tryPlay();
-        say(i720 >= 0 ? 'Играет, 720p.' : 'Играет: дорожки 720p нет, включён автовыбор.', 'ok');
+        const chosen = data.levels[pick];
+        const heaviest = data.levels.reduce((a, b) => ((a.bitrate || 0) > (b.bitrate || 0) ? a : b));
+        say(chosen === heaviest
+          ? `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с — лучшее у модели.`
+          : `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с; ` +
+            `верхняя дорожка ${tier(heaviest)}p идёт на ${rate(heaviest).toFixed(1)} — выше потолка.`,
+          'ok');
       });
+
       hls.on(Hls.Events.ERROR, (_, err) => {
+        errorCount++;
+
+
+        if (err.type === Hls.ErrorTypes.NETWORK_ERROR) netErrors++;
+        else if (err.type === Hls.ErrorTypes.MEDIA_ERROR) mediaErrors++;
+
+        const code = err.response && err.response.code ? ` HTTP ${err.response.code}` : '';
+        const frag = err.frag ? ` #${err.frag.sn}` : '';
+        errorLog.unshift(`${new Date().toLocaleTimeString('ru-RU')} ${err.details}${code}${frag}` +
+                         (err.fatal ? ' (фатальная)' : ''));
+        errorLog.length = Math.min(errorLog.length, 5);
+
+        lastHlsError = `${err.details} (${err.type}${err.fatal ? ', фатальная' : ''})` +
+          (err.response ? `, HTTP ${err.response.code}` : '') +
+          (err.frag ? `, фрагмент ${err.frag.sn}` : '');
+        logEvent('hls.ERROR', lastHlsError, 'err');
         if (!err.fatal) return;
         if (err.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
         else if (err.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-        else { hls.destroy(); hls = null; say('Поток оборвался: ' + err.details, 'err'); }
+        else {
+          hls.destroy(); hls = null;
+          say('Поток оборвался: ' + err.details, 'err', playbackReport());
+        }
       });
     } else {
       video.src = url;                       // Safari умеет HLS сам
@@ -477,7 +1379,11 @@
       $('edge').value = edge;
       localStorage.setItem('edge:' + user.toLowerCase(), edge);
       location.hash = user;
+      playingFrom = 'live';
       attach(playlistUrl(user, edge));
+      paintSource();
+      recStopped = false;                        // новый поток — снова пишем
+      if (cfg('recMode')) armRecording(user, edge);   // в ручном режиме ждём кнопку
       pushHist(user, edge);
       learn(user, edge);
       updateMediaSession(user, edge);
@@ -493,23 +1399,357 @@
   // --- перемотка по живому эфиру -------------------------------------------
   // DVR у сервера нет: назад доступно ровно то, что hls.js держит в памяти.
   // 720p ≈ 3,4 Мбит/с, то есть 5 минут буфера ≈ 130 МБ ОЗУ, 30 минут ≈ 750 МБ.
-  function bufferSeconds() {
-    return Number(localStorage.getItem('buffer') || 300);
-  }
+  const bufferSeconds = () => cfg('buffer');
 
-  $('buffer').value = String(bufferSeconds());
-  $('buffer').onchange = () => {
-    localStorage.setItem('buffer', $('buffer').value);
+  $('buffer').addEventListener('change', () => {
     if (hls) hls.config.backBufferLength = Number($('buffer').value);
     say(`Глубина перемотки назад: ${$('buffer').selectedOptions[0].textContent}.`, 'ok');
-  };
+  });
 
   const liveEdge = () => {
     if (hls && hls.liveSyncPosition != null) return hls.liveSyncPosition;
     return video.seekable.length ? video.seekable.end(video.seekable.length - 1) : video.currentTime;
   };
 
-  $('live').onclick = () => { video.currentTime = liveEdge(); video.play().catch(() => {}); };
+  // Возврат к живому краю — только когда воспроизведение реально встало.
+  // Перехватывать каждую 404 нельзя: на живом окне в четыре сегмента они
+  // случаются штатно, и hls.js сам их переигрывает. Вмешиваемся, лишь если
+  // за восемь секунд позиция не сдвинулась.
+  let stallWatch = 0, stallFrom = 0;
+
+  video.addEventListener('waiting', () => {
+    if (video.seeking || stallWatch) return;
+    stallFrom = video.currentTime;
+    stallWatch = setTimeout(() => {
+      stallWatch = 0;
+      if (playingFrom !== 'live' || video.paused) return;
+      if (video.currentTime - stallFrom > 0.5) return;      // всё-таки поехало
+      logEvent('плеер', `8 секунд без движения на ${stallFrom.toFixed(1)}`, 'err');
+      jumpToLive();
+    }, 8000);
+  });
+
+  const dropStallWatch = () => { clearTimeout(stallWatch); stallWatch = 0; };
+  video.addEventListener('playing', dropStallWatch);
+  video.addEventListener('seeked', dropStallWatch);
+  video.addEventListener('pause', dropStallWatch);
+
+  let jumpedAt = 0;
+  function jumpToLive() {
+    if (Date.now() - jumpedAt < 3000) return;      // не дёргаемся на череде ошибок
+    jumpedAt = Date.now();
+
+    if (hls) hls.startLoad(-1);                    // -1 = грузить с живого края
+    const seek = video.seekable;
+    if (seek.length) video.currentTime = seek.end(seek.length - 1);
+    video.play().catch(() => {});
+
+    logEvent('плеер', 'прыжок к живому краю', 'act');
+    say('Пауза оказалась длиннее, чем сервер хранит эфир (8 секунд), — вернулся к живому краю. ' +
+        'Чтобы можно было ставить на паузу надолго, включите «На диск».', 'err');
+  }
+
+  $('live').onclick = () => {
+    if (playingFrom === 'disk') return backToLive();     // с записи возвращаемся к потоку
+    video.currentTime = liveEdge();
+    video.play().catch(() => {});
+  };
+
+  // --- запись эфира на диск --------------------------------------------------
+  // Двухчасовой буфер в оперативке не помещается, поэтому эфир пишет ffmpeg
+  // на сервере (HLS-сегменты + растущий плейлист типа EVENT), а плеер играет
+  // уже с диска. Перемотка доступна на всю длину записи, а в памяти остаётся
+  // только минута: всё остальное дочитывается с сервера по мере надобности.
+  // Запись идёт для каждой просмотренной трансляции — она и есть буфер
+  // перемотки. Флаг взводится, только если запись остановили кнопкой:
+  // до следующего потока её не поднимаем.
+  let recStopped = false;
+  let session = null;
+
+  const fmtSize = b => b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' ГБ'
+                     : b >= 1048576 ? Math.round(b / 1048576) + ' МБ'
+                     : Math.round(b / 1024) + ' КБ';
+  const fmtTime = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+  function paintRec() {
+    $('rec').classList.toggle('on', Boolean(session));
+    if (session && session.phase === 'merging') $('rec').textContent = 'Склеиваю…';
+    else if (session) $('rec').textContent = `⏺ ${fmtTime(session.seconds | 0)} · ${fmtSize(session.bytes | 0)}`;
+    else if (!cfg('recMode')) $('rec').textContent = 'На диск';
+    else if (recStopped) $('rec').textContent = 'Запись остановлена';
+    else if (video.paused || !video.src) $('rec').textContent = 'Запись ждёт потока';
+    else $('rec').textContent = 'Записи нет!';
+  }
+
+  // Готовую склейку играем как обычный файл: hls.js тут не нужен, а браузер
+  // умеет перематывать mp4 сам — сервер отдаёт его с поддержкой Range.
+  function playFile(url, at = 0) {
+    if (hls) { hls.destroy(); hls = null; }
+    clearTimeout(stallTimer);
+    $('url').textContent = url;
+    $('url').title = url;
+    $('quality').innerHTML = '<option value="-1">файл</option>';
+    if (at) video.addEventListener('loadedmetadata', () => { video.currentTime = at; }, { once: true });
+    video.src = url;
+    video.play().catch(() => {});
+  }
+
+  const recPost = (path, body) => fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(r => r.json().then(data => ({ ok: r.ok, data })));
+
+  async function recStop(id) {
+    try { return (await recPost('api/record/stop', { id })).data; }
+    catch { return null; }                       // сервер сам погасит по таймауту
+  }
+
+  const recDelete = id => recPost('api/record/delete', { id }).catch(() => null);
+
+  // --- судьба записи при переходе в другую комнату ---------------------------
+  // Запись идёт всегда: только она даёт перемотку глубже оперативной памяти.
+  // Но хранить всё подряд нельзя — час 720p это гигабайт, поэтому при уходе
+  // из комнаты спрашиваем. Короткие куски были буфером, их стираем молча.
+  let keepTimer = 0;
+  const keepQueue = [];
+
+  function finishSession(prev, state) {
+    const seconds = (state && state.seconds) || prev.seconds || 0;
+    const bytes = (state && state.bytes) || prev.bytes || 0;
+    const threshold = cfg('keepMin');
+
+    if (threshold >= 86400 || seconds < threshold) {
+      logEvent('запись', `${prev.id}: ${fmtTime(seconds)} — короче порога, удаляю`, 'act');
+      recDelete(prev.id);
+      return;
+    }
+    keepQueue.push({ id: prev.id, user: prev.user, seconds, bytes });
+    if (!keepTimer) askKeep();
+  }
+
+  function askKeep() {
+    const item = keepQueue[0];
+    if (!item) { $('keepAsk').hidden = true; return; }
+
+    let left = 30;
+    const paint = () => {
+      $('keepText').innerHTML =
+        `Запись <b>${item.user}</b> — ${fmtTime(item.seconds)}, ${fmtSize(item.bytes)}.<br>` +
+        `Оставить файл на диске? <i>Через ${left} с удалю сама.</i>` +
+        (keepQueue.length > 1 ? `<br><i>В очереди ещё ${keepQueue.length - 1}.</i>` : '');
+    };
+    paint();
+    // Окно PiP — отдельный документ: если смотрят там, вопрос надо перенести
+    // туда же, иначе он останется невидимым в главном окне.
+    try {
+      (pipWindow && !pipWindow.closed ? pipWindow.document.body : $('stage')).appendChild($('keepAsk'));
+    } catch { $('stage').appendChild($('keepAsk')); }
+    $('keepAsk').hidden = false;
+
+    clearInterval(keepTimer);
+    keepTimer = setInterval(() => {
+      left--;
+      if (left > 0) return paint();
+      decideKeep(false);
+    }, 1000);
+  }
+
+  function decideKeep(keep) {
+    const item = keepQueue.shift();
+    clearInterval(keepTimer);
+    keepTimer = 0;
+    if (item) {
+      if (keep) {
+        say(`Запись ${item.user} сохранена: ${fmtSize(item.bytes)} в /mnt/DATA/Bonga_rec.`, 'ok');
+        logEvent('запись', `${item.id}: оставлена по решению пользователя`, 'act');
+      } else {
+        recDelete(item.id);
+        logEvent('запись', `${item.id}: удалена`, 'act');
+      }
+    }
+    $('keepAsk').hidden = true;
+    if (keepQueue.length) askKeep();
+  }
+
+  $('keepYes').onclick = () => decideKeep(true);
+  $('keepNo').onclick = () => decideKeep(false);
+
+  // Ждём, пока ffmpeg закроет первый сегмент — до этого в плейлисте пусто.
+  // При hls_time=60 ждать приходится около минуты, поэтому ждём терпеливо.
+  async function waitPlaylist(url, tries = 150) {
+    for (let i = 0; i < tries; i++) {
+      try {
+        const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
+        if (res.ok && /^seg_\d+\.ts$/m.test(await res.text())) return true;
+      } catch { /* ещё не создан */ }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    return false;
+  }
+
+  // Запись живёт фоном и на воспроизведение не влияет: смотрим прямой эфир
+  // с CDN, он идёт без пауз. Свежий сегмент записи закрывается только раз в
+  // минуту, поэтому играть с диска у живого края — значит спотыкаться на
+  // каждой границе сегмента. Диск нужен, лишь когда мотаем глубже, чем
+  // помещается в память; окна перекрываются, так что дырки между ними нет.
+  let lastRecTry = 0;
+
+  async function armRecording(user, edge) {
+    lastRecTry = Date.now();
+    if (session) {
+      const prev = session;
+      session = null;
+      paintRec();
+      finishSession(prev, await recStop(prev.id));
+    }
+    say('Запускаю запись на диск…');
+
+    try {
+      const res = await recPost('api/record',
+        { user, edge, segment: cfg('segment'),
+          maxRate: cfg('maxRate'), recRate: cfg('recRate') });
+      if (!res.ok || !res.data.url) throw new Error(res.data.error || 'сервер отказал');
+      session = res.data;
+      paintRec();
+      say(`Пишу на диск. Эфир играет напрямую, без пауз; в памяти ` +
+          `${$('buffer').selectedOptions[0].textContent} перемотки, глубже — кнопка «Из записи».`, 'ok');
+    } catch (err) {
+      say(`Запись не пошла (${err.message}) — играю прямой эфир.`, 'err');
+    }
+  }
+
+  // --- переключение источника: прямой эфир <-> запись на диске ---------------
+  let playingFrom = 'live';
+  let pipBar = null;         // панель в своём окне PiP, если оно открыто
+  let pipWindow = null;      // само окно: в нём заводим таймер автопереключения
+
+  // Обе шкалы привязываем к стенным часам: в эфире позиция это «отстаём на N
+  // секунд от сейчас», в записи — «N секунд от её начала». Поэтому переход
+  // получается в ту же секунду, без прыжка.
+  function lagSeconds() {
+    const s = video.seekable;
+    if (!s.length) return 0;
+    return Math.max(0, s.end(s.length - 1) - video.currentTime);
+  }
+
+  async function switchToRecording() {
+    if (!session) return say('Запись не идёт — включите «На диск».', 'err');
+    if (playingFrom === 'disk') return;
+
+    const target = (Date.now() / 1000 - session.started) - lagSeconds();
+    if (!await waitPlaylist(session.url, 3)) {
+      return say('Первый сегмент записи ещё не закрыт — подождите минуту.', 'err');
+    }
+
+    playingFrom = 'disk';
+    attach(session.url);
+    video.addEventListener('loadedmetadata', () => {
+      const s = video.seekable;
+      const end = s.length ? s.end(s.length - 1) : 0;
+      video.currentTime = Math.min(Math.max(target, 0), end);
+    }, { once: true });
+    paintSource();
+    say('Играю из записи — перемотка на всю её длину. «В эфир» вернёт прямой поток.', 'ok');
+  }
+
+  function backToLive() {
+    const user = $('user').value.trim(), edge = $('edge').value.trim();
+    if (!user || !edge) return;
+    playingFrom = 'live';
+    attach(playlistUrl(user, edge));
+    paintSource();
+    say('Прямой эфир.', 'ok');
+  }
+
+  function paintSource() {
+    $('fromRec').classList.toggle('on', playingFrom === 'disk');
+    $('fromRec').textContent = playingFrom === 'disk' ? 'Смотрю запись' : 'Из записи';
+  }
+
+  $('fromRec').onclick = switchToRecording;
+  paintSource();
+
+  // Кнопка ничего не включает: она показывает состояние и останавливает запись
+  // текущей трансляции. Следующий поток снова начнёт писать.
+  $('rec').onclick = async () => {
+    // В ручном режиме кнопка ещё и запускает запись, если её нет.
+    if (!session && !cfg('recMode')) {
+      const user = $('user').value.trim();
+      if (!user || video.paused) return say('Сначала запустите трансляцию.', 'err');
+      recStopped = false;
+      return armRecording(user, $('edge').value.trim());
+    }
+
+    recStopped = true;
+    if (!session) { paintRec(); return say('Запись и так не идёт.', 'ok'); }
+
+    say('Останавливаю запись…');
+    await recStop(session.id);
+    session.phase = 'merging';             // дальше следит опрос: склейка -> готовый файл
+    paintRec();
+  };
+
+  // Раз в три секунды обновляем счётчик и следим за сменой фазы записи.
+  setInterval(async () => {
+    if (!session) return;
+    try {
+      const res = await fetch('api/record', { cache: 'no-store' });
+      const mine = ((await res.json()).recordings || []).find(r => r.id === session.id);
+
+      // Сервер перезапустили — он про нашу сессию уже не помнит, а ffmpeg погиб
+      // вместе с ним. Держаться за неё нельзя: счётчик замрёт, а новая запись
+      // не начнётся, потому что сессия формально есть.
+      if (!mine) {
+        logEvent('запись', `${session.id}: сервер её не знает, начинаю заново`, 'err');
+        say('Запись оборвалась (сервер перезапускался) — начинаю новую.', 'err');
+        session = null;
+        paintRec();
+        return;
+      }
+
+      const was = session.phase;
+      if (mine.phase !== was) logEvent('запись', `${session.id}: фаза ${was} -> ${mine.phase}`, 'act');
+      session = Object.assign(session, mine);
+      paintRec();
+
+      if (mine.phase === 'merging' && was !== 'merging') {
+        say(`Эфир записан (${fmtTime(mine.seconds)}), склеиваю сегменты в один файл…`);
+      } else if (mine.phase === 'ready') {
+        // Сегменты уже удалены — переходим на готовый mp4 с того же места.
+        playingFrom = 'disk';
+        playFile(mine.url, video.currentTime);
+        paintSource();
+        say(`Готово: ${mine.url.replace('rec/', '')}, ${fmtSize(mine.bytes)} — ` +
+            'перемотка по всей длине.', 'ok');
+        session = null;
+        paintRec();
+      } else if (mine.phase === 'failed') {
+        say('Склейка не удалась — сегменты остались на диске, ничего не потеряно.', 'err');
+        session = null;
+        paintRec();
+      }
+    } catch { /* сервер перезапускают — не шумим */ }
+  }, 3000);
+
+  // Сессия может потеряться: оборвался запрос, сервер перезапустили, вкладка
+  // ушла в сон. Кнопка при этом честно говорит «Записи нет!», а плеер сам
+  // пробует поднять запись заново — иначе перемотка глубже памяти пропадает
+  // молча, и о судьбе файла спросить будет некому.
+  setInterval(() => {
+    const user = $('user').value.trim();
+    if (!cfg('recMode') || recStopped || session || !user || video.paused || video.readyState < 3) return;
+    if (Date.now() - lastRecTry < 15000) return;
+    logEvent('запись', 'сессии нет, хотя запись включена — поднимаю заново', 'err');
+    armRecording(user, $('edge').value.trim());
+  }, 5000);
+
+  // Закрытая вкладка не должна оставлять ffmpeg писать часами.
+  window.addEventListener('pagehide', () => {
+    if (session) navigator.sendBeacon('api/record/stop', JSON.stringify({ id: session.id }));
+  });
+
+  paintRec();
 
   // Ползунок показывает всю длительность с начала просмотра, но старое уже
   // выброшено из буфера. Вместо отскока в эфир — прижимаем к краю доступного.
@@ -526,7 +1766,9 @@
     video.currentTime = target;
     setTimeout(() => { clamping = false; }, 0);
     say(wasBefore
-      ? `Назад доступно ${Math.round(end - start)} с — это весь буфер. Больше: увеличьте «Буфер».`
+      ? `Назад доступно ${Math.round(end - start)} с — это весь буфер памяти. ` +
+        (session && playingFrom === 'live' ? 'Глубже — кнопка «Из записи».'
+                                           : 'Больше: увеличьте «Буфер».')
       : 'Это уже прямой эфир, дальше вперёд ничего нет.');
   });
 
@@ -615,6 +1857,72 @@
     }
   }
 
+  // Глубокая проверка: серые ники перебираем по всем серверам — модель могла
+  // переехать, и быстрая проверка по старому номеру честно врёт. Дорого
+  // (до 105 запросов на ник), поэтому за заход берём не больше дюжины и
+  // начинаем с тех, кого дольше всех не смотрели.
+  // Когда в последний раз перебирали и кого именно — храним на диске браузера.
+  // В памяти эти отметки обнулялись при каждой перезагрузке, и полный перебор
+  // запускался снова, хотя только что был.
+  const loadDeep = () => {
+    try { return JSON.parse(localStorage.getItem('deep')) || { last: 0, at: {} }; }
+    catch { return { last: 0, at: {} }; }
+  };
+  const saveDeep = state => localStorage.setItem('deep', JSON.stringify(state));
+
+  let deepBusy = false;
+
+  async function deepCheckHistory(force = false) {
+    if (deepBusy) return;
+    const period = cfg('deep') * 60000;
+    const state = loadDeep();
+    if (!force && (!period || Date.now() - state.last < period)) return;
+
+    const targets = loadHist()
+      .filter(rec => !liveStatus.get(rec.u.toLowerCase()))
+      .sort((a, b) => (state.at[a.u.toLowerCase()] || 0) - (state.at[b.u.toLowerCase()] || 0));
+    const batch = cfg('deepBatch');
+    if (batch) targets.length = Math.min(targets.length, batch);
+    if (!targets.length) return;
+
+    deepBusy = true;
+    state.last = Date.now();
+    saveDeep(state);
+    $('histCheck').classList.add('busy');
+    $('histProgress').textContent = `0/${targets.length}`;
+
+    let done = 0, found = 0;
+    await runPool(targets, 2, async rec => {
+      const edge = await findEdge(rec.u);
+      const fresh = loadDeep();
+      fresh.at[rec.u.toLowerCase()] = Date.now();
+      saveDeep(fresh);
+      done++;
+      $('histProgress').textContent = `${done}/${targets.length}`;
+
+      if (!edge) return;
+      found++;
+      liveStatus.set(rec.u.toLowerCase(), true);
+
+      // Новый сервер — и в историю, и в общую базу: дальше быстрая проверка
+      // пойдёт уже по нему.
+      const list = loadHist();
+      const item = list.find(x => x.u.toLowerCase() === rec.u.toLowerCase());
+      if (item) { item.e = String(edge); saveHist(list); }
+      learn(rec.u, edge);
+      renderHist();
+    });
+
+    $('histProgress').textContent = found ? `+${found}` : '';
+    $('histCheck').classList.remove('busy');
+    deepBusy = false;
+    setTimeout(() => { if (!deepBusy) $('histProgress').textContent = ''; }, 5000);
+    if (found) say(`Нашлись на других серверах: ${found} из ${targets.length}.`, 'ok');
+    logEvent('история', `глубокая проверка: ${targets.length} ников, нашлось ${found}`, 'act');
+  }
+
+  $('histCheck').onclick = () => deepCheckHistory(true);
+
   async function checkHistory() {
     if (histChecking || document.hidden) return;
     const hist = loadHist();
@@ -625,9 +1933,34 @@
     });
     paintHist();
     histChecking = false;
+    deepCheckHistory();                      // сама решит, пора ли
   }
 
-  $('histClear').onclick = () => { localStorage.removeItem('history'); renderHist(); };
+  // Очистка необратима, поэтому в два нажатия: первое взводит, второе стирает.
+  let clearArmed = 0;
+
+  $('histClear').onclick = () => {
+    const armed = Date.now() - clearArmed < 4000;
+    if (!armed) {
+      clearArmed = Date.now();
+      $('histClear').textContent = 'Точно?';
+      $('histClear').classList.add('on');
+      setTimeout(() => {
+        if (Date.now() - clearArmed < 4000) return;
+        $('histClear').textContent = 'Очистить';
+        $('histClear').classList.remove('on');
+      }, 4000);
+      return;
+    }
+
+    clearArmed = 0;
+    $('histClear').textContent = 'Очистить';
+    $('histClear').classList.remove('on');
+    const count = loadHist().length;
+    localStorage.removeItem('history');
+    renderHist();
+    say(`История очищена: ${count} ${plural(count, 'запись', 'записи', 'записей')}.`, 'ok');
+  };
 
   // --- правая панель: кто в эфире прямо сейчас ------------------------------
   // Живой листинг сайта закрыт Cloudflare, поэтому статус берём с того же
@@ -639,8 +1972,44 @@
 
   let probing = false;
 
-  async function refreshOnline() {
+  // Полный обход — это тысячи запросов и несколько минут, поэтому результат
+  // кладём в кэш. Сами лезем проверять, только если кэш протух (час) или между
+  // проверками прошло не меньше десяти минут; кнопка ↻ проверяет всегда.
+  const onlineTtl = () => cfg('ttl') * 60000;
+  const onlineGap = () => cfg('gap') * 60000;
+  let lastProbeAt = 0;
+
+  // Результат лежит на сервере, а не в localStorage: проверил один браузер —
+  // видят все, и после F5 в любом из них обход не повторяется.
+  async function loadOnlineCache() {
+    try {
+      const res = await fetch('api/online', { cache: 'no-store' });
+      const data = await res.json();
+      return data && data.at && Array.isArray(data.live) && data.live.length ? data : null;
+    } catch { return null; }
+  }
+
+  function saveOnlineCache(live) {
+    fetch('api/online', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(live),
+    }).catch(() => { /* сервер перезапускают — переживём без сохранения */ });
+  }
+
+  // short — без слова «назад»: на плашке карточки оно только занимает место.
+  const ageText = (at, short = false) => {
+    const tail = short ? '' : ' назад';
+    const min = Math.round((Date.now() - at) / 60000);
+    if (min < 1) return short ? 'только что' : 'только что';
+    if (min < 60) return `${min} ${plural(min, 'минуту', 'минуты', 'минут')}${tail}`;
+    const hours = Math.round(min / 60);
+    return `${hours} ${plural(hours, 'час', 'часа', 'часов')}${tail}`;
+  };
+
+  async function refreshOnline(force = false) {
     if (probing) return;
+    if (!force && Date.now() - lastProbeAt < onlineGap()) return;
     probing = true;
     $('onlineRefresh').disabled = true;
     $('onlineCount').textContent = 'Проверяю…';
@@ -656,12 +2025,17 @@
     // 24 параллельные проверки проходят весь список за несколько секунд.
     // Превью-кадр (.jpg) остаётся на CDN и после ухода модели, поэтому
     // спрашиваем плейлист — он врать не умеет.
-    await runPool(all, 24, async m => {
-      if (await alive(m[0], m[1])) live.push(m);
+    // Статус берём по возрасту превью: это HEAD без тела ответа, и заодно
+    // сразу известно, когда модель в последний раз была в эфире.
+    await runPool(all, cfg('pool'), async m => {
+      const age = await thumbAge(m[0], m[1]);
+      if (age <= FRESH_MS) live.push([m[0], m[1], m[2] | 0, Math.round((Date.now() - age) / 1000)]);
       if (++done % 10 === 0) $('onlineCount').textContent = `Проверяю… ${done}/${all.length}`;
     });
 
     live.sort((a, b) => b[2] - a[2]);                  // по зрителям из снимка
+    lastProbeAt = Date.now();
+    saveOnlineCache(live);
     renderOnline(live);
     $('onlineCount').textContent = `В эфире: ${live.length} из ${all.length}`;
     $('onlineCount').title = `Проверено ников с известным сервером: ${all.length}. ` +
@@ -670,46 +2044,164 @@
     probing = false;
   }
 
+  // При загрузке страницы показываем прошлый результат, если он свежий:
+  // полный обход тысяч ников на каждый F5 — это минуты ожидания впустую.
+  async function showOnlineFromCache() {
+    const cache = await loadOnlineCache();
+    if (!cache) return false;
+
+    const at = cache.at * 1000;                    // сервер отдаёт секунды
+    if (Date.now() - at > onlineTtl()) return false;
+
+    lastProbeAt = at;
+    renderOnline(cache.live);
+    $('onlineCount').textContent = `В эфире: ${cache.live.length} · ${ageText(at)}`;
+    $('onlineCount').title = 'Показан прошлый результат проверки. Полный обход запускается ' +
+      'кнопкой ↻ или сам, если данным больше часа.';
+    return true;
+  }
+
   // Обновляем только видимые превью: панель длинная, за экраном картинки не нужны.
+  let thumbSoon = 0;
+  const queueThumbs = () => {
+    clearTimeout(thumbSoon);
+    thumbSoon = setTimeout(refreshThumbs, 120);      // копим появившиеся, потом одним заходом
+  };
+
   const visObserver = new IntersectionObserver(entries => {
-    for (const e of entries) e.target.dataset.visible = e.isIntersecting ? '1' : '0';
+    let fresh = false;
+    for (const e of entries) {
+      e.target.dataset.visible = e.isIntersecting ? '1' : '0';
+      if (e.isIntersecting && !e.target.blobUrl) fresh = true;   // эту ещё не загружали
+    }
+    if (fresh) queueThumbs();
   }, { root: $('online'), rootMargin: '150px' });
 
-  function refreshThumbs() {
-    if (document.hidden) return;
-    const stamp = Date.now();
-    for (const img of $('onlineBody').querySelectorAll('img[data-visible="1"]')) {
-      img.src = `${img.dataset.base}?t=${stamp}`;
+  // Забираем превью через fetch, а не через <img src>: из такой загрузки видны
+  // заголовки ответа, а значит Last-Modified приходит вместе с картинкой — и
+  // статус «в сети / не в сети» обновляется тем же запросом, без отдельного HEAD.
+  // Кадр грузим у каждой карточки отдельно: время пачки определяет самый
+  // медленный сервер (замер: до 9 секунд), поэтому ждать всю пачку нельзя.
+  // Свой таймаут обрывает застрявшие, а флаг у элемента не даёт запросить
+  // один и тот же кадр дважды.
+  const THUMB_MS = 5000;
+
+  async function loadThumb(img) {
+    if (img.busy || img.dataset.visible !== '1') return;
+    img.busy = true;
+
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), THUMB_MS);
+    const card = img.closest('.card');
+
+    try {
+      const res = await fetch(`${img.dataset.base}?t=${Date.now()}`,
+                              { cache: 'no-store', signal: ctl.signal });
+      if (!res.ok) { if (card) card.classList.add('offline'); return; }
+
+      // Last-Modified приходит тем же ответом, что и картинка: статус комнаты
+      // не требует отдельного запроса.
+      const modified = res.headers.get('Last-Modified');
+      const age = modified ? Date.now() - new Date(modified).getTime() : 0;
+      const gone = age > FRESH_MS;
+
+      // Карточка помнит сервер с момента обхода, а модель могла переехать —
+      // тогда на старом сервере кадр честно протух, хотя эфир идёт. Если база
+      // (её освежает сборщик и открытие потока) знает другой номер, проверяем
+      // там же, но только один раз.
+      if (gone && card && !img.retried) {
+        const fresher = known.get((card.dataset.user || '').toLowerCase());
+        if (fresher && fresher !== card.dataset.edge) {
+          img.retried = true;
+          card.dataset.edge = fresher;
+          card.title = `${card.dataset.user} · edge ${fresher}`;
+          img.dataset.base = thumbUrl(card.dataset.user, fresher);
+          clearTimeout(timer);
+          img.busy = false;
+          return loadThumb(img);
+        }
+      }
+
+      if (card) {
+        card.classList.toggle('offline', gone);
+        const when = card.querySelector('.offAt');
+        if (when) when.textContent = gone ? ageText(Date.now() - age, true) : '';
+      }
+
+      if (!gone) img.retried = false;        // ожила — снова разрешаем перепроверку
+      const url = URL.createObjectURL(await res.blob());
+      if (img.blobUrl) URL.revokeObjectURL(img.blobUrl);
+      img.blobUrl = url;
+      img.src = url;
+    } catch { /* таймаут или обрыв — оставляем прежний кадр */ }
+    finally {
+      clearTimeout(timer);
+      img.busy = false;
     }
   }
 
+  // Тик и появление карточки на экране запускают одно и то же: очередь из
+  // видимых, где сперва идут те, у кого кадра ещё нет. Заход не ждём — новые
+  // карточки начинают грузиться сразу.
+  function refreshThumbs() {
+    if (document.hidden) return;
+    const shots = [...$('onlineBody').querySelectorAll('img[data-visible="1"]')]
+      .filter(img => !img.busy)
+      .sort((a, b) => (a.blobUrl ? 1 : 0) - (b.blobUrl ? 1 : 0));
+    if (shots.length) runPool(shots, 12, loadThumb);
+  }
+
+  // Список эфира — снимок последнего обхода, и за десяток минут часть моделей
+  // уходит. Превью об этом не скажет: кадр остаётся на CDN и после ухода.
+  // Поэтому перепроверяем плейлистом то, что видно на экране, — это несколько
+  // карточек, а не весь список.
+  const FRESH_MS = 45000;          // превью старше — модели уже нет
+
+  // Возраст превью по заголовку Last-Modified: CDN перерисовывает кадр
+  // непрерывно, пока идёт эфир (замер: у живых 0-1 с, у ушедших от десятков
+  // секунд до часа). Заголовок читается и с чужого домена — он входит в число
+  // безопасных для межсайтовых ответов. Нужен полному обходу, где картинка
+  // не требуется: HEAD не тянет тело.
+  async function thumbAge(user, edge) {
+    try {
+      const res = await fetch(`${thumbUrl(user, edge)}?t=${Date.now()}`,
+                              { method: 'HEAD', cache: 'no-store' });
+      if (!res.ok) return Infinity;
+      const stamp = res.headers.get('Last-Modified');
+      return stamp ? Date.now() - new Date(stamp).getTime() : 0;
+    } catch { return Infinity; }
+  }
+
   function renderOnline(live) {
-    const body = $('onlineBody'), stamp = Date.now();
+    const body = $('onlineBody');
     liveList = live;                       // порядок для перелистывания комнат
     visObserver.disconnect();
+    for (const img of body.querySelectorAll('img')) {
+      if (img.blobUrl) URL.revokeObjectURL(img.blobUrl);     // иначе память подтекает
+    }
     body.textContent = '';
     if (!live.length) {
       body.innerHTML = '<div class="empty">Никого не нашлось. Список — снимок сохранённой страницы.</div>';
       return;
     }
-    for (const [user, edge, viewers] of live) {
+    for (const [user, edgeAtSweep, viewers, seen] of live) {
+      // Снимку эфира может быть до часа, а база обновляется каждую минуту —
+      // поэтому сервер берём из неё, если он там известен. Иначе карточка
+      // стучалась бы на старый сервер и считала модель ушедшей.
+      const edge = known.get(user.toLowerCase()) || edgeAtSweep;
+
       const card = document.createElement('div');
       card.className = 'card';
       card.dataset.user = user;
+      card.dataset.edge = String(edge);
       card.title = `${user} · edge ${edge}`;
 
+      // Картинку не подставляем сразу: её загрузит refreshThumbs, и статус
+      // комнаты появится тем же запросом, вместе с кадром.
       const img = document.createElement('img');
-      img.loading = 'lazy';
       img.alt = user;
       img.dataset.base = thumbUrl(user, edge);
-      img.dataset.visible = '1';
-      img.src = `${img.dataset.base}?t=${stamp}`;
-
-      // Карточку убираем, только если кадр не пришёл ни разу: при обновлении
-      // раз в 10 секунд разовая сетевая ошибка не должна стирать модель из списка.
-      let everLoaded = false;
-      img.onload = () => { everLoaded = true; };
-      img.onerror = () => { if (!everLoaded) card.remove(); };
+      img.dataset.visible = '0';
       visObserver.observe(img);
 
       const cap = document.createElement('div');
@@ -718,14 +2210,67 @@
       cap.querySelector('b').textContent = user;
       cap.querySelector('i').textContent = viewers ? `${viewers}👁` : '';
 
-      card.append(img, cap);
+      const offBox = document.createElement('span');
+      offBox.className = 'offBox';
+
+      const off = document.createElement('span');
+      off.className = 'off';
+      off.textContent = 'нет';
+
+      const offAt = document.createElement('span');
+      offAt.className = 'offAt';
+      offBox.append(off, offAt);
+      // seen — «когда обновлялось превью на момент обхода», а не сейчас.
+      // Сравнивать его с текущим временем нельзя: обходу могут быть десятки
+      // минут, и тогда ушедшими окажутся все подряд. Значение просто держим
+      // при карточке, а статус определяет свежая проверка видимых.
+      if (seen) card.dataset.seen = String(seen);
+
+      card.append(img, offBox, cap);
       card.onclick = () => openStream(user, edge);
       body.appendChild(card);
     }
     markCurrent();
+    filterOnline();          // свежий список сразу под текущий поиск
+    queueThumbs();                   // грузим то, что попало на экран
   }
 
-  $('onlineRefresh').onclick = refreshOnline;
+  // Поиск по колонке: прячем неподходящие карточки, а если совпадений нет —
+  // предлагаем открыть введённый ник напрямую, он может быть и не в списке.
+  function filterOnline() {
+    const query = $('onlineFind').value.trim().toLowerCase();
+    let shown = 0;
+
+    for (const card of $('onlineBody').querySelectorAll('.card')) {
+      const match = !query || (card.dataset.user || '').toLowerCase().includes(query);
+      card.classList.toggle('hidden', !match);
+      if (match) shown++;
+    }
+
+    const old = $('openFound');
+    if (old) old.remove();
+    if (query && !shown) {
+      const row = document.createElement('div');
+      row.id = 'openFound';
+      const proper = canon.get(query) || $('onlineFind').value.trim();
+      row.textContent = `Открыть «${proper}»`;
+      row.onclick = () => openStream(proper, known.get(proper.toLowerCase()) || '');
+      $('onlineBody').appendChild(row);
+    }
+  }
+
+  $('onlineFind').addEventListener('input', () => {
+    $('findClear').hidden = !$('onlineFind').value;
+    filterOnline();
+  });
+
+  $('findClear').onclick = () => {
+    $('onlineFind').value = '';
+    $('findClear').hidden = true;
+    filterOnline();
+    $('onlineFind').focus();
+  };
+  $('onlineRefresh').onclick = () => refreshOnline(true);
 
   // --- переключение комнат, в том числе из окна «картинка в картинке» -------
   // Кнопки ⏮/⏭ в окне PiP рисует сам браузер, но только если страница объявила
@@ -735,32 +2280,54 @@
     const list = liveList.length
       ? liveList.map(m => [m[0], m[1]])
       : loadHist().map(r => [r.u, r.e]);          // пока эфир не проверен — идём по истории
-    if (!list.length) return;
+    if (!list.length) return say('Переключать не на что: список эфира пуст.', 'err');
 
     const now = $('user').value.trim().toLowerCase();
     const at = list.findIndex(m => String(m[0]).toLowerCase() === now);
     const [user, edge] = list[at < 0 ? 0 : (at + dir + list.length) % list.length];
+    logEvent('плеер', `автопереключение на ${user} (edge ${edge})`, 'act');
     openStream(user, edge);
     armCarousel();                                // ручное переключение отодвигает автосмену
   }
 
   // Автопереключение по кругу. В отличие от обновления превью намеренно
   // работает и в скрытой вкладке: при открытом PiP вкладка как раз скрыта.
-  let carousel = 0;
+  let carousel = 0, carouselHost = window, nextSwitch = 0;
 
+  // Таймер заводим в том окне, которое видно: у скрытой вкладки браузер режет
+  // setInterval до одного срабатывания в минуту, и 30-секундный режим врал бы.
   function armCarousel() {
-    clearInterval(carousel);
-    const sec = Number($('auto').value);
-    if (sec) carousel = setInterval(() => switchRoom(1), sec * 1000);
+    if (carousel) carouselHost.clearInterval(carousel);
+    carousel = 0;
+    nextSwitch = 0;
+
+    const sec = cfg('auto');
+    if (sec) {
+      carouselHost = pipWindow || window;
+      nextSwitch = Date.now() + sec * 1000;
+      carousel = carouselHost.setInterval(() => switchRoom(1), sec * 1000);
+    }
+    paintAuto();
   }
 
-  $('auto').onchange = () => {
-    localStorage.setItem('auto', $('auto').value);
-    armCarousel();
-    say(Number($('auto').value)
-      ? `Автопереключение комнат раз в ${$('auto').selectedOptions[0].textContent}.`
-      : 'Автопереключение выключено.', 'ok');
-  };
+  // Кнопка списка показывает интервал и зелёный отсчёт до переключения: «30 с (25)».
+  const AUTO_LABELS = { 0: 'выкл', 30: '30 с', 60: '1 мин', 180: '3 мин' };
+
+  function paintAuto() {
+    if (!pipBar) return;
+    const button = pipBar.querySelector('#autoBtn');
+    if (!button) return;
+
+    const seconds = cfg('auto');
+    const label = AUTO_LABELS[seconds] || `${seconds} с`;
+    const left = nextSwitch ? Math.max(0, Math.round((nextSwitch - Date.now()) / 1000)) : 0;
+    button.innerHTML = nextSwitch ? `${label} (<b>${left}</b>)` : label;
+
+    for (const item of pipBar.querySelectorAll('#autoMenu div')) {
+      item.classList.toggle('on', Number(item.dataset.v) === seconds);
+    }
+  }
+
 
   function updateMediaSession(user, edge) {
     if (!('mediaSession' in navigator)) return;
@@ -794,6 +2361,7 @@
   }
 
   function markCurrent() {
+    paintPipNick();
     const now = $('user').value.trim().toLowerCase();
     for (const el of document.querySelectorAll('.item, .card')) {
       el.classList.toggle('current', (el.dataset.user || '').toLowerCase() === now);
@@ -807,7 +2375,11 @@
   // Код закладки лежит в bookmarklet.js — тянем его и вешаем как javascript:-ссылку.
   fetch('bookmarklet.js')
     .then(r => r.text())
-    .then(src => { $('bmLink').href = 'javascript:' + encodeURIComponent(src); })
+    // Подставляем адрес этого плеера — закладка отправит ники прямо сюда.
+    .then(src => {
+      $('bmLink').href = 'javascript:' +
+        encodeURIComponent(src.replace('__PLAYER_ORIGIN__', location.origin));
+    })
     .catch(() => { $('bmLink').removeAttribute('href'); $('bmLink').textContent = 'bookmarklet.js не найден'; });
 
   // Разбор списка. Возвращает null, если это не наш JSON — тогда вызывающий
@@ -857,16 +2429,31 @@
 
   // Кнопка в шапке: сама берёт список из буфера, а если браузер не даёт его
   // прочитать (Firefox странице буфер не отдаёт) — открывает окно с инструкцией.
+  // Закладка теперь пишет в базу сама, поэтому кнопка просто перечитывает базу
+  // с сервера и показывает окно со сборщиком.
+  // База общая: её пополняет сборщик со страницы сайта, а плеер раз в минуту
+  // перечитывает. На кнопке тикает остаток до следующего перечитывания.
+  let nextPull = Date.now() + cfg('pull') * 1000;
+
+  function paintAccounts() {
+    const left = Math.max(0, Math.round((nextPull - Date.now()) / 1000));
+    $('accounts').textContent = `Обновить аккаунты (${left})`;
+  }
+
+  async function pullTick() {
+    const before = catalog.length;
+    const ok = await pullAccounts();
+    nextPull = Date.now() + cfg('pull') * 1000;
+    paintAccounts();
+    if (ok && catalog.length > before) {
+      say(`База пополнилась: ${catalog.length - before} новых, всего ${catalog.length}.`, 'ok');
+      refreshOnline();
+    }
+  }
+
   $('accounts').onclick = async () => {
-    let text = '';
-    try { text = await navigator.clipboard.readText(); } catch { /* нет доступа к буферу */ }
-
-    const res = text && importList(text);
-    if (!res) return openBaseDialog();
-
-    say(`Разобрано ников: ${res.total}, новых: ${res.added}, с номером сервера: ${res.edged}. ` +
-        `Всего в базе: ${catalog.length}.`, 'ok');
-    refreshOnline();
+    await pullTick();
+    openBaseDialog();
   };
 
   $('importOk').onclick = () => {
@@ -880,7 +2467,7 @@
   };
 
   // --- сворачивание боковых панелей -----------------------------------------
-  const hidden = side => localStorage.getItem('hide' + side) === '1';
+  const hidden = side => cfg('hide' + side) === 1;
 
   function applyPanels() {
     document.body.classList.toggle('no-left', hidden('Left'));
@@ -888,16 +2475,535 @@
     // Стрелка показывает, что произойдёт по клику: наружу — свернуть, внутрь — вернуть.
     $('gripLeft').firstElementChild.textContent = hidden('Left') ? '›' : '‹';
     $('gripRight').firstElementChild.textContent = hidden('Right') ? '‹' : '›';
+    $('panelLeft').checked = !hidden('Left');       // те же переключатели в настройках
+    $('panelRight').checked = !hidden('Right');
   }
 
   const togglePanel = side => {
-    localStorage.setItem('hide' + side, hidden(side) ? '0' : '1');
+    pushSettings({ ['hide' + side]: hidden(side) ? 0 : 1 });
     applyPanels();
   };
 
   $('gripLeft').onclick = () => togglePanel('Left');
   $('gripRight').onclick = () => togglePanel('Right');
+  $('panelLeft').onchange = () => togglePanel('Left');
+  $('panelRight').onchange = () => togglePanel('Right');
 
+  // --- шестерёнка с настройками ----------------------------------------------
+  $('gear').onclick = e => {
+    e.stopPropagation();
+    $('settings').hidden = !$('settings').hidden;
+  };
+  $('settingsClose').onclick = () => { $('settings').hidden = true; };
+
+  // Свёрнутые разделы запоминаем: панель длинная, и каждый раз сворачивать
+  // одно и то же было бы утомительно.
+  const loadSects = () => { try { return JSON.parse(localStorage.getItem('sections')) || {}; } catch { return {}; } };
+
+  for (const sect of document.querySelectorAll('.sect')) {
+    const key = sect.dataset.sect;
+    const saved = loadSects();
+    if (key in saved) sect.open = saved[key];
+    sect.addEventListener('toggle', () => {
+      const state = loadSects();
+      state[key] = sect.open;
+      localStorage.setItem('sections', JSON.stringify(state));
+    });
+  }
+  document.addEventListener('click', e => {
+    if (!$('settings').hidden && !e.target.closest('#settings')) $('settings').hidden = true;
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') $('settings').hidden = true;
+  });
+
+
+  // --- сторож отрисовки (Firefox) --------------------------------------------
+  // Симптом: звук идёт, позиция растёт, а картинка стоит. Декодер при этом жив —
+  // перенос видео в окно PiP мгновенно оживляет изображение, потому что заново
+  // создаётся слой композитора. Ловим по mozPaintedFrames: он есть только в
+  // Firefox и считает именно нарисованные кадры, а не декодированные.
+  let lastPainted = -1, paintStuck = 0;
+
+  // Лечим по нарастающей. Скрыть и показать элемент недостаточно — слой при
+  // этом сохраняется. Помогает то же, что делает окно PiP: элемент должен
+  // покинуть документ. Если и это не помогло, пересоздаём медиапоток целиком.
+  let lastNudge = 0;
+
+  function nudgeVideoLayer() {
+    const soon = Date.now() - lastNudge < 20000;
+    lastNudge = Date.now();
+
+    const at = video.currentTime;
+    const wasPlaying = !video.paused;
+
+    if (!soon) {
+      logEvent('картинка', 'кадры не рисуются — перевставляю элемент в документ', 'err');
+      const parent = video.parentNode, next = video.nextSibling;
+      parent.removeChild(video);             // вне документа слой уничтожается
+      void document.body.offsetHeight;
+      parent.insertBefore(video, next);
+      if (wasPlaying) video.play().catch(() => {});
+      say('Firefox перестал рисовать кадры — пересобрал слой видео.', 'err');
+      return;
+    }
+
+    logEvent('картинка', 'не помогло — переподключаю медиапоток', 'err');
+    if (hls) {
+      hls.detachMedia();
+      hls.attachMedia(video);
+      hls.once(Hls.Events.MEDIA_ATTACHED, () => {
+        if (playingFrom !== 'live' && at) video.currentTime = at;
+        if (wasPlaying) video.play().catch(() => {});
+      });
+    } else {
+      const src = video.src;                 // нативное воспроизведение файла
+      video.src = '';
+      video.src = src;
+      video.currentTime = at;
+      if (wasPlaying) video.play().catch(() => {});
+    }
+    say('Кадры не пошли и после пересборки слоя — переподключил поток.', 'err');
+  }
+
+  setInterval(() => {
+    if (video.paused || video.readyState < 3 || video.mozPaintedFrames === undefined) {
+      paintStuck = 0;
+      return;
+    }
+    const painted = video.mozPaintedFrames;
+    if (painted !== lastPainted) { lastPainted = painted; paintStuck = 0; return; }
+    if (++paintStuck < 2) return;            // два цикла подряд — только тогда вмешиваемся
+    paintStuck = 0;
+    nudgeVideoLayer();
+  }, 2000);
+
+  // --- журнал воспроизведения ------------------------------------------------
+  // Включается из меню по правой кнопке. Пишет события плеера, hls.js, записи и
+  // сети: обрыв на паузе иначе не поймать — к моменту, когда его замечают,
+  // причина уже за пределами видимого состояния. Копия уходит на сервер, в
+  // /mnt/DATA/Bonga_rec/playback.log, и переживает перезагрузку страницы.
+  let logOn = false;
+  const logLines = [];
+  let logQueue = [];
+
+  const clockMs = () => {
+    const d = new Date();
+    return d.toLocaleTimeString('ru-RU') + '.' + String(d.getMilliseconds()).padStart(3, '0');
+  };
+
+  function bufEnd() {
+    const b = video.buffered;
+    return b.length ? b.end(b.length - 1).toFixed(1) : '—';
+  }
+
+  function logEvent(kind, text, cls = '') {
+    if (!logOn) return;
+    const line = `${clockMs()} | t=${video.currentTime.toFixed(1)} буф=${bufEnd()} ` +
+                 `rs=${video.readyState} ns=${video.networkState} | ${kind}` + (text ? ` | ${text}` : '');
+    logLines.push({ line, cls });
+    if (logLines.length > 3000) logLines.shift();
+    logQueue.push(line);
+    paintLog();
+  }
+
+  // У каждого события hls.js полезны свои поля — вытаскиваем именно их.
+  function describeHls(name, data) {
+    if (!data) return '';
+    if (name === 'LEVEL_LOADED' && data.details) {
+      const d = data.details;
+      return `живой=${d.live} сегментов=${d.fragments ? d.fragments.length : '?'} ` +
+             `первый=${d.startSN} последний=${d.endSN} длительность=${Math.round(d.totalduration || 0)} с`;
+    }
+    if (name === 'FRAG_CHANGED' && data.frag) return `играем #${data.frag.sn}`;
+    if (name === 'LEVEL_SWITCHED') return `дорожка ${data.level}`;
+    if (name === 'MANIFEST_LOADED') return `дорожек ${(data.levels || []).length}`;
+    return '';
+  }
+
+  function paintLog() {
+    if ($('logPanel').hidden) return;
+    const body = $('logBody');
+    const stick = body.scrollTop + body.clientHeight >= body.scrollHeight - 20;
+    body.innerHTML = logLines.length
+      ? logLines.slice(-400)
+          .map(item => item.cls ? `<span class="${item.cls}">${item.line}</span>` : item.line)
+          .join('\n')
+      : 'Событий пока нет — они появятся при загрузке сегментов, паузе, ошибках и переключениях.';
+    if (stick) body.scrollTop = body.scrollHeight;   // прилипаем к концу, пока не листают вверх
+  }
+
+  // Отправляем пачками: по строке на запрос было бы больше шума, чем пользы.
+  setInterval(() => {
+    if (!logQueue.length) return;
+    const batch = logQueue;
+    logQueue = [];
+    fetch('api/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lines: batch }),
+    }).catch(() => { /* сервер недоступен — журнал остаётся в панели */ });
+  }, 3000);
+
+  function toggleLog(on) {
+    logOn = on;
+    $('logPanel').hidden = !on;
+    if (!on) return;
+    logEvent('журнал', `включён · источник ${playingFrom} · ${$('url').textContent}`, 'act');
+    paintLog();
+  }
+
+  $('logClose').onclick = e => { e.stopPropagation(); toggleLog(false); };
+  $('logCopy').onclick = e => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(logLines.map(i => i.line).join('\n'))
+      .then(() => { $('logCopy').textContent = 'Скопировано'; })
+      .catch(() => { $('logCopy').textContent = 'Выделите вручную'; })
+      .finally(() => setTimeout(() => { $('logCopy').textContent = 'Копировать'; }, 2000));
+  };
+
+  // События самого видеоэлемента — их и не хватает, когда «встало на паузе».
+  for (const name of ['play', 'pause', 'playing', 'waiting', 'stalled', 'seeking', 'seeked',
+                      'ended', 'emptied', 'abort', 'error', 'ratechange', 'loadedmetadata',
+                      'canplay', 'durationchange']) {
+    video.addEventListener(name, () => {
+      const extra = name === 'error' && video.error
+        ? `code=${video.error.code} ${video.error.message || ''}`
+        : (name === 'durationchange' ? `duration=${video.duration}` : '');
+      logEvent('video.' + name, extra, name === 'error' || name === 'stalled' ? 'err' : '');
+    });
+  }
+
+  window.addEventListener('online', () => logEvent('сеть', 'вернулась', 'act'));
+  window.addEventListener('offline', () => logEvent('сеть', 'пропала', 'err'));
+  document.addEventListener('visibilitychange',
+    () => logEvent('вкладка', document.hidden ? 'скрыта' : 'видима'));
+
+  // --- своё меню по правой кнопке и статистика воспроизведения --------------
+  const ctx = $('ctxMenu');
+
+  $('stage').addEventListener('contextmenu', e => {
+    if (e.shiftKey) return;                       // Shift+ПКМ отдаёт меню браузера
+    e.preventDefault();
+    paintCtxAuto();
+    ctx.hidden = false;
+    ctx.style.left = `${Math.min(e.clientX, innerWidth - ctx.offsetWidth - 8)}px`;
+    ctx.style.top = `${Math.min(e.clientY, innerHeight - ctx.offsetHeight - 8)}px`;
+  });
+
+  // Галочка у текущего интервала: меню — единственное место, где он живёт.
+  function paintCtxAuto() {
+    for (const item of ctx.querySelectorAll('[data-act^="auto:"]')) {
+      const value = Number(item.dataset.act.slice(5));
+      item.textContent = item.textContent.replace(/^✓ /, '');
+      if (value === cfg('auto')) item.textContent = '✓ ' + item.textContent;
+    }
+  }
+
+  function setAuto(seconds) {
+    pushSettings({ auto: seconds });
+    armCarousel();
+    paintAuto();
+    say(seconds ? `Автопереключение комнат раз в ${seconds} с.` : 'Автопереключение выключено.', 'ok');
+  }
+
+  const hideCtx = () => { ctx.hidden = true; };
+  document.addEventListener('click', hideCtx);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtx(); });
+  window.addEventListener('blur', hideCtx);
+
+  ctx.onclick = e => {
+    const act = e.target.dataset.act;
+    hideCtx();
+    if (act === 'log') toggleLog($('logPanel').hidden);
+    else if (act && act.startsWith('auto:')) setAuto(Number(act.slice(5)));
+    else if (act === 'stats') toggleStats($('stats').hidden);
+    else if (act === 'pip') $('pip').click();
+    else if (act === 'full') {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else video.requestFullscreen().catch(() => say('Полный экран не дался.', 'err'));
+    } else if (act === 'mute') video.muted = !video.muted;
+    else if (act === 'profile') $('profile').click();
+    else if (act === 'copy') {
+      navigator.clipboard.writeText($('url').textContent)
+        .then(() => say('Адрес потока скопирован.', 'ok'))
+        .catch(() => say('Скопируйте адрес из шапки вручную.', 'err'));
+    } else if (act === 'reload') startByUser();
+  };
+
+  // --- статистика ------------------------------------------------------------
+  let statsTimer = 0, prevFrames = 0, prevAt = 0, fps = 0;
+  let errorCount = 0, netErrors = 0, mediaErrors = 0;
+  let lastFrag = null;
+  const errorLog = [];
+
+  // Подвисания (rebuffering): браузер шлёт waiting, когда данные кончились.
+  // Перемотку сюда не считаем — она тоже поднимает waiting, но это не проблема сети.
+  let stallCount = 0, stallTotal = 0, stallStart = 0, lastStallAt = 0;
+
+  video.addEventListener('waiting', () => {
+    if (video.seeking || stallStart) return;
+    stallStart = performance.now();
+    stallCount++;
+    lastStallAt = Date.now();
+  });
+  const endStall = () => {
+    if (!stallStart) return;
+    stallTotal += (performance.now() - stallStart) / 1000;
+    stallStart = 0;
+  };
+  video.addEventListener('playing', endStall);
+  video.addEventListener('seeked', () => { stallStart = 0; });
+
+  window.addEventListener('offline', () => say('Сеть пропала — поток встанет.', 'err', playbackReport()));
+  window.addEventListener('online', () => say('Сеть вернулась.', 'ok'));
+
+  $('statsClose').onclick = e => { e.stopPropagation(); toggleStats(false); };
+
+  /* ── Проверка канала ──────────────────────────────────────────────────
+     Замеряем с двух сторон. Сервер стучится по TCP куда угодно и видит
+     полную картину, но он может стоять в другой сети, чем открытая
+     страница. Поэтому браузер параллельно тянет настоящие превью — ровно
+     ту работу, которая и не ладится. Расхождение между половинами само по
+     себе диагноз: если у сервера чисто, а у браузера нет, дело в машине,
+     с которой смотрят. */
+  let netBusy = false;
+
+  $('netClose').onclick = e => { e.stopPropagation(); $('netPanel').hidden = true; };
+  $('netRun').onclick = e => { e.stopPropagation(); runNetCheck(); };
+  $('net').onclick = () => {
+    if ($('netPanel').hidden) {
+      toggleStats(false);            // обе панели садятся в один угол
+      $('netPanel').hidden = false;
+      runNetCheck();
+    } else $('netPanel').hidden = true;
+  };
+
+  // Превью с CDN — самый честный замер: тот же адрес, тот же порт, тот же
+  // объём, что и у карточек справа.
+  async function browserProbe() {
+    const picks = (liveList || []).slice(0, 24)
+      .map(([user, edgeAtSweep]) => [user, known.get(user.toLowerCase()) || edgeAtSweep])
+      .filter(([, edge]) => edge)
+      .slice(0, 8);
+    if (!picks.length) return null;
+
+    const times = [];
+    let failed = 0;
+    await runPool(picks, 4, async ([user, edge]) => {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 12000);
+      const at = performance.now();
+      try {
+        const res = await fetch(`${thumbUrl(user, edge)}?t=${Date.now()}`,
+                                { cache: 'no-store', signal: ctl.signal });
+        await res.blob();
+        times.push(performance.now() - at);
+      } catch { failed++; }
+      finally { clearTimeout(timer); }
+    });
+
+    if (!times.length) return { tries: picks.length, ok: 0, failed };
+    const sorted = [...times].sort((a, b) => a - b);
+    const best = sorted[0];
+    return {
+      tries: picks.length, ok: times.length, failed,
+      best: Math.round(best),
+      median: Math.round(sorted[sorted.length >> 1]),
+      worst: Math.round(sorted[sorted.length - 1]),
+      slow: times.filter(t => t > best + 600).length,
+    };
+  }
+
+  const netPad = (text, width) => String(text).padEnd(width);
+
+  // Потери важнее задержки: 200 мс до другого материка — норма, а вот
+  // пропавший пакет стоит секунды ожидания и пустой карточки.
+  function netVerdict(loss) {
+    if (loss >= 30) return `<i>${loss}%</i>`;
+    if (loss > 0) return `<u>${loss}%</u>`;
+    return '<b>0%</b>';
+  }
+
+  async function runNetCheck() {
+    if (netBusy) return;
+    netBusy = true;
+    $('netRun').disabled = true;
+    $('netPanel').hidden = false;
+    $('netBody').innerHTML = 'Меряю канал, это занимает несколько секунд…';
+
+    try {
+      const [server, mine] = await Promise.all([
+        fetch('/api/netcheck', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+        browserProbe(),
+      ]);
+
+      const out = [];
+      out.push(`<s>Проверка канала · ${new Date().toLocaleTimeString('ru-RU')}</s>`, '');
+
+      if (mine) {
+        out.push('ЭТА СТРАНИЦА → превью с CDN');
+        out.push(mine.ok
+          ? `  загрузилось ${mine.ok} из ${mine.tries} · лучшее ${mine.best} мс · ` +
+            `медиана ${mine.median} мс · худшее ${mine.worst} мс`
+          : `  <i>ни одно превью из ${mine.tries} не дошло</i>`);
+        if (mine.ok) {
+          const loss = Math.round((mine.slow + mine.failed) / mine.tries * 100);
+          out.push(`  с потерей пакетов ${netVerdict(loss)}` +
+                   (mine.failed ? ` · <i>оборвалось ${mine.failed}</i>` : ''));
+        }
+        out.push('');
+      }
+
+      if (!server) {
+        out.push('<i>Сервер плеера не ответил на запрос проверки.</i>');
+      } else {
+        out.push('СЕРВЕР ПЛЕЕРА → замеры TCP');
+        out.push(`  <s>${netPad('куда', 20)}${netPad('лучш', 7)}${netPad('медиана', 9)}` +
+                 `${netPad('худш', 7)}потери</s>`);
+        for (const t of server.targets) {
+          if (t.verdict === 'недоступен') {
+            out.push(`  ${netPad(t.name, 20)}<i>не отвечает</i>`);
+            continue;
+          }
+          out.push(`  ${netPad(t.name, 20)}${netPad(t.best + ' мс', 7)}` +
+                   `${netPad(t.median + ' мс', 9)}${netPad(t.worst + ' мс', 7)}` +
+                   netVerdict(t.loss));
+        }
+        out.push('');
+        out.push(`  DNS ${server.dns === null ? '<i>не отвечает</i>' : `<b>${server.dns} мс</b>`}` +
+                 `${server.gateway ? ` · роутер ${server.gateway}` : ''} · замер занял ${server.took} с`);
+        out.push('');
+        out.push(server.verdict.replace(/^(.)/, s => s.toUpperCase()));
+      }
+
+      $('netBody').innerHTML = out.join('\n');
+    } catch (err) {
+      $('netBody').innerHTML = `<i>Проверка сорвалась: ${String(err).slice(0, 200)}</i>`;
+    } finally {
+      netBusy = false;
+      $('netRun').disabled = false;
+    }
+  }
+
+  function toggleStats(on) {
+    $('stats').hidden = !on;
+    if (on) $('netPanel').hidden = true;
+    clearInterval(statsTimer);
+    if (!on) return;
+    prevFrames = 0; prevAt = 0;
+    paintStats();
+    statsTimer = setInterval(paintStats, 1000);
+  }
+
+  const mbit = bits => `${(bits / 1e6).toFixed(2)} Мбит/с`;
+  const num = n => Math.round(n).toLocaleString('ru-RU');
+
+
+  // Состояние канала: флаг браузера плюс оценки Network Information API,
+  // которые есть в Chrome и отсутствуют в Firefox — тогда строка короче.
+  function netLine() {
+    const c = navigator.connection || {};
+    const parts = [navigator.onLine ? '<b>онлайн</b>' : '<i>ОФФЛАЙН</i>'];
+    if (c.effectiveType) parts.push(c.effectiveType);
+    if (c.downlink) parts.push(`канал ${c.downlink} Мбит/с`);
+    if (c.rtt) parts.push(`пинг ${c.rtt} мс`);
+    if (c.saveData) parts.push('экономия трафика');
+    return parts.join(' · ');
+  }
+
+  function bufferRange() {
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (video.currentTime >= video.buffered.start(i) - 0.5 &&
+          video.currentTime <= video.buffered.end(i) + 0.5) {
+        return { ahead: video.buffered.end(i) - video.currentTime,
+                 behind: video.currentTime - video.buffered.start(i) };
+      }
+    }
+    return { ahead: 0, behind: 0 };
+  }
+
+  function paintStats() {
+    // Счётчики кадров даёт сам декодер; в старых браузерах — вебкитовские поля.
+    const q = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality()
+            : { totalVideoFrames: video.webkitDecodedFrameCount || 0,
+                droppedVideoFrames: video.webkitDroppedFrameCount || 0 };
+    const now = performance.now();
+    if (prevAt) fps = (q.totalVideoFrames - prevFrames) / ((now - prevAt) / 1000);
+    prevFrames = q.totalVideoFrames;
+    prevAt = now;
+
+    const lost = q.totalVideoFrames ? (q.droppedVideoFrames / q.totalVideoFrames * 100) : 0;
+    const idx = hls ? (hls.currentLevel >= 0 ? hls.currentLevel : hls.loadLevel) : -1;
+    const lvl = hls && hls.levels && hls.levels[idx];
+    const buf = bufferRange();
+    const lag = playingFrom === 'live' ? liveEdge() - video.currentTime : 0;
+
+    $('statsBody').innerHTML = [
+      `источник   ${playingFrom === 'disk' ? 'запись на диске' : 'прямой эфир'}` +
+        `${session ? ' · пишется' : ''}`,
+      `картинка   ${video.videoWidth}×${video.videoHeight}` +
+        (lvl ? ` · дорожка ${lvl.height}p` : '') +
+        (hls && hls.currentLevel < 0 ? ' (авто)' : ''),
+      `кадры      всего ${num(q.totalVideoFrames)} · пропущено ` +
+        `${lost > 1 ? '<i>' : '<b>'}${num(q.droppedVideoFrames)} (${lost.toFixed(2)}%)` +
+        `${lost > 1 ? '</i>' : '</b>'}`,
+      `частота    ${fps ? fps.toFixed(1) : '—'} к/с` +
+        (video.mozPaintedFrames !== undefined ? ` · нарисовано ${num(video.mozPaintedFrames)}` : ''),
+      `битрейт    ${lvl ? mbit(lvl.bitrate) : '—'} · канал ${hls ? mbit(hls.bandwidthEstimate || 0) : '—'}`,
+      `буфер      вперёд ${buf.ahead.toFixed(1)} с · назад ${buf.behind.toFixed(0)} с`,
+      `отставание ${playingFrom === 'live' ? `${lag.toFixed(1)} с от живого края` : 'запись, не применимо'}`,
+      `сегмент    ${lastFrag
+        ? `#${lastFrag.sn} · ${lastFrag.ms} мс (ответ ${lastFrag.ttfb} мс) · ` +
+          `${(lastFrag.size / 1048576).toFixed(2)} МБ` +
+          (lastFrag.ms > 0 ? ` · ${mbit(lastFrag.size * 8 / (lastFrag.ms / 1000))}` : '')
+        : '—'}`,
+      `сеть       ${netLine()}`,
+      `подвисания ${stallCount
+        ? `<i>${stallCount} ${plural(stallCount, "раз", "раза", "раз")}, суммарно ${stallTotal.toFixed(1)} с` +
+          `${lastStallAt ? `, последнее в ${new Date(lastStallAt).toLocaleTimeString('ru-RU')}` : ''}</i>`
+        : '<b>нет</b>'}`,
+      `ошибки     ${errorCount ? `<i>${errorCount}</i> · сеть ${netErrors}, медиа ${mediaErrors}, ` +
+                                 `прочие ${errorCount - netErrors - mediaErrors}` : '<b>0</b>'}`,
+      errorLog.length ? `последние  ${errorLog.join('\n           ')}` : '',
+      `адрес      ${$('url').textContent}`,
+    ].filter(Boolean).join('\n');
+  }
+
+  // Полная остановка: отпускаем сеть и декодер, гасим автопереключение и
+  // корректно завершаем запись — с обычным вопросом о судьбе файла.
+  function stopStream() {
+    recStopped = true;
+    clearInterval(carousel);
+    carousel = 0;
+    nextSwitch = 0;
+    paintAuto();
+
+    clearTimeout(stallTimer);
+    if (hls) { hls.destroy(); hls = null; }
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+
+    playingFrom = 'live';
+    paintSource();
+    $('url').textContent = '—';
+    $('url').title = '';
+
+    if (session) {
+      const prev = session;
+      session = null;
+      paintRec();
+      recStop(prev.id).then(state => finishSession(prev, state));
+    } else {
+      paintRec();
+    }
+
+    logEvent('плеер', 'остановлено пользователем', 'act');
+    say('Трансляция остановлена.', 'ok');
+  }
+
+  $('stop').onclick = stopStream;
   $('play').onclick = startByUser;
   $('user').onkeydown = e => { if (e.key === 'Enter') startByUser(); };
   $('edge').onkeydown = e => { if (e.key === 'Enter') startByUser(); };
@@ -915,15 +3021,139 @@
 
   $('quality').onchange = () => { if (hls) hls.currentLevel = Number($('quality').value); };
 
-  $('pip').onclick = async () => {
-    if (!document.pictureInPictureEnabled) {
-      return say('В Firefox жмите Ctrl+Shift+] или кнопку PiP при наведении на видео.', 'err');
+  // --- «картинка в картинке» -------------------------------------------------
+  // Document PiP (Chrome) даёт настоящее окно с нашим содержимым: туда кладём
+  // и видео, и панель управления. В Firefox этого API нет вовсе, а UI штатного
+  // PiP-окна жёстко зашит в браузере — там остаётся только сам PiP, а
+  // переключение комнат живёт в правом меню главного окна.
+  async function openPip() {
+    if (!('documentPictureInPicture' in window)) {
+      if (!document.pictureInPictureEnabled) {
+        return say('В Firefox жмите Ctrl+Shift+] или кнопку PiP при наведении на видео.', 'err');
+      }
+      try {
+        if (document.pictureInPictureElement) await document.exitPictureInPicture();
+        else await video.requestPictureInPicture();
+      } catch (e) { say('PiP не открылся: ' + e.message, 'err'); }
+      return;
     }
-    try {
-      if (document.pictureInPictureElement) await document.exitPictureInPicture();
-      else await video.requestPictureInPicture();
-    } catch (e) { say('PiP не открылся: ' + e.message, 'err'); }
-  };
+
+    if (documentPictureInPicture.window) return documentPictureInPicture.window.close();
+
+    const ratio = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9;
+    const width = 560;
+    const win = await documentPictureInPicture.requestWindow({
+      width, height: Math.round(width / ratio) + 44,
+    });
+
+    const style = win.document.createElement('style');
+    style.textContent = `
+      body { margin: 0; background: #000; color: #e6e8ec; overflow: hidden; position: relative;
+             font: 12px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+      #vid { flex: 1 1 auto; min-height: 0; }
+      video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+      #bar { flex: 0 0 auto; display: flex; align-items: center; gap: 5px;
+             padding: 5px 6px; background: #1c1f26; border-top: 1px solid #2a2f3a; }
+      #bar button, #bar select { font: 12px system-ui, sans-serif; color: #e6e8ec;
+             background: #262b34; border: 1px solid #39404d; border-radius: 5px;
+             padding: 3px 7px; cursor: pointer; }
+      #bar button:hover { background: #303743; }
+      #bar label { color: #98a1b0; }
+      #nick { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap;
+              text-overflow: ellipsis; color: #98a1b0; }
+      /* Вопрос о судьбе записи переезжает сюда, когда открыто это окно. */
+      #keepAsk { position: absolute; z-index: 9; right: 10px; bottom: 46px; width: 280px;
+                 padding: 10px 12px; border-radius: 10px; background: #1c1f26;
+                 border: 1px solid #39404d; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); }
+      #keepText { font-size: 12px; line-height: 1.45; }
+      #keepText b { color: #7ee787; }
+      #keepText i { color: #98a1b0; font-style: normal; }
+      #keepAsk .dlg-btns { display: flex; gap: 8px; margin-top: 8px; }
+      #keepAsk button { padding: 4px 10px; }
+      #keepYes { background: #2f6fd0; border-color: #2f6fd0; }
+      /* Свой список вместо <select>: в системном нельзя покрасить часть текста,
+         а нужен зелёный счётчик рядом с названием интервала. */
+      #pick { position: relative; }
+      #autoBtn { min-width: 84px; text-align: left; }
+      #autoBtn b { color: #7ee787; font-weight: 600; }
+      #autoMenu { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 5;
+                  min-width: 96px; padding: 4px; background: #262b34;
+                  border: 1px solid #39404d; border-radius: 6px;
+                  box-shadow: 0 6px 18px rgba(0, 0, 0, .6); }
+      #autoMenu div { padding: 5px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+      #autoMenu div:hover { background: #2f6fd0; }
+      #autoMenu div.on { color: #7ee787; }
+    `;
+    win.document.head.append(style);
+
+    const holder = win.document.createElement('div');
+    holder.id = 'vid';
+    holder.append(video);                       // элемент переезжает целиком: hls.js не прерывается
+
+    const bar = win.document.createElement('div');
+    bar.id = 'bar';
+    bar.innerHTML =
+      '<button data-p="prev" title="Предыдущая комната">⏮</button>' +
+      '<button data-p="next" title="Следующая комната">⏭</button>' +
+      '<span id="nick"></span>' +
+      '<label>Авто</label>' +
+      '<span id="pick">' +
+        '<button id="autoBtn" title="Интервал автопереключения"></button>' +
+        '<div id="autoMenu" hidden>' +
+          '<div data-v="0">выкл</div><div data-v="30">30 с</div>' +
+          '<div data-v="60">1 мин</div><div data-v="180">3 мин</div>' +
+        '</div>' +
+      '</span>' +
+      '<button data-p="stop" title="Остановить автопереключение">⏹</button>';
+
+    win.document.body.append(holder, bar);
+
+    bar.onclick = e => {
+      const act = e.target.dataset.p;
+      if (act === 'prev') switchRoom(-1);
+      else if (act === 'next') switchRoom(1);
+      else if (act === 'stop') setAuto(0);
+    };
+    const menu = bar.querySelector('#autoMenu');
+    bar.querySelector('#autoBtn').onclick = e => {
+      e.stopPropagation();
+      menu.hidden = !menu.hidden;
+      paintAuto();
+    };
+    menu.onclick = e => {
+      const value = e.target.dataset.v;
+      if (value === undefined) return;
+      menu.hidden = true;
+      setAuto(Number(value));
+    };
+    win.document.addEventListener('click', () => { menu.hidden = true; });
+
+    // Системное меню страницы в этом окне ни к чему: всё нужное есть на панели.
+    win.document.addEventListener('contextmenu', e => e.preventDefault());
+
+    pipBar = bar;
+    pipWindow = win;
+    paintPipNick();
+    armCarousel();                              // переносим таймер в это окно
+    const ticker = win.setInterval(paintAuto, 1000);
+
+    win.addEventListener('pagehide', () => {
+      win.clearInterval(ticker);
+      $('stage').prepend(video);                // возвращаем видео на место
+      if ($('keepAsk').ownerDocument === win.document) $('stage').appendChild($('keepAsk'));
+      pipBar = null;
+      pipWindow = null;
+      armCarousel();                            // таймер возвращается в главное окно
+    });
+  }
+
+  function paintPipNick() {
+    if (!pipBar) return;
+    const nick = pipBar.querySelector('#nick');
+    if (nick) nick.textContent = $('user').value.trim();
+  }
+
+  $('pip').onclick = openPip;
 
   // Профиль на сайте. Регистр в пути важен, поэтому берём правильное написание
   // из базы, если ник там есть, — иначе сайт отдаст 404.
@@ -937,22 +3167,21 @@
 
   // ?u=ник&e=edge либо #ник в адресе — сразу запускаем
   const params = new URLSearchParams(location.search);
+  if (params.get('log') === '1') toggleLog(true);      // ?log=1 — журнал сразу, для отладки
   const initial = params.get('u') || decodeURIComponent(location.hash.slice(1)) || 'AlyonaKatya';
   $('user').value = initial;
   $('edge').value = params.get('e') || known.get(initial.toLowerCase()) || '';
-  if (localStorage.getItem('panels') === 'off' && !localStorage.getItem('hideLeft')) {
-    localStorage.setItem('hideLeft', '1');            // перенос старой настройки
-    localStorage.setItem('hideRight', '1');
-  }
-  applyPanels();
-  $('auto').value = localStorage.getItem('auto') || '0';
-  armCarousel();
   renderHist();
-  if (params.get('u') || location.hash) start();
-  // Сначала синхронизируем базу с сервером, потом уже проверяем эфир — иначе
-  // первый обход пойдёт по неполному списку. Заодно подсеиваем на сервер то,
-  // что этот браузер накопил в localStorage раньше (импорт делали в Chrome).
+
+  // Порядок важен: сперва настройки (от них зависят интервалы, качество и
+  // запись), затем база ников, и только потом проверка эфира — иначе первый
+  // обход пошёл бы по неполному списку и с чужими параметрами.
   (async () => {
+    await pullSettings();
+    applySettingsToUI();
+
+    if (params.get('u') || location.hash) start();
+
     if (await pullAccounts()) {
       const onServer = new Set(serverBase.map(m => String(m[0]).toLowerCase()));
       const mine = Object.values(loadExtra()).filter(m => !onServer.has(String(m[0]).toLowerCase()));
@@ -962,14 +3191,20 @@
         await pullAccounts();
       }
     }
-    setTimeout(refreshOnline, 300);
+    if (!await showOnlineFromCache()) setTimeout(() => refreshOnline(true), 300);
   })();
   setTimeout(checkHistory, 3000);
+  setTimeout(checkOrphans, 1500);         // остатки прошлых сеансов
 
-  setInterval(refreshThumbs, 10000);      // живые превью справа
-  setInterval(checkHistory, 30000);       // статус эфира у ников слева
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { refreshThumbs(); checkHistory(); }
+  setInterval(paintAccounts, 1000);       // остаток до перечитывания на кнопке
+  paintAccounts();
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden) return;
+    refreshThumbs();
+    checkHistory();
+    // Вернулись со вкладки сайта, где мог отработать сборщик, — перечитываем
+    // базу сразу и заново заводим отсчёт: в скрытой вкладке таймеры душатся.
+    pullTick();
   });
 })();
 </script>

@@ -14,16 +14,50 @@
 import json
 import os
 import re
+import shutil
+import signal
+import socket
+import subprocess
 import threading
+import time
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urljoin, urlparse
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STORE = os.path.join(ROOT, 'accounts.json')
+ONLINE_STORE = os.path.join(ROOT, 'online.json')
 PORT = 8777
 
+# Записи кладём на большой диск: час 720p ≈ 1,5 ГБ, час 1080p ≈ 3,8 ГБ.
+REC_DIR = os.environ.get('BONGA_REC_DIR', '/mnt/DATA/Bonga_rec')
+MAX_RECORDINGS = 3                           # больше трёх ffmpeg разом не держим
+DEFAULT_SEGMENT = int(os.environ.get('BONGA_HLS_TIME', '60'))
+
+
+def pick_encoder():
+    """NVENC пережимает на видеокарте почти без нагрузки; libx264 — запасной."""
+    try:
+        out = subprocess.run(['ffmpeg', '-hide_banner', '-encoders'],
+                             capture_output=True, text=True, timeout=20).stdout
+        if 'h264_nvenc' in out:
+            return 'h264_nvenc'
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return 'libx264'
+
+
+ENCODER = pick_encoder()
+
 EDGE_RE = re.compile(r'^(\d+|us\d+)?$')      # номер сервера, либо пусто
+USER_RE = re.compile(r'^[A-Za-z0-9_.-]{1,30}$')
+ID_RE = re.compile(r'^[A-Za-z0-9_.-]{1,60}$')
 LOCK = threading.Lock()                      # сервер многопоточный, запись сериализуем
+REC_LOCK = threading.Lock()
 MAX_BODY = 32 * 1024 * 1024                  # 78 тыс. ников укладываются в ~3 МБ
+
+RECORDINGS = {}                              # id -> dict(proc, user, dir, started, …)
 
 
 def load():
@@ -76,9 +110,604 @@ def merge(rows):
         return taken, added, len(base)
 
 
+# --------------------------------------------------------------------------
+# Настройки плеера
+# --------------------------------------------------------------------------
+# Настройки общие для всех браузеров и устройств, поэтому живут на сервере,
+# а не в localStorage. Все значения числовые — так не нужно разбираться с
+# типами, а границы отсекают и опечатки, и злой умысел.
+
+SETTINGS_STORE = os.path.join(ROOT, 'settings.json')
+SETTINGS_LOCK = threading.Lock()
+
+SETTINGS_RANGE = {
+    'defQuality': (0, 9999),     # 0 — авто, 9999 — максимум
+    'segment': (5, 900),         # длина куска записи, секунды
+    'thumbs': (0, 3600),         # период обновления превью, 0 — никогда
+    'hist': (0, 86400),          # период проверки истории
+    'pull': (10, 86400),         # период перечитывания базы ников
+    'ttl': (1, 10080),           # годность результата проверки эфира, минуты
+    'gap': (0, 1440),            # пауза между самостоятельными обходами, минуты
+    'pool': (1, 256),            # параллельных запросов при обходе
+    'buffer': (10, 7200),        # буфер памяти, секунды
+    'auto': (0, 86400),          # автопереключение комнат, секунды
+    'hideLeft': (0, 1),
+    'hideRight': (0, 1),
+    'rec': (0, 1),               # писать ли эфир на диск автоматически
+    'keepMin': (0, 86400),       # ниже этой длины запись удаляем без вопросов
+    'deep': (0, 1440),           # период глубокой проверки истории, минуты
+    'deepBatch': (0, 500),       # сколько ников за заход, 0 — все
+    'recMode': (0, 1),           # 0 — запись вручную, 1 — автоматически
+    'maxRate': (0, 100000),      # потолок битрейта просмотра, кбит/с; 0 — без ограничения
+    'recRate': (0, 100000),      # потолок битрейта записи; выше — пережимаем
+}
+
+# Путь к папке записей — единственная строковая настройка. Разрешаем только
+# внутри понятных корней: сервис работает под обычным пользователем, а systemd
+# всё равно пускает на запись лишь перечисленные в юните каталоги.
+ALLOWED_ROOTS = ('/mnt/DATA', '/mnt/Projects', '/home/vladimir')
+
+
+def valid_rec_dir(path):
+    if not isinstance(path, str) or not path.startswith('/'):
+        return None
+    norm = os.path.normpath(path)
+    if not any(norm == root or norm.startswith(root + '/') for root in ALLOWED_ROOTS):
+        return None
+    try:
+        os.makedirs(norm, exist_ok=True)
+        probe = os.path.join(norm, '.write-test')
+        with open(probe, 'w', encoding='utf-8') as f:
+            f.write('ok')
+        os.remove(probe)
+        return norm
+    except OSError:
+        return None
+
+
+def browse_dirs(raw):
+    """Список подпапок для обозревателя в настройках.
+
+    Наружу отдаём только то, что лежит внутри разрешённых корней: сервер виден
+    всей локальной сети, и гулять по файловой системе ему незачем.
+    """
+    roots = {'path': '', 'parent': None,
+             'dirs': [{'name': r, 'path': r} for r in ALLOWED_ROOTS]}
+    if not raw:
+        return roots
+
+    norm = os.path.normpath(raw)
+    if not any(norm == root or norm.startswith(root + '/') for root in ALLOWED_ROOTS):
+        return dict(roots, error='путь вне разрешённых корней')
+
+    parent = '' if norm in ALLOWED_ROOTS else os.path.dirname(norm)
+    try:
+        with os.scandir(norm) as it:
+            dirs = [{'name': e.name, 'path': os.path.join(norm, e.name)}
+                    for e in it if e.is_dir() and not e.name.startswith('.')]
+    except OSError as err:
+        return {'path': norm, 'parent': parent, 'dirs': [], 'error': err.strerror or str(err)}
+
+    dirs.sort(key=lambda d: d['name'].lower())
+    return {'path': norm, 'parent': parent, 'dirs': dirs[:500],
+            'writable': os.access(norm, os.W_OK)}
+
+
+def rec_dir():
+    """Куда писать записи прямо сейчас: настройка или значение по умолчанию."""
+    path = load_settings().get('recDir')
+    return path if isinstance(path, str) and path else REC_DIR
+
+
+def load_settings():
+    try:
+        with open(SETTINGS_STORE, encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+        return {k: v for k, v in data.items() if k in SETTINGS_RANGE or k == 'recDir'}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(patch):
+    with SETTINGS_LOCK:
+        merged = load_settings()
+        for key, value in patch.items():
+            if key == 'recDir':
+                if isinstance(value, str) and not value.strip():
+                    merged.pop('recDir', None)      # пусто — вернуться к умолчанию
+                    continue
+                checked = valid_rec_dir(value)
+                if checked:
+                    merged['recDir'] = checked
+                continue
+            if key not in SETTINGS_RANGE:
+                continue
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                continue
+            low, high = SETTINGS_RANGE[key]
+            merged[key] = min(max(number, low), high)
+
+        tmp = SETTINGS_STORE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(merged, f, ensure_ascii=False, separators=(',', ':'))
+        os.replace(tmp, SETTINGS_STORE)
+        return merged
+
+
+# --------------------------------------------------------------------------
+# Кто был в эфире на момент последней проверки
+# --------------------------------------------------------------------------
+# Полный обход — это тысячи запросов и несколько минут, поэтому результат живёт
+# на сервере, а не в localStorage: проверил один браузер — видят все.
+
+ONLINE_LOCK = threading.Lock()
+MAX_ONLINE_ROWS = 50000
+
+
+def load_online():
+    try:
+        with open(ONLINE_STORE, encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get('live'), list):
+            return data
+    except (OSError, ValueError):
+        pass
+    return {'at': 0, 'live': []}
+
+
+def save_online(rows):
+    live = []
+    for row in rows[:MAX_ONLINE_ROWS]:
+        if not isinstance(row, list) or len(row) < 2:
+            continue
+        user, edge = row[0], str(row[1])
+        if not isinstance(user, str) or not user or not EDGE_RE.match(edge):
+            continue
+        viewers = 0
+        if len(row) > 2:
+            try:
+                viewers = int(row[2])
+            except (TypeError, ValueError):
+                viewers = 0
+
+        seen = 0                       # когда CDN в последний раз обновил превью
+        if len(row) > 3:
+            try:
+                seen = int(row[3])
+            except (TypeError, ValueError):
+                seen = 0
+
+        live.append([user, edge, viewers, seen])
+
+    payload = {'at': int(time.time()), 'live': live}
+    with ONLINE_LOCK:
+        tmp = ONLINE_STORE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False, separators=(',', ':'))
+        os.replace(tmp, ONLINE_STORE)
+    return payload
+
+
+# --------------------------------------------------------------------------
+# Запись эфира на диск
+# --------------------------------------------------------------------------
+
+def host_of(edge):
+    return f'mobile-edge{edge}' if edge.isdigit() else f'mobile-edge-{edge}'
+
+
+def pick_variant(master_url, max_rate=0):
+    """Из мастер-плейлиста выбирает самую качественную дорожку в пределах
+    потолка битрейта. Отдавать ffmpeg мастер целиком нельзя: он молча возьмёт
+    первую дорожку, а это 240p. Возвращает (адрес, битрейт).
+    """
+    req = urllib.request.Request(master_url, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        lines = resp.read(64 * 1024).decode('utf-8', 'replace').splitlines()
+
+    variants = []
+    for i, line in enumerate(lines):
+        if not line.startswith('#EXT-X-STREAM-INF'):
+            continue
+        uri = lines[i + 1].strip() if i + 1 < len(lines) else ''
+        if not uri or uri.startswith('#'):
+            continue
+        bw = re.search(r'BANDWIDTH=(\d+)', line)
+        variants.append((int(bw.group(1)) if bw else 0, uri))
+
+    if not variants:
+        return None, 0
+
+    limit = max_rate * 1000 if max_rate else 0
+    fits = [v for v in variants if not limit or v[0] <= limit]
+    best = max(fits, key=lambda v: v[0]) if fits else min(variants, key=lambda v: v[0])
+    return urljoin(master_url, best[1]), best[0]
+
+
+def rec_size(path):
+    total = 0
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                if entry.is_file():
+                    total += entry.stat().st_size
+    except OSError:
+        pass
+    return total
+
+
+def rec_state(rid, rec):
+    """phase: recording -> merging -> ready (или failed, если склейка не вышла)."""
+    alive = rec['proc'].poll() is None
+    phase = 'recording' if alive else rec.get('phase', 'merging')
+    mp4 = os.path.join(rec_dir(), rid + '.mp4')
+
+    if phase == 'ready':
+        size = os.path.getsize(mp4) if os.path.exists(mp4) else 0
+        url = f'rec/{rid}.mp4'
+    else:
+        size = rec_size(rec['dir'])
+        url = f'rec/{rid}/index.m3u8'
+
+    return {
+        'id': rid,
+        'user': rec['user'],
+        'running': alive,
+        'phase': phase,
+        'started': int(rec['started']),      # нужен плееру, чтобы совместить шкалы
+        'seconds': rec.get('duration') or int(time.time() - rec['started']),
+        'bytes': size,
+        'url': url,
+    }
+
+
+def rec_merge(rid):
+    """Склеивает сегменты в один mp4 и убирает временный каталог.
+
+    Пока идёт запись, куски нужны — иначе браузер не смог бы перематывать
+    незаконченный файл. Как только ffmpeg отпустил поток, склеиваем всё в
+    один mp4 без перекодирования и удаляем каталог с сегментами.
+    """
+    rec = RECORDINGS.get(rid)
+    if not rec:
+        return
+
+    playlist = os.path.join(rec['dir'], 'index.m3u8')
+    target = os.path.join(rec_dir(), rid + '.mp4')
+
+    ok = False
+    if os.path.exists(playlist):
+        cmd = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'warning', '-y',
+               '-allowed_extensions', 'ALL', '-i', playlist,
+               '-c', 'copy', '-bsf:a', 'aac_adtstoasc',
+               '-movflags', '+faststart', target]
+        try:
+            with open(os.path.join(rec['dir'], 'ffmpeg.log'), 'ab') as log:
+                ok = subprocess.run(cmd, stdout=log, stderr=log,
+                                    stdin=subprocess.DEVNULL, timeout=3600).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+
+    if ok and os.path.getsize(target) > 0:
+        shutil.rmtree(rec['dir'], ignore_errors=True)
+        rec['phase'] = 'ready'
+        write_log(f'record merged: {rid}.mp4, {os.path.getsize(target)} байт')
+        # Пока склеивали, запись могли пометить на выброс — убираем результат.
+        if rec.get('discard'):
+            rec_purge(rid)
+    else:
+        rec['phase'] = 'failed'          # сегменты не трогаем, данные целы
+        write_log(f'record merge FAILED: {rid}, сегменты оставлены в {rec["dir"]}')
+
+
+def rec_start(user, edge, view_rate, segment, rec_rate=0):
+    """Запускает ffmpeg, который льёт эфир в HLS на диск. -> состояние сессии."""
+    source, bitrate = pick_variant(
+        f'https://{host_of(edge)}.bcvcdn.com/hls/stream_{user}/playlist.m3u8', view_rate)
+    if not source:
+        raise RuntimeError('в плейлисте нет дорожек — эфира сейчас нет')
+
+    # Два каталога в одну секунду дали бы одинаковый id, общий каталог и двух
+    # ffmpeg разом: сервер запомнил бы только последнего, а первый писал бы
+    # в тот же каталог до конца эфира. Поэтому имя делаем уникальным.
+    base_id = f'{user}_{time.strftime("%Y%m%d-%H%M%S")}'
+    rid, suffix = base_id, 1
+    while rid in RECORDINGS or os.path.exists(os.path.join(rec_dir(), rid)):
+        suffix += 1
+        rid = f'{base_id}-{suffix}'
+
+    # Одну и ту же комнату дважды не пишем.
+    for other, rec in list(RECORDINGS.items()):
+        if rec['user'].lower() == user.lower() and rec['proc'].poll() is None:
+            write_log(f'record restart: гашу прежнюю запись {other}')
+            rec_stop(other)
+
+    out = os.path.join(rec_dir(), rid)
+    os.makedirs(out, exist_ok=True)
+
+    # Дорожка тяжелее потолка записи — пережимаем. На видеокарте это почти
+    # бесплатно; без неё пришлось бы грузить процессор кодированием в реальном
+    # времени. Звук не трогаем, он и так десятки килобит.
+    limit = rec_rate * 1000 if rec_rate else 0
+    squeeze = bool(limit and bitrate > limit)
+    if squeeze:
+        # Заданный битрейт — средний, а не потолок: статичной сцене хватит
+        # меньшего, движению даём запас в полтора раза. Если приравнять
+        # maxrate к цели, кодировщик лишается свободы и режет качество там,
+        # где достаточно было занять запас.
+        peak = int(rec_rate * 1.5)
+        video = ['-c:v', ENCODER, '-b:v', f'{rec_rate}k',
+                 '-maxrate', f'{peak}k', '-bufsize', f'{peak * 2}k']
+        if ENCODER == 'h264_nvenc':
+            # Замер на GTX 1060 (см. ниже): пресеты p4…p7 на Pascal дают
+            # побайтово одинаковый результат, поэтому p5 взят как нейтральный —
+            # на более новой карте он начнёт что-то значить. Ниже p4 опускаться
+            # нельзя: p1 промахивается мимо цели втрое.
+            #
+            # Просмотр вперёд и spatial-AQ на полной силе перебирали заданный
+            # битрейт (+8% и +12% к цели), а настройка существует ровно ради
+            # предсказуемого размера файла. AQ оставлен вполсилы: он защищает
+            # от полос на тёмных стенах, чего в этих эфирах хватает, но теперь
+            # стоит +5%, а не +12%. temporal-AQ бесплатен — укладывается в цель.
+            video += ['-preset', 'p5', '-rc', 'vbr', '-bf', '3',
+                      '-spatial-aq', '1', '-aq-strength', '4', '-temporal-aq', '1']
+        else:
+            video += ['-preset', 'veryfast']
+        codecs = video + ['-c:a', 'copy']
+    else:
+        codecs = ['-c', 'copy']            # без перекодирования: процессор не греем
+
+    cmd = [
+        'ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'warning',
+        '-user_agent', 'Mozilla/5.0',
+        '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '10',
+        '-i', source,
+        *codecs,
+        '-f', 'hls',
+        # Длина сегмента приходит из настроек плеера. Короткие дают дешёвую
+        # перемотку по записи, длинные — меньше файлов. Резать ffmpeg всё равно
+        # будет по ближайшему ключевому кадру.
+        '-hls_time', str(segment),
+        '-hls_list_size', '0',               # плейлист не обрезается
+        '-hls_playlist_type', 'event',       # можно перематывать к самому началу
+        '-hls_flags', 'append_list+independent_segments',
+        '-hls_segment_filename', os.path.join(out, 'seg_%05d.ts'),
+        os.path.join(out, 'index.m3u8'),
+    ]
+
+    write_log(f'record {rid}: источник {bitrate / 1e6:.1f} Мбит/с, ' +
+              (f'пережимаю до {rec_rate / 1000:.1f} Мбит/с в среднем, пик {rec_rate * 1.5 / 1000:.1f} ({ENCODER})'
+               if squeeze else 'копирую как есть'))
+
+    log = open(os.path.join(out, 'ffmpeg.log'), 'ab')
+    proc = subprocess.Popen(cmd, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+
+    with REC_LOCK:
+        # Больше MAX_RECORDINGS одновременно не держим: старейшую гасим.
+        alive = [(k, v) for k, v in RECORDINGS.items() if v['proc'].poll() is None]
+        if len(alive) >= MAX_RECORDINGS:
+            oldest = min(alive, key=lambda kv: kv[1]['started'])[0]
+            rec_stop(oldest, _locked=True)
+        RECORDINGS[rid] = {'proc': proc, 'user': user, 'dir': out,
+                           'started': time.time(), 'log': log, 'source': source}
+        return rec_state(rid, RECORDINGS[rid])
+
+
+def rec_purge(rid):
+    """Убирает и каталог сегментов, и склеенный mp4."""
+    folder = os.path.join(rec_dir(), rid)
+    target = os.path.join(rec_dir(), rid + '.mp4')
+    if os.path.isdir(folder):
+        shutil.rmtree(folder, ignore_errors=True)
+    try:
+        os.remove(target)
+    except OSError:
+        pass
+    write_log(f'record purged: {rid}')
+
+
+def rec_stop(rid, _locked=False):
+    """Гасит ffmpeg мягко, чтобы он дописал плейлист до конца."""
+    def do():
+        rec = RECORDINGS.get(rid)
+        if not rec:
+            return None
+        if rec['proc'].poll() is None:
+            rec['proc'].send_signal(signal.SIGINT)
+            try:
+                rec['proc'].wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                rec['proc'].kill()
+                try:
+                    rec['proc'].wait(timeout=5)   # дожидаемся смерти: иначе ffmpeg
+                except subprocess.TimeoutExpired:  # успеет восстановить каталог
+                    write_log(f'record: ffmpeg {rid} не умер даже после kill')
+        try:
+            rec['log'].close()
+        except OSError:
+            pass
+
+        # Длительность фиксируем до склейки, дальше время идти не должно.
+        rec.setdefault('duration', int(time.time() - rec['started']))
+        if rec.get('phase') not in ('merging', 'ready', 'failed'):
+            rec['phase'] = 'merging'
+            threading.Thread(target=rec_merge, args=(rid,), daemon=True).start()
+        return rec_state(rid, rec)
+
+    if _locked:
+        return do()
+    with REC_LOCK:
+        return do()
+
+
+LOG_PATH = os.path.join(REC_DIR, 'server.log')
+PLAY_LOG_PATH = os.path.join(REC_DIR, 'playback.log')
+LOG_LOCK = threading.Lock()
+PLAY_LOG_LOCK = threading.Lock()
+
+
+def write_log(line):
+    """Свой файл лога: вывод юнита в journald по какой-то причине не оседает."""
+    stamp = time.strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        with LOG_LOCK:
+            if os.path.exists(LOG_PATH) and os.path.getsize(LOG_PATH) > 5 * 1024 * 1024:
+                os.replace(LOG_PATH, LOG_PATH + '.1')
+            with open(LOG_PATH, 'a', encoding='utf-8') as f:
+                f.write(f'{stamp} {line}\n')
+    except OSError:
+        pass
+
+
+def write_play_log(lines):
+    """Журнал воспроизведения от плеера: нужен, чтобы разбирать обрывы потом,
+    когда страница уже перезагружена и её память потеряна."""
+    try:
+        with PLAY_LOG_LOCK:
+            if os.path.exists(PLAY_LOG_PATH) and os.path.getsize(PLAY_LOG_PATH) > 5 * 1024 * 1024:
+                os.replace(PLAY_LOG_PATH, PLAY_LOG_PATH + '.1')
+            with open(PLAY_LOG_PATH, 'a', encoding='utf-8') as f:
+                for line in lines[:5000]:
+                    if isinstance(line, str):
+                        f.write(line.replace('\n', ' ')[:2000] + '\n')
+    except OSError:
+        pass
+
+
+def default_gateway():
+    """Адрес роутера из таблицы маршрутизации: нужен, чтобы отделить свою
+    локальную сеть от участка до провайдера."""
+    try:
+        with open('/proc/net/route', encoding='ascii') as f:
+            for line in f.readlines()[1:]:
+                cols = line.split()
+                if len(cols) > 3 and cols[1] == '00000000' and int(cols[3], 16) & 2:
+                    num = int(cols[2], 16)
+                    return '.'.join(str((num >> (8 * i)) & 255) for i in range(4))
+    except (OSError, ValueError):
+        pass
+    return ''
+
+
+def tcp_ms(host, port, timeout=4.0):
+    """Время установки TCP-соединения. Отказ в соединении засчитываем как
+    успех: пакет дошёл и вернулся, а открыт порт или нет — для замера
+    задержки безразлично."""
+    started = time.time()
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        sock.close()
+    except ConnectionRefusedError:
+        pass
+    except OSError:
+        return None
+    return (time.time() - started) * 1000
+
+
+def probe_target(target, tries=6):
+    """Серия замеров до одного адреса. Потери считаем по превышению над
+    лучшим результатом: переспрос потерянного SYN добавляет около секунды,
+    поэтому всё, что медленнее лучшего на 600 мс, — почти наверняка потеря."""
+    name, host, port = target
+    times = [t for t in (tcp_ms(host, port) for _ in range(tries)) if t is not None]
+    row = {'name': name, 'host': host, 'tries': tries, 'ok': len(times)}
+    if not times:
+        return row | {'verdict': 'недоступен'}
+
+    best = min(times)
+    lost = sum(1 for t in times if t > best + 600)
+    row |= {'best': round(best), 'median': round(sorted(times)[len(times) // 2]),
+            'worst': round(max(times)), 'lost': lost,
+            'loss': round((lost + tries - len(times)) / tries * 100)}
+    if row['loss'] >= 30:
+        row['verdict'] = 'плохо'
+    elif row['loss'] > 0 or len(times) < tries:
+        row['verdict'] = 'с потерями'
+    else:
+        row['verdict'] = 'чисто'
+    return row
+
+
+def net_check():
+    """Диагностика канала: одни и те же замеры до роутера, до нейтральных
+    узлов и до CDN трансляций. Расхождение между ними и показывает, где
+    рвётся — в своей сети, у провайдера или на маршруте к вещателю."""
+    started = time.time()
+
+    dns_ms, dns_err = None, ''
+    try:
+        at = time.time()
+        socket.getaddrinfo('mobile-edge9.bcvcdn.com', 443, socket.AF_INET)
+        dns_ms = round((time.time() - at) * 1000)
+    except OSError as exc:
+        dns_err = str(exc)
+
+    targets = []
+    gateway = default_gateway()
+    if gateway:
+        targets.append(('Роутер', gateway, 80))
+    targets += [('Cloudflare', '1.1.1.1', 443),
+                ('Google', '8.8.8.8', 443),
+                ('Яндекс', 'ya.ru', 443)]
+
+    # Серверы вещания берём те, что сейчас реально раздают эфир: проверять
+    # наугад бессмысленно, часть номеров вообще не существует.
+    edges, seen = [], set()
+    for row in load_online().get('live', []):
+        edge = str(row[1]) if len(row) > 1 else ''
+        if edge and edge not in seen:
+            seen.add(edge)
+            edges.append(edge)
+        if len(edges) == 3:
+            break
+    targets += [(f'CDN эфира ({e})', f'{host_of(e)}.bcvcdn.com', 443) for e in edges]
+
+    with ThreadPoolExecutor(len(targets)) as pool:
+        rows = list(pool.map(probe_target, targets))
+
+    ref = [r for r in rows if r['name'] in ('Cloudflare', 'Google', 'Яндекс') and 'loss' in r]
+    cdn = [r for r in rows if r['name'].startswith('CDN') and 'loss' in r]
+    ref_loss = sum(r['loss'] for r in ref) / len(ref) if ref else 0
+    cdn_loss = sum(r['loss'] for r in cdn) / len(cdn) if cdn else 0
+
+    if not ref and not cdn:
+        verdict = 'Сеть не отвечает вовсе — проверьте кабель и роутер.'
+    elif cdn_loss < 10 and ref_loss < 10:
+        verdict = 'Канал чист. Превью сейчас должны грузиться без задержек.'
+    elif ref_loss >= 10 and cdn_loss >= 10:
+        verdict = ('Теряются пакеты до всех адресов, не только до вещателя — '
+                   'проблема в своём канале или у провайдера.')
+    elif cdn_loss >= 10:
+        verdict = ('До нейтральных узлов чисто, а до серверов вещания пакеты '
+                   'теряются — рвётся маршрут к CDN, у нас не лечится.')
+    else:
+        verdict = 'Пакеты теряются до нейтральных узлов, а до CDN проходят.'
+
+    return {'at': int(time.time()), 'took': round(time.time() - started, 1),
+            'dns': dns_ms, 'dnsError': dns_err, 'gateway': gateway,
+            'targets': rows, 'verdict': verdict}
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT, **kwargs)
+
+    def log_message(self, fmt, *args):
+        write_log(f'{self.address_string()} {fmt % args}')
+
+    def cors_origin(self):
+        """Разрешаем читать ответ только страницам самого сайта.
+
+        Нужно, чтобы закладка на bongacams.com могла отправить собранные ники
+        прямо сюда и показать результат. Защитой это не считается: CORS не
+        мешает чужому сайту прислать запрос, он лишь мешает прочитать ответ.
+        """
+        origin = self.headers.get('Origin') or ''
+        return origin if re.match(r'^https://([a-z0-9-]+\.)*bongacams\.com$', origin) else None
 
     def _json(self, payload, code=200):
         body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
@@ -86,37 +715,328 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
+        allow = self.cors_origin()
+        if allow:
+            self.send_header('Access-Control-Allow-Origin', allow)
+            self.send_header('Vary', 'Origin')
         self.end_headers()
         self.wfile.write(body)
 
+    def do_OPTIONS(self):
+        allow = self.cors_origin()
+        self.send_response(204 if allow else 403)
+        if allow:
+            self.send_header('Access-Control-Allow-Origin', allow)
+            self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            self.send_header('Access-Control-Max-Age', '86400')
+            self.send_header('Vary', 'Origin')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def _serve_recording(self, path):
+        """Отдаёт файлы записи из папки записей — она лежит вне корня сервера.
+
+        Два вида путей: rec/<id>/<файл> — сегменты и плейлист во время записи,
+        rec/<id>.mp4 — готовая склейка. Для mp4 обязателен Range: без него
+        браузер не сможет перематывать файл.
+        """
+        parts = [p for p in path[len('/rec/'):].split('/') if p not in ('', '.', '..')]
+        if not all(ID_RE.match(p) for p in parts):
+            return self.send_error(404)
+
+        if len(parts) == 1 and parts[0].endswith('.mp4'):
+            full, ctype, cacheable = os.path.join(rec_dir(), parts[0]), 'video/mp4', True
+        elif len(parts) == 2:
+            full = os.path.join(rec_dir(), parts[0], parts[1])
+            playlist = parts[1].endswith('.m3u8')
+            ctype = 'application/vnd.apple.mpegurl' if playlist else 'video/mp2t'
+            cacheable = not playlist          # плейлист растёт, сегменты неизменны
+        else:
+            return self.send_error(404)
+
+        if not os.path.isfile(full):
+            return self.send_error(404)
+        self._serve_file(full, ctype, cacheable)
+
+    def _serve_file(self, full, ctype, cacheable):
+        try:
+            size = os.path.getsize(full)
+        except OSError:
+            return self.send_error(404)
+
+        start, end, status = 0, size - 1, 200
+        rng = self.headers.get('Range')
+        if rng:
+            m = re.match(r'bytes=(\d*)-(\d*)\s*$', rng.strip())
+            if m and (m.group(1) or m.group(2)):
+                if m.group(1):
+                    start = int(m.group(1))
+                    end = int(m.group(2)) if m.group(2) else size - 1
+                else:
+                    start = max(0, size - int(m.group(2)))
+                if start >= size:
+                    self.send_response(416)
+                    self.send_header('Content-Range', f'bytes */{size}')
+                    self.end_headers()
+                    return
+                end = min(end, size - 1)
+                status = 206
+
+        length = end - start + 1
+        self.send_response(status)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Accept-Ranges', 'bytes')
+        self.send_header('Content-Length', str(length))
+        if status == 206:
+            self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+        self.send_header('Cache-Control', 'max-age=86400' if cacheable else 'no-store')
+        self.end_headers()
+
+        try:
+            with open(full, 'rb') as f:
+                f.seek(start)
+                left = length
+                while left > 0:
+                    chunk = f.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+        except (OSError, BrokenPipeError, ConnectionResetError):
+            pass                              # браузер закрыл соединение — обычное дело
+
     def do_GET(self):
-        if self.path.split('?')[0] == '/api/accounts':
+        path = self.path.split('?')[0]
+
+        if path == '/api/accounts':
             return self._json({'accounts': list(load().values())})
+
+        if path == '/api/online':
+            return self._json(load_online())
+
+        if path == '/api/settings':
+            return self._json(load_settings())
+
+        if path == '/api/orphans':
+            return self._json({'orphans': orphan_dirs()})
+
+        if path == '/api/netcheck':
+            return self._json(net_check())
+
+        if path == '/api/browse':
+            query = parse_qs(urlparse(self.path).query)
+            return self._json(browse_dirs((query.get('path') or [''])[0]))
+
+        if path == '/api/record':
+            with REC_LOCK:
+                return self._json({'recordings': [rec_state(k, v)
+                                                  for k, v in RECORDINGS.items()]})
+
+        if path.startswith('/rec/'):
+            return self._serve_recording(path)
+
         return super().do_GET()
 
     def do_POST(self):
-        if self.path.split('?')[0] != '/api/accounts':
-            return self.send_error(404)
+        path = self.path.split('?')[0]
 
         try:
             length = int(self.headers.get('Content-Length') or 0)
         except ValueError:
             return self.send_error(400, 'bad length')
-        if length <= 0 or length > MAX_BODY:
+        if length < 0 or length > MAX_BODY:
             return self.send_error(413, 'bad body size')
 
         try:
-            rows = json.loads(self.rfile.read(length))
+            body = json.loads(self.rfile.read(length) or b'null')
         except ValueError:
             return self.send_error(400, 'bad json')
-        if not isinstance(rows, list):
-            return self.send_error(400, 'expected array')
 
-        taken, added, total = merge(rows)
-        self.log_message('accounts: принято %d, новых %d, всего %d', taken, added, total)
-        self._json({'taken': taken, 'added': added, 'total': total})
+        if path == '/api/accounts':
+            if not isinstance(body, list):
+                return self.send_error(400, 'expected array')
+            taken, added, total = merge(body)
+            self.log_message('accounts: принято %d, новых %d, всего %d', taken, added, total)
+            return self._json({'taken': taken, 'added': added, 'total': total})
+
+        if path == '/api/settings':
+            if not isinstance(body, dict):
+                return self.send_error(400, 'expected object')
+            merged = save_settings(body)
+            self.log_message('settings: %s', ', '.join(f'{k}={v}' for k, v in body.items()))
+            return self._json(merged)
+
+        if path == '/api/log':
+            lines = body.get('lines') if isinstance(body, dict) else body
+            if not isinstance(lines, list):
+                return self.send_error(400, 'expected array')
+            write_play_log(lines)
+            return self._json({'written': len(lines)})
+
+        if path == '/api/online':
+            rows = body.get('live') if isinstance(body, dict) else body
+            if not isinstance(rows, list):
+                return self.send_error(400, 'expected array')
+            payload = save_online(rows)
+            self.log_message('online: сохранено %d записей', len(payload['live']))
+            return self._json({'at': payload['at'], 'count': len(payload['live'])})
+
+        if path == '/api/record':
+            if not isinstance(body, dict):
+                return self.send_error(400, 'expected object')
+            user = str(body.get('user') or '')
+            edge = str(body.get('edge') or '')
+            try:
+                max_rate = int(body.get('maxRate') or 0)
+            except (TypeError, ValueError):
+                max_rate = 0
+            try:
+                rec_rate = int(body.get('recRate') or 0)
+            except (TypeError, ValueError):
+                rec_rate = 0
+            try:
+                segment = int(body.get('segment') or DEFAULT_SEGMENT)
+            except (TypeError, ValueError):
+                segment = DEFAULT_SEGMENT
+            segment = min(max(segment, 5), 900)          # от 5 секунд до 15 минут
+            if not USER_RE.match(user) or not edge or not EDGE_RE.match(edge):
+                return self.send_error(400, 'bad user or edge')
+            try:
+                state = rec_start(user, edge, max_rate, segment, rec_rate)
+            except Exception as err:                       # сеть, ffmpeg, пустой плейлист
+                return self._json({'error': str(err)}, 502)
+            self.log_message('record start: %s -> %s', state['id'], state['url'])
+            return self._json(state)
+
+        if path in ('/api/orphans/keep', '/api/orphans/drop'):
+            rid = str(body.get('id') or '') if isinstance(body, dict) else ''
+            if not ID_RE.match(rid) or not os.path.isdir(os.path.join(rec_dir(), rid)):
+                return self.send_error(400, 'bad id')
+
+            if path.endswith('/keep'):
+                name = merge_folder(rid)
+                return self._json({'merged': name} if name else {'error': 'склейка не удалась'},
+                                  200 if name else 500)
+
+            shutil.rmtree(os.path.join(rec_dir(), rid), ignore_errors=True)
+            self.log_message('orphan dropped: %s', rid)
+            return self._json({'dropped': rid})
+
+        if path in ('/api/record/stop', '/api/record/delete'):
+            rid = str(body.get('id') or '') if isinstance(body, dict) else ''
+            if not ID_RE.match(rid):
+                return self.send_error(400, 'bad id')
+
+            if path == '/api/record/delete':
+                rec = RECORDINGS.get(rid)
+                if rec is not None:
+                    rec['discard'] = True          # склейка, если идёт, уберёт за собой
+                rec_stop(rid)
+                if not rec or rec.get('phase') in (None, 'ready', 'failed'):
+                    rec_purge(rid)
+                    with REC_LOCK:
+                        RECORDINGS.pop(rid, None)
+                self.log_message('record delete: %s', rid)
+                return self._json({'deleted': rid})
+
+            state = rec_stop(rid)
+
+            self.log_message('record stop: %s', rid)
+            return self._json(state or {'id': rid, 'running': False})
+
+        return self.send_error(404)
+
+
+def orphan_dirs():
+    """Каталоги с сегментами, за которыми уже никто не следит.
+
+    Появляются, когда сервер перезапустили посреди записи: ffmpeg погиб вместе
+    с ним, а куски остались. Никто их не склеит, пока не попросят.
+    """
+    found = []
+    try:
+        entries = sorted(os.scandir(rec_dir()), key=lambda e: e.name)
+    except OSError:
+        return found
+
+    for entry in entries:
+        if not entry.is_dir() or not ID_RE.match(entry.name):
+            continue
+        rec = RECORDINGS.get(entry.name)
+        if rec and rec['proc'].poll() is None:
+            continue                                  # пишется прямо сейчас
+        try:
+            segments = [f for f in os.listdir(entry.path) if f.endswith('.ts')]
+        except OSError:
+            continue
+        if not segments:
+            continue
+        found.append({
+            'id': entry.name,
+            'user': entry.name.rsplit('_', 1)[0],
+            'segments': len(segments),
+            'bytes': rec_size(entry.path),
+            'at': int(entry.stat().st_mtime),
+        })
+    return found
+
+
+def merge_folder(rid):
+    """Склеивает осиротевший каталог. Плейлист может врать (часть сегментов
+    уже удалена), поэтому склеиваем прямо по списку файлов на диске."""
+    folder = os.path.join(rec_dir(), rid)
+    try:
+        segments = sorted(f for f in os.listdir(folder) if f.endswith('.ts'))
+    except OSError:
+        return None
+    if not segments:
+        return None
+
+    listing = os.path.join(folder, 'concat.txt')
+    with open(listing, 'w', encoding='utf-8') as f:
+        for name in segments:
+            f.write("file '%s'\n" % os.path.join(folder, name))
+
+    target = os.path.join(rec_dir(), rid + '.mp4')
+    if os.path.exists(target):                        # первая часть уже склеена
+        target = os.path.join(rec_dir(), rid + '_part2.mp4')
+
+    cmd = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+           '-f', 'concat', '-safe', '0', '-i', listing,
+           '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-movflags', '+faststart', target]
+    try:
+        code = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              stdin=subprocess.DEVNULL, timeout=3600).returncode
+    except (OSError, subprocess.SubprocessError):
+        code = 1
+
+    if code == 0 and os.path.exists(target) and os.path.getsize(target) > 0:
+        shutil.rmtree(folder, ignore_errors=True)
+        write_log(f'orphan merged: {os.path.basename(target)}, {os.path.getsize(target)} байт')
+        return os.path.basename(target)
+
+    write_log(f'orphan merge FAILED: {rid}')
+    return None
+
+
+def reaper():
+    """Эфир может кончиться сам — тогда ffmpeg выходит, и склейку надо завести."""
+    while True:
+        time.sleep(15)
+        for rid, rec in list(RECORDINGS.items()):
+            if rec['proc'].poll() is not None and 'phase' not in rec:
+                write_log(f'record ended by source: {rid}')
+                rec_stop(rid)
 
 
 if __name__ == '__main__':
-    print(f'Плеер: http://127.0.0.1:{PORT}/player.html')
-    ThreadingHTTPServer(('0.0.0.0', PORT), Handler).serve_forever()
+    os.makedirs(REC_DIR, exist_ok=True)
+    threading.Thread(target=reaper, daemon=True).start()
+    print(f'Плеер:  http://127.0.0.1:{PORT}/player.html')
+    print(f'Записи: {rec_dir()} (логи всегда в {REC_DIR})')
+    try:
+        ThreadingHTTPServer(('0.0.0.0', PORT), Handler).serve_forever()
+    finally:
+        for rid in list(RECORDINGS):                       # не бросаем ffmpeg сиротами
+            rec_stop(rid)
