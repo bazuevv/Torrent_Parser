@@ -3372,30 +3372,55 @@
                               : 'Недоступно: страница открыта не по localhost и не по https';
   }
 
-  $('pip').onclick = e => {
-    e.stopPropagation();                     // иначе меню закроется тем же кликом
-    // Окно уже открыто — кнопка его закрывает, выбирать нечего.
-    if (window.documentPictureInPicture?.window) return documentPictureInPicture.window.close();
-    if (document.pictureInPictureElement) return document.exitPictureInPicture();
+  // Окно уже открыто — выбирать нечего, кнопка просто закрывает его.
+  const pipOpen = () => !!(window.documentPictureInPicture?.window || document.pictureInPictureElement);
 
+  function showPipMenu() {
+    if (pipOpen()) return;
     const menu = $('pipMenu');
-    menu.hidden = !menu.hidden;
-    if (menu.hidden) return;
+    menu.hidden = false;
     paintPipMenu();
     // Кнопка стоит правее середины шапки, а меню шире её — прижимаем к краю,
     // если под кнопкой места не хватает.
     const room = $('pip').offsetParent?.clientWidth || innerWidth;
     menu.style.left = `${Math.max(8, Math.min($('pip').offsetLeft, room - menu.offsetWidth - 8))}px`;
+  }
+
+  /* Открытие по наведению. Между кнопкой и меню есть зазор в 4 пикселя, и без
+     отсрочки меню захлопывалось бы ровно в тот момент, когда курсор его
+     пересекает. Поэтому уход курсора лишь заводит таймер, а возвращение —
+     на кнопку или в само меню — его отменяет. */
+  let pipHideTimer = 0;
+  const keepPipMenu = () => { clearTimeout(pipHideTimer); pipHideTimer = 0; };
+  const dropPipMenu = () => {
+    keepPipMenu();
+    pipHideTimer = setTimeout(() => { $('pipMenu').hidden = true; }, 260);
+  };
+
+  for (const el of [$('pip'), $('pipMenu')]) {
+    el.addEventListener('mouseenter', () => { keepPipMenu(); showPipMenu(); });
+    el.addEventListener('mouseleave', dropPipMenu);
+  }
+
+  // Нажатие остаётся рабочим: на сенсорном экране наведения не бывает,
+  // а при открытом окне кнопка его закрывает.
+  $('pip').onclick = e => {
+    e.stopPropagation();
+    keepPipMenu();
+    if (window.documentPictureInPicture?.window) return documentPictureInPicture.window.close();
+    if (document.pictureInPictureElement) return document.exitPictureInPicture();
+    if ($('pipMenu').hidden) showPipMenu(); else $('pipMenu').hidden = true;
   };
 
   $('pipMenu').onclick = e => {
     const kind = e.target.closest('[data-pip]')?.dataset.pip;
     if (!kind) return;
+    keepPipMenu();
     $('pipMenu').hidden = true;
     if (kind === 'doc') openDocPip(); else openNativePip();
   };
   document.addEventListener('click', e => {
-    if (!e.target.closest('#pipMenu')) $('pipMenu').hidden = true;
+    if (!e.target.closest('#pipMenu, #pip')) $('pipMenu').hidden = true;
   });
 
   // Профиль на сайте. Регистр в пути важен, поэтому берём правильное написание
