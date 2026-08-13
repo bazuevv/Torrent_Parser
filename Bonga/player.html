@@ -294,14 +294,17 @@
   #pipMenu {
     position: absolute; z-index: 35; top: 100%; margin-top: 4px;
     padding: 4px; background: #1c1f26; border: 1px solid #39404d;
-    border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); width: 300px;
+    border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); width: 260px;
   }
   #pipMenu > div {
     padding: 6px 8px; border-radius: 6px; cursor: pointer; color: #e6e8ec; font-size: 13px;
   }
   #pipMenu > div:hover { background: #2f6fd0; }
-  #pipMenu small { display: block; margin-top: 2px; color: #98a1b0; font-size: 11px; line-height: 1.35; }
-  #pipMenu > div:hover small { color: #d7dde5; }
+  /* Пояснение раскрывается только под курсором: в свёрнутом виде меню — два
+     коротких слова, и выбор читается с одного взгляда. Ширина при этом задана
+     жёстко, иначе появление текста дёргало бы меню по горизонтали. */
+  #pipMenu small { display: none; margin-top: 2px; font-size: 11px; line-height: 1.35; }
+  #pipMenu > div:hover small { display: block; color: #d7dde5; }
   /* Недоступный вариант не прячем: пусть видно, что он есть, и почему не выйдет. */
   #pipMenu > div.off { color: #6b7484; }
   #pipMenu > div.off small { color: #565e6d; }
@@ -440,9 +443,9 @@
   <button id="pip" title="Картинка в картинке: выбор вида окна">PiP</button>
 
   <div id="pipMenu" hidden>
-    <div data-pip="doc">С панелью управления
+    <div data-pip="doc">С панелью
       <small>стрелки комнат и автопереключение; рамка и адрес</small></div>
-    <div data-pip="native">Компактное, поверх окон
+    <div data-pip="native">Стандартное
       <small>рисует браузер: только видео, наших кнопок нет</small></div>
   </div>
   <button id="profile" title="Открыть страницу модели на сайте в новой вкладке">Открыть профиль</button>
@@ -3368,8 +3371,9 @@
   function paintPipMenu() {
     const doc = $('pipMenu').querySelector('[data-pip="doc"]');
     doc.classList.toggle('off', !docPipReady());
-    doc.title = docPipReady() ? 'Наше окно: видео вместе с панелью управления'
-                              : 'Недоступно: страница открыта не по localhost и не по https';
+    // Пояснение к доступному пункту раскрывается по наведению внутри меню,
+    // и штатный title дублировал бы его вторым всплывающим окошком.
+    doc.title = docPipReady() ? '' : 'Недоступно: страница открыта не по localhost и не по https';
   }
 
   // Окно уже открыто — выбирать нечего, кнопка просто закрывает его.
