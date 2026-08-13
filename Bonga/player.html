@@ -256,6 +256,10 @@
   #recDir { flex: 1 1 auto; min-width: 0; font-size: 12px; }
   #settings .row > select, #settings .row > button { flex: 0 0 auto; }
   #settings .hint { margin: 4px 0 0 140px; color: #6b7484; font-size: 12px; line-height: 1.4; }
+  /* Пояснение свёрнуто, пока не нажали значок. Правило явное: у .hint нет
+     своего display, но в этом файле уже дважды всплывало, что авторский
+     display перебивает атрибут hidden — пусть будет застраховано. */
+  #settings .hint[hidden] { display: none; }
 
   /* Пояснения убраны под значок: развёрнутыми они занимали больше места,
      чем сами настройки, и панель приходилось долго листать. */
@@ -266,6 +270,9 @@
     font: italic 600 11px/1 Georgia, serif; cursor: help; user-select: none;
   }
   .tip:hover, .tip:focus { color: #fff; border-color: #6ea8fe; background: #2f6fd0; outline: none; }
+  /* Раскрытое пояснение — значок остаётся подсвеченным, иначе непонятно,
+     к какой из строк относится появившийся внизу текст. */
+  .tip[aria-expanded="true"] { color: #fff; border-color: #6ea8fe; background: #2f6fd0; }
   /* Путь записи отклонён. Значок мелкий, поэтому красим целиком: сообщение
      в статусной строке живёт недолго, а причина должна остаться на виду. */
   .tip.err { color: #fff; border-color: #b5372c; background: #b5372c; }
@@ -426,9 +433,13 @@
       <summary>База ников</summary>
     <div class="row">
       <label>Пополнение</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="База ников общая для всех браузеров — она живёт на сервере, а не в памяти страницы. Пополняет её закладка-сборщик, запускаемая на самом сайте: оттуда доступен каталог, закрытый для нас защитой Cloudflare.">i</i>
       <button id="accounts" title="Перечитать базу с сервера и показать сборщик">Обновить аккаунты</button>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>База ников общая для всех браузеров — она живёт на
+      сервере, а не в памяти страницы. Пополняет её закладка-сборщик,
+      запускаемая на самом сайте: оттуда доступен каталог, закрытый для нас
+      защитой Cloudflare.</p>
     </details>
 
     <details class="sect" open data-sect="view">
@@ -436,7 +447,6 @@
 
     <div class="row">
       <label for="maxRate">Максимальный битрейт</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Берётся самое высокое качество, укладывающееся в этот битрейт. Разрешение у моделей разное, а вес — тем более: у части родные 720p идут под 9 Мбит/с. Битрейт каждой дорожки виден в списке «Качество».">i</i>
       <select id="maxRate">
         <option value="1000">1 Мбит/с</option>
         <option value="2000">2 Мбит/с</option>
@@ -446,11 +456,15 @@
         <option value="10000">10 Мбит/с</option>
         <option value="0">без ограничения</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Берётся самое высокое качество, укладывающееся в
+      этот битрейт. Разрешение у моделей разное, а вес — тем более: у части
+      родные 720p идут под 9 Мбит/с. Битрейт каждой дорожки виден в списке
+      «Качество».</p>
 
     <div class="row">
       <label for="buffer">Буфер памяти</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Глубина мгновенной перемотки. При записи на диск — быстрый кэш поверх файла, без записи — вся доступная глубина. Час 720p ≈ 1 ГБ памяти.">i</i>
       <select id="buffer">
         <option value="60">1 мин</option>
         <option value="300">5 мин</option>
@@ -458,16 +472,21 @@
         <option value="1800">30 мин</option>
         <option value="3600">60 мин</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Глубина мгновенной перемотки. При записи на диск —
+      быстрый кэш поверх файла, без записи — вся доступная глубина. Час 720p ≈
+      1 ГБ памяти.</p>
 
     <div class="row">
       <label>Панели</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="То же самое делают синие ручки по краям видео.">i</i>
       <span>
         <label class="check"><input type="checkbox" id="panelLeft"> история</label>
         <label class="check"><input type="checkbox" id="panelRight"> эфир</label>
       </span>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>То же самое делают синие ручки по краям видео.</p>
 
     </details>
 
@@ -475,7 +494,6 @@
       <summary>Запись</summary>
     <div class="row">
       <label for="recRate">Максимальный битрейт записи</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Если поток тяжелее — сервер пережимает его до этого битрейта на видеокарте, разрешение при этом сохраняется. «Как при просмотре» пишет поток как есть, без перекодирования.">i</i>
       <select id="recRate">
         <option value="1000">1 Мбит/с</option>
         <option value="2000">2 Мбит/с</option>
@@ -485,44 +503,61 @@
         <option value="10000">10 Мбит/с</option>
         <option value="0">как при просмотре</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Если поток тяжелее — сервер пережимает его до этого
+      битрейта на видеокарте, разрешение при этом сохраняется. «Как при
+      просмотре» пишет поток как есть, без перекодирования.</p>
 
     <div class="row">
       <label for="recMode">Режим записи</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="В авто пишется каждая открытая трансляция — это и есть буфер перемотки. Вручную запись начинается только по кнопке в верхней панели.">i</i>
       <select id="recMode">
         <option value="1">авто</option>
         <option value="0">вручную</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>В авто пишется каждая открытая трансляция — это и
+      есть буфер перемотки. Вручную запись начинается только по кнопке в
+      верхней панели.</p>
 
     <div class="row">
       <label for="recDir">Папка записей</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" id="recDirHint" data-tip="Куда сервер кладёт файлы. Допустимы пути внутри /mnt/DATA, /mnt/Projects и /home/vladimir — остальные systemd закроет на запись. Прежние записи остаются там, где лежали.">i</i>
       <input id="recDir" spellcheck="false" placeholder="/mnt/DATA/Bonga_rec">
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" id="recDirHint" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Куда сервер кладёт файлы. Допустимы пути внутри
+      /mnt/DATA, /mnt/Projects и /home/vladimir — остальные systemd закроет на
+      запись. Прежние записи остаются там, где лежали.</p>
 
     <div class="row">
       <label for="segment">Длина сегмента</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Куски, на которые ffmpeg режет запись; по её окончании они склеиваются в один mp4. Короткие — больше файлов, зато свежее точка перехода по кнопке «Из записи».">i</i>
       <select id="segment">
         <option value="10">10 с</option>
         <option value="30">30 с</option>
         <option value="60">60 с</option>
         <option value="300">5 мин</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Куски, на которые ffmpeg режет запись; по её
+      окончании они склеиваются в один mp4. Короткие — больше файлов, зато
+      свежее точка перехода по кнопке «Из записи».</p>
 
     <div class="row">
       <label for="keepMin">Спрашивать о сохранении</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Запись включена всегда — она даёт перемотку глубже оперативной памяти. При переходе в другую комнату плеер спросит, оставить файл или стереть; короткие записи стираются молча, они были нужны лишь как буфер.">i</i>
       <select id="keepMin">
         <option value="0">всегда</option>
         <option value="60">если длиннее минуты</option>
         <option value="300">если длиннее 5 минут</option>
         <option value="86400">никогда, удалять</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Запись включена всегда — она даёт перемотку глубже
+      оперативной памяти. При переходе в другую комнату плеер спросит,
+      оставить файл или стереть; короткие записи стираются молча, они были
+      нужны лишь как буфер.</p>
 
     </details>
 
@@ -530,24 +565,33 @@
       <summary>История</summary>
     <div class="row">
       <label for="deep">Искать переехавших</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Серые ники в истории обходятся по всем серверам вещания сразу: модель могла не уйти, а переехать на другой сервер — тогда обычная проверка считает её ушедшей. Обход тяжёлый, поэтому идёт по расписанию; кнопка ↻ над историей запускает его немедленно.">i</i>
       <select id="deep">
         <option value="0">вручную</option>
         <option value="5">каждые 5 мин</option>
         <option value="15">каждые 15 мин</option>
         <option value="60">раз в час</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Серые ники в истории обходятся по всем серверам
+      вещания сразу: модель могла не уйти, а переехать на другой сервер —
+      тогда обычная проверка считает её ушедшей. Обход тяжёлый, поэтому идёт
+      по расписанию; кнопка ↻ над историей запускает его немедленно.</p>
     <div class="row">
       <label for="deepBatch">Ников за заход</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Ники истории, не ответившие на своём сервере, перебираются по всем 105 серверам: модель могла переехать. Один такой ник стоит до 105 запросов и около 10 секунд, поэтому за заход берётся порция, начиная с тех, кого дольше не проверяли — за пару циклов очередь обходит всех. Кнопка ↻ в истории запускает проверку немедленно.">i</i>
       <select id="deepBatch">
         <option value="6">6</option>
         <option value="12">12</option>
         <option value="25">25</option>
         <option value="0">все серые</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Ники истории, не ответившие на своём сервере,
+      перебираются по всем 105 серверам: модель могла переехать. Один такой
+      ник стоит до 105 запросов и около 10 секунд, поэтому за заход берётся
+      порция, начиная с тех, кого дольше не проверяли — за пару циклов очередь
+      обходит всех. Кнопка ↻ в истории запускает проверку немедленно.</p>
 
     </details>
 
@@ -555,36 +599,46 @@
       <summary>Как часто обновлять</summary>
     <div class="row">
       <label for="thumbs">Превью справа</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Сам CDN перерисовывает кадры примерно раз в 10 секунд.">i</i>
       <select id="thumbs">
         <option value="0">не обновлять</option>
         <option value="5">5 с</option>
         <option value="10">10 с</option>
         <option value="30">30 с</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Сам CDN перерисовывает кадры примерно раз в 10
+      секунд.</p>
 
     <div class="row">
       <label for="hist">Статус в истории</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Как часто левая колонка перепроверяет, идёт ли эфир у просмотренных ранее ников. Спрашивается только их последний известный сервер — это быстро; поиск по всем серверам вынесен в «Искать переехавших».">i</i>
       <select id="hist">
         <option value="0">не проверять</option>
         <option value="30">30 с</option>
         <option value="60">1 мин</option>
         <option value="300">5 мин</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Как часто левая колонка перепроверяет, идёт ли эфир
+      у просмотренных ранее ников. Спрашивается только их последний известный
+      сервер — это быстро; поиск по всем серверам вынесен в «Искать
+      переехавших».</p>
 
     <div class="row">
       <label for="pull">Перечитывать базу</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Как часто страница забирает с сервера общую базу ников. Пока закладка-сборщик работает в соседней вкладке, база пополняется каждую минуту, и открытые плееры подхватывают новые номера серверов отсюда.">i</i>
       <select id="pull">
         <option value="30">30 с</option>
         <option value="60">1 мин</option>
         <option value="300">5 мин</option>
         <option value="900">15 мин</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Как часто страница забирает с сервера общую базу
+      ников. Пока закладка-сборщик работает в соседней вкладке, база
+      пополняется каждую минуту, и открытые плееры подхватывают новые номера
+      серверов отсюда.</p>
 
     </details>
 
@@ -592,36 +646,42 @@
       <summary>Проверка эфира</summary>
     <div class="row">
       <label for="ttl">Результат годен</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Пока результат свежий, при загрузке страницы список берётся с сервера без обхода.">i</i>
       <select id="ttl">
         <option value="15">15 мин</option>
         <option value="60">1 час</option>
         <option value="360">6 часов</option>
         <option value="1440">сутки</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Пока результат свежий, при загрузке страницы список
+      берётся с сервера без обхода.</p>
 
     <div class="row">
       <label for="gap">Пауза между обходами</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Насколько часто плеер может сам запускать полный обход. Кнопка ↻ паузу игнорирует.">i</i>
       <select id="gap">
         <option value="0">без паузы</option>
         <option value="5">5 мин</option>
         <option value="10">10 мин</option>
         <option value="30">30 мин</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Насколько часто плеер может сам запускать полный
+      обход. Кнопка ↻ паузу игнорирует.</p>
 
     <div class="row">
       <label for="pool">Запросов разом</label>
-      <i class="tip" tabindex="0" role="button" aria-label="Пояснение" data-tip="Больше — быстрее обход, но выше нагрузка на сеть. Сейчас в базе несколько тысяч ников.">i</i>
       <select id="pool">
         <option value="12">12</option>
         <option value="24">24</option>
         <option value="48">48</option>
         <option value="96">96</option>
       </select>
+      <i class="tip" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
+    <p class="hint" hidden>Больше — быстрее обход, но выше нагрузка на сеть.
+      Сейчас в базе несколько тысяч ников.</p>
 
     </details>
 
@@ -2807,6 +2867,17 @@
 
   const hideTip = () => { tipBox.hidden = true; };
 
+  // Пояснение лежит абзацем сразу за строкой параметра — так текст занимает
+  // всю ширину панели и переносится сам, без счёта пикселей.
+  function toggleHint(mark) {
+    const hint = mark.closest('.row')?.nextElementSibling;
+    if (!hint || !hint.classList.contains('hint')) return;
+    const open = hint.hidden;
+    hint.hidden = !open;
+    mark.setAttribute('aria-expanded', String(open));
+    hideTip();                     // подсказка о нажатии больше не нужна
+  }
+
   document.addEventListener('mouseover', e => {
     const mark = e.target.closest?.('.tip');
     if (mark) showTip(mark); else if (!tipBox.hidden) hideTip();
@@ -2816,10 +2887,15 @@
     if (mark) showTip(mark); else hideTip();
   });
   document.addEventListener('focusout', hideTip);
-  // На сенсорном экране наведения нет — там значок работает по касанию.
   document.addEventListener('click', e => {
     const mark = e.target.closest?.('.tip');
-    if (mark) { e.preventDefault(); tipBox.hidden ? showTip(mark) : hideTip(); }
+    if (mark) { e.preventDefault(); toggleHint(mark); }
+  });
+  // Значок доступен с клавиатуры, а он не кнопка — пробел и ввод нужно
+  // обработать самим.
+  document.addEventListener('keydown', e => {
+    const mark = e.target.closest?.('.tip');
+    if (mark && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleHint(mark); }
   });
   $('settings').addEventListener('scroll', hideTip);
   addEventListener('resize', hideTip);
