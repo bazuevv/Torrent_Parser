@@ -289,6 +289,23 @@
   #settings .check { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; color: #e6e8ec; }
   #settings .check input { accent-color: #2f6fd0; }
 
+  /* Выбор вида PiP-окна. Висит под своей кнопкой: left выставляется из JS,
+     потому что кнопок в шапке много и положение зависит от их ширины. */
+  #pipMenu {
+    position: absolute; z-index: 35; top: 100%; margin-top: 4px;
+    padding: 4px; background: #1c1f26; border: 1px solid #39404d;
+    border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); width: 300px;
+  }
+  #pipMenu > div {
+    padding: 6px 8px; border-radius: 6px; cursor: pointer; color: #e6e8ec; font-size: 13px;
+  }
+  #pipMenu > div:hover { background: #2f6fd0; }
+  #pipMenu small { display: block; margin-top: 2px; color: #98a1b0; font-size: 11px; line-height: 1.35; }
+  #pipMenu > div:hover small { color: #d7dde5; }
+  /* Недоступный вариант не прячем: пусть видно, что он есть, и почему не выйдет. */
+  #pipMenu > div.off { color: #6b7484; }
+  #pipMenu > div.off small { color: #565e6d; }
+
   /* Своё меню по правой кнопке: расширить системное страница не может.
      Системное остаётся доступным по Shift+ПКМ. */
   #ctxMenu {
@@ -420,7 +437,14 @@
   <button id="rec" title="Состояние записи. Нажатие останавливает запись текущей трансляции">Запись ждёт потока</button>
   <button id="fromRec" title="Переключиться на запись — перемотка глубже, чем помещается в памяти">Из записи</button>
   <button id="live" title="Вернуться к прямому эфиру">В эфир</button>
-  <button id="pip" title="Картинка в картинке">PiP</button>
+  <button id="pip" title="Картинка в картинке: выбор вида окна">PiP</button>
+
+  <div id="pipMenu" hidden>
+    <div data-pip="doc">С панелью управления
+      <small>стрелки комнат и автопереключение; рамка и адрес</small></div>
+    <div data-pip="native">Компактное, поверх окон
+      <small>рисует браузер: только видео, наших кнопок нет</small></div>
+  </div>
   <button id="profile" title="Открыть страницу модели на сайте в новой вкладке">Открыть профиль</button>
   <button id="net" title="Проверить канал: задержки и потери до роутера, нейтральных узлов и серверов вещания">📡 Связь</button>
   <button id="gear" title="Настройки">⚙</button>
@@ -3198,16 +3222,28 @@
   // и видео, и панель управления. В Firefox этого API нет вовсе, а UI штатного
   // PiP-окна жёстко зашит в браузере — там остаётся только сам PiP, а
   // переключение комнат живёт в правом меню главного окна.
-  async function openPip() {
-    if (!('documentPictureInPicture' in window)) {
-      if (!document.pictureInPictureEnabled) {
-        return say('В Firefox жмите Ctrl+Shift+] или кнопку PiP при наведении на видео.', 'err');
-      }
-      try {
-        if (document.pictureInPictureElement) await document.exitPictureInPicture();
-        else await video.requestPictureInPicture();
-      } catch (e) { say('PiP не открылся: ' + e.message, 'err'); }
-      return;
+  // Штатное окно браузера: рамки нет, зато оно держится поверх остальных окон
+  // и живёт даже когда вкладка ушла в фон. Содержимое рисует сам браузер —
+  // наших кнопок там быть не может, туда попадает только видеодорожка.
+  async function openNativePip() {
+    if (!document.pictureInPictureEnabled) {
+      return say('Браузер не разрешает «картинку в картинке».', 'err');
+    }
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await video.requestPictureInPicture();
+    } catch (e) { say('Окно не открылось: ' + e.message, 'err'); }
+  }
+
+  // Наше окно: туда переезжает сам элемент video вместе с панелью управления,
+  // поэтому работает переключение комнат. Требует защищённого контекста —
+  // localhost или https; по сетевому адресу API просто отсутствует.
+  const docPipReady = () => 'documentPictureInPicture' in window;
+
+  async function openDocPip() {
+    if (!docPipReady()) {
+      say('Окно с панелью доступно только по localhost или https — открываю обычное.', 'err');
+      return openNativePip();
     }
 
     if (documentPictureInPicture.window) return documentPictureInPicture.window.close();
@@ -3325,7 +3361,42 @@
     if (nick) nick.textContent = $('user').value.trim();
   }
 
-  $('pip').onclick = openPip;
+  /* Два вида окна отличаются не мелочью: в нашем есть переключение комнат,
+     в браузерном — нет, зато оно переживает уход вкладки в фон. Раньше выбор
+     делался неявно (наша кнопка против кнопки браузера на самом видео), и
+     разница выглядела капризом. Теперь оба варианта названы в меню. */
+  function paintPipMenu() {
+    const doc = $('pipMenu').querySelector('[data-pip="doc"]');
+    doc.classList.toggle('off', !docPipReady());
+    doc.title = docPipReady() ? 'Наше окно: видео вместе с панелью управления'
+                              : 'Недоступно: страница открыта не по localhost и не по https';
+  }
+
+  $('pip').onclick = e => {
+    e.stopPropagation();                     // иначе меню закроется тем же кликом
+    // Окно уже открыто — кнопка его закрывает, выбирать нечего.
+    if (window.documentPictureInPicture?.window) return documentPictureInPicture.window.close();
+    if (document.pictureInPictureElement) return document.exitPictureInPicture();
+
+    const menu = $('pipMenu');
+    menu.hidden = !menu.hidden;
+    if (menu.hidden) return;
+    paintPipMenu();
+    // Кнопка стоит правее середины шапки, а меню шире её — прижимаем к краю,
+    // если под кнопкой места не хватает.
+    const room = $('pip').offsetParent?.clientWidth || innerWidth;
+    menu.style.left = `${Math.max(8, Math.min($('pip').offsetLeft, room - menu.offsetWidth - 8))}px`;
+  };
+
+  $('pipMenu').onclick = e => {
+    const kind = e.target.closest('[data-pip]')?.dataset.pip;
+    if (!kind) return;
+    $('pipMenu').hidden = true;
+    if (kind === 'doc') openDocPip(); else openNativePip();
+  };
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#pipMenu')) $('pipMenu').hidden = true;
+  });
 
   // Профиль на сайте. Регистр в пути важен, поэтому берём правильное написание
   // из базы, если ник там есть, — иначе сайт отдаст 404.
