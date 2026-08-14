@@ -1185,6 +1185,31 @@
      не запинается: настоящее подвисание снимает защиту немедленно. */
   let autoSeedLevel = -1, autoRescues = 0, autoPeakBw = 0;
 
+  /* Скорость до сервера — свойство маршрута, а не потока: на те же полсотни
+     серверов мы ходим изо дня в день. Поэтому лучшую оценку помним по номеру
+     сервера и подставляем её на старте — иначе первые секунды, когда пика
+     ещё нет, правило работает вслепую, а это ровно та минута, когда подбор
+     и роняет качество. Запись стареет за сутки: маршруты меняются. */
+  const EDGE_SPEED_TTL = 86400000;
+
+  const loadEdgeSpeed = () => {
+    try { return JSON.parse(localStorage.getItem('edgeSpeed')) || {}; } catch { return {}; }
+  };
+
+  function rememberEdgeSpeed(edge, bits) {
+    if (!edge || !(bits > 0)) return;
+    const all = loadEdgeSpeed();
+    const was = all[edge];
+    if (was && was.bw >= bits && Date.now() - was.at < EDGE_SPEED_TTL) return;
+    all[edge] = { bw: Math.round(bits), at: Date.now() };
+    try { localStorage.setItem('edgeSpeed', JSON.stringify(all)); } catch { /* приватный режим */ }
+  }
+
+  function knownEdgeSpeed(edge) {
+    const item = loadEdgeSpeed()[edge];
+    return item && Date.now() - item.at < EDGE_SPEED_TTL ? item.bw : 0;
+  }
+
   // Замеры дорожек этой комнаты, полученные с сервера: {'1920x1080': бит/с}.
   let ladderRates = null;
 
@@ -1831,6 +1856,17 @@
         hls.once(Hls.Events.FRAG_BUFFERED,
                  () => measureLadder(data.levels, uriOf, nameOf, rate));
 
+        // Скорость сервера запоминаем и когда переключений нет вовсе: у ровно
+        // идущего потока их и не будет, а знать его маршрут для следующего
+        // раза полезнее всего. Раз в пять секунд — чаще незачем.
+        let lastNoted = 0;
+        hls.on(Hls.Events.FRAG_BUFFERED, () => {
+          if (Date.now() - lastNoted < 5000) return;
+          lastNoted = Date.now();
+          autoPeakBw = Math.max(autoPeakBw, hls.bandwidthEstimate || 0);
+          rememberEdgeSpeed($('edge').value.trim(), hls.bandwidthEstimate || 0);
+        });
+
         /* Битрейт здесь — ограничение, а не мера качества. Верхняя дорожка
            это оригинал от модели, все нижние CDN пережимает на лету, и числа
            у них несопоставимы: замер на Shan1302 показал у 720p заявленные
@@ -1927,8 +1963,15 @@
         const need = (hls.levels[autoSeedLevel] || {}).bitrate || 0;
         const now = hls.bandwidthEstimate || 0;
         autoPeakBw = Math.max(autoPeakBw, now);
-        const have = Math.max(now, autoPeakBw * 0.7);
-        if (have < need * 1.15) {
+        rememberEdgeSpeed($('edge').value.trim(), now);
+
+        /* Пик берём со скидкой 15%, а не 30: вместе с запасом 1.15 прежняя
+           скидка требовала от сервера вдвое больше нужного, и правило не
+           срабатывало даже на знакомом маршруте. Заодно не спорим, когда
+           текущая оценка провалилась совсем низко: тогда канал не
+           разгоняется, а действительно умер, и держать качество вредно. */
+        const have = Math.max(now, autoPeakBw * 0.85);
+        if (now < need * 0.6 || have < need * 1.15) {
           logEvent('качество', `авто: канала ${mbit(now)} (пик ${mbit(autoPeakBw)}) ` +
                                `против ${mbit(need)} — понижение оправдано, не мешаю`, 'err');
           return;
@@ -3919,7 +3962,12 @@
     hls.nextAutoLevel = seed;
     autoSeedLevel = seed;
     autoRescues = 0;
-    autoPeakBw = 0;              // пик считаем заново на каждый поток
+    // Пик начинаем не с нуля, а с того, что этот сервер уже показывал:
+    // на старте своих замеров ещё нет, а решение принимать нужно сразу.
+    autoPeakBw = knownEdgeSpeed($('edge').value.trim());
+    if (autoPeakBw) {
+      logEvent('качество', `авто: сервер прежде выдавал ${mbit(autoPeakBw)}`);
+    }
     logEvent('качество', `авто: начинаю с дорожки ${seed}, ` +
                          `${((hls.levels[seed].bitrate || 0) / 1e6).toFixed(2)} Мбит/с`);
   }
