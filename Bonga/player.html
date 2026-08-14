@@ -165,6 +165,8 @@
   .tile { position: relative; background: #0a0c10; overflow: hidden; }
   .tile video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
   .tile.loud { outline: 2px solid #7ee787; outline-offset: -2px; }
+  /* Выбранная ячейка — та, куда ляжет следующая открытая комната. */
+  .tile.picked { box-shadow: inset 0 0 0 2px #6ea8fe; }
   .tcap {
     position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
     gap: 6px; padding: 4px 6px; background: linear-gradient(transparent, rgba(0,0,0,.75));
@@ -606,6 +608,36 @@
       сервер не пустит, он виден всей локальной сети. Права на запись здесь не
       нужны, в отличие от папки записей: сюда мы только читаем. Подпапки не
       обходятся.</p>
+
+    <div class="row">
+      <label for="wallN">Ячеек в стене</label>
+      <select id="wallN">
+        <option value="4">4 (2×2)</option>
+        <option value="6">6 (3×2)</option>
+        <option value="9">9 (3×3)</option>
+      </select>
+      <i class="tip" data-hint="wallN" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+    </div>
+    <p class="hint" hidden>Сколько трансляций показывать разом по кнопке
+      «Стена». Каждая ячейка — отдельный плеер, и цена растёт линейно:
+      декодирование 480p стоит около 11% ядра на поток, так что девять ячеек
+      займут примерно одно ядро из восьми. Канал считается так же — девять
+      потоков по 1.2 Мбит/с это около 11 Мбит/с.</p>
+
+    <div class="row">
+      <label for="wallQ">Качество в стене</label>
+      <select id="wallQ">
+        <option value="240">240p</option>
+        <option value="480">480p</option>
+        <option value="720">720p</option>
+      </select>
+      <i class="tip" data-hint="wallQ" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+    </div>
+    <p class="hint" hidden>Потолок высоты дорожки в ячейках. Берётся самая
+      крупная не выше этого значения. На четверти экрана разницы между 480p и
+      1080p практически не видно, а декодирование 1080p обходится вчетверо
+      дороже: замер дал 9× реального времени на ядро для 480p против примерно
+      2× для 1080p.</p>
 
     <div class="row">
       <label for="warm">Разгон канала</label>
@@ -1198,7 +1230,8 @@
                      pull: 60, ttl: 60, gap: 10, pool: 24,
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
-                     catalog: 60, act: 15, ladder: 43200, warm: 5 };
+                     catalog: 60, act: 15, ladder: 43200, warm: 5,
+                     wallN: 4, wallQ: 480 };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];
@@ -1349,6 +1382,8 @@
     clearInterval(thumbTimer); clearInterval(histTimer); clearInterval(pullTimer);
     clearInterval(actTimer); clearInterval(watchTimer);
     applyAutoCap();            // потолок мог смениться в настройках
+    // Смена числа ячеек перестраивает стену, если она открыта.
+    if (!$('wallGrid').hidden && tiles.length !== cfg('wallN')) wallOn();
     if (cfg('thumbs')) thumbTimer = setInterval(refreshThumbs, cfg('thumbs') * 1000);
     if (cfg('hist')) histTimer = setInterval(checkHistory, cfg('hist') * 1000);
     // Замеряет сервер, нам остаётся забирать готовое — вдвое реже, чем он
@@ -2513,9 +2548,8 @@
      истории. Качество берём невысокое: на четверти экрана разницы с 1080p не
      видно, а декодирование на процессоре обходится вчетверо дешевле — замер
      дал 9× реального времени на ядро для 480p против примерно 2× для 1080p. */
-  const WALL_SIZE = 4;
-  const WALL_HEIGHT = 480;          // к какой высоте дорожки стремимся в ячейках
   const tiles = [];                 // {box, video, hls, user, edge}
+  let tilePicked = -1;              // ячейка, в которую кладём следующую комнату
 
   function tileStop(tile) {
     if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
@@ -2540,11 +2574,12 @@
     hlsTile.attachMedia(tile.video);
     hlsTile.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
       // Ближайшая дорожка не выше заданной высоты; если все выше — самая мелкая.
+      const limit = cfg('wallQ');
       let pick = 0;
       data.levels.forEach((lvl, i) => {
-        const fits = (lvl.height || 0) <= WALL_HEIGHT;
+        const fits = (lvl.height || 0) <= limit;
         const better = (lvl.height || 0) > (data.levels[pick].height || 0);
-        if (fits && (better || (data.levels[pick].height || 0) > WALL_HEIGHT)) pick = i;
+        if (fits && (better || (data.levels[pick].height || 0) > limit)) pick = i;
       });
       hlsTile.currentLevel = pick;
       tile.video.play().catch(() => { /* без звука автозапуск обычно проходит */ });
@@ -2566,9 +2601,34 @@
     if (tile.user) tile.video.play().catch(() => {});
   }
 
+  // Выбранная ячейка: следующая открытая комната ляжет в неё. Без выбора —
+  // в первую свободную, а если свободных нет — по кругу с начала.
+  function pickTile(index) {
+    tilePicked = index;
+    tiles.forEach((tile, i) => tile.box.classList.toggle('picked', i === index));
+  }
+
+  function wallAssign(user, edge) {
+    if (!tiles.length) return false;
+    let index = tilePicked;
+    if (index < 0 || index >= tiles.length) index = tiles.findIndex(t => !t.user);
+    if (index < 0) index = 0;
+    tilePlay(tiles[index], user, edge);
+    pickTile((index + 1) % tiles.length);      // следующая — по порядку
+    return true;
+  }
+
   function buildWall() {
-    if (tiles.length) return;
-    for (let i = 0; i < WALL_SIZE; i++) {
+    const want = cfg('wallN');
+    if (tiles.length === want) return;
+    for (const tile of tiles) tileStop(tile);
+    tiles.length = 0;
+    $('wallGrid').textContent = '';
+    // Столбцов — корень из числа ячеек: 4 → 2×2, 6 → 3×2, 9 → 3×3.
+    const cols = Math.ceil(Math.sqrt(want));
+    $('wallGrid').style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    $('wallGrid').style.gridTemplateRows = `repeat(${Math.ceil(want / cols)}, 1fr)`;
+    for (let i = 0; i < want; i++) {
       const box = document.createElement('div');
       box.className = 'tile';
       box.innerHTML = '<video muted playsinline></video>' +
@@ -2577,6 +2637,8 @@
                       '<span class="tmain" title="Открыть в главном плеере">⤢</span>' +
                       '<span class="tclose" title="Освободить ячейку">×</span></div>';
       const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
+      const at = i;
+      box.onclick = e => { if (!e.target.closest('.tcap')) pickTile(at); };
       box.querySelector('.tsnd').onclick = () => tileLoud(tile);
       box.querySelector('.tclose').onclick = () => tileStop(tile);
       box.querySelector('.tmain').onclick = () => {
@@ -2595,14 +2657,16 @@
     $('wallGrid').hidden = false;
     $('wall').classList.add('on');
     // Наполняем тем, что сейчас в эфире и на виду, — по числу ячеек.
-    const picks = (liveList || []).slice(0, WALL_SIZE);
+    const picks = (liveList || []).slice(0, tiles.length);
     tiles.forEach((tile, i) => {
       const row = picks[i];
       if (!row) return;
       tilePlay(tile, row[0], known.get(row[0].toLowerCase()) || row[1]);
     });
     if (tiles[0]) tileLoud(tiles[0]);
-    say(`Стена: ${picks.length} трансляций. Звук у первой, ⤢ открывает в главном плеере.`, 'ok');
+    pickTile(0);
+    say(`Стена: ${picks.length} трансляций. Клик по комнате справа кладёт её ` +
+        'в выбранную ячейку, ⤢ открывает в главном плеере.', 'ok');
   }
 
   function wallOff() {
@@ -3498,6 +3562,12 @@
   const startByUser = () => { userInitiated = true; start(); };
 
   function openStream(user, edge) {
+    // При включённой стене комната ложится в ячейку, а не подменяет собой
+    // всё: иначе клик по списку рушил бы всю раскладку.
+    if (!$('wallGrid').hidden && wallAssign(user, edge)) {
+      markCurrent();
+      return;
+    }
     $('user').value = user;
     $('edge').value = String(edge);
     startByUser();
