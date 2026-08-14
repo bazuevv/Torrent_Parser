@@ -1685,7 +1685,11 @@
       async function measureLadder(levels, uriOf, nameOf, declared) {
         const run = ladderRun;
         const options = [...$('quality').options];
+        const fresh = {};
         await runPool(levels.map((lvl, i) => [lvl, i]), 2, async ([lvl, i]) => {
+          // Дорожку, чей вес уже пришёл с сервера, не трогаем: перепроверять
+          // известное незачем, а запросы всё же стоят времени и трафика.
+          if (lvl.measuredBitrate) return;
           try {
             const media = await (await fetch(uriOf(lvl), { cache: 'no-store' })).text();
             const parts = [...media.matchAll(/#EXTINF:([\d.]+)[^\n]*\n([^#\n]+)/g)].slice(-3);
@@ -1719,6 +1723,7 @@
             const level = hls && hls.levels && hls.levels[i];
             if (level) {
               level.measuredBitrate = Math.round(bits);
+              fresh[`${level.width}x${level.height}`] = Math.round(bits);
               if (Math.abs(claimed * 1e6 - bits) / Math.max(bits, 1) > 0.05) {
                 logEvent('качество', `${nameOf(lvl, real)}: заявлено было ` +
                                      `${claimed.toFixed(2)} Мбит/с — подставлено измеренное`);
@@ -1733,8 +1738,20 @@
             opt.textContent = nameOf(lvl, real);
           } catch { /* дорожка не ответила — оставляем заявленное значение */ }
         });
+        if (run !== ladderRun) return;         // комнату успели сменить
         // Числа изменились — границу для «авто» пересчитываем по ним.
-        if (run === ladderRun) applyAutoCap();
+        applyAutoCap();
+
+        // Что намерили сами — отдаём серверу: следующий зритель этой комнаты
+        // получит готовые числа ещё до первого куска.
+        if (Object.keys(fresh).length) {
+          fetch('api/ladder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user: $('user').value.trim(),
+                                   edge: $('edge').value.trim(), rates: fresh }),
+          }).catch(() => { /* не дошло — сервер перемеряет сам */ });
+        }
       }
 
       hls.loadSource(url);
@@ -1798,7 +1815,9 @@
         data.levels.forEach((lvl, i) => {
           const opt = document.createElement('option');
           opt.value = i;
-          opt.textContent = nameOf(lvl, rate(lvl));
+          // Если вес пришёл с сервера — показываем его, а не заявленное:
+          // своего замера у этой дорожки может и не быть вовсе.
+          opt.textContent = nameOf(lvl, (lvl.measuredBitrate || lvl.bitrate || 0) / 1e6);
           $('quality').appendChild(opt);
         });
         // Замер начинаем не сразу, а когда первый кусок уже в буфере: к этому

@@ -1034,6 +1034,40 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({'at': payload['at'], 'src': payload['src'],
                                'count': len(payload['live'])})
 
+        if path == '/api/ladder':
+            # Комнату, которой сервер ещё не мерил, взвешивает сам плеер —
+            # и присылает результат сюда, чтобы следующий зритель получил
+            # готовые числа сразу, ещё до первого куска.
+            if not isinstance(body, dict):
+                return self.send_error(400, 'expected object')
+            user = body.get('user')
+            edge = str(body.get('edge') or '')
+            rates = body.get('rates')
+            if not isinstance(user, str) or not user or not isinstance(rates, dict):
+                return self.send_error(400, 'expected user and rates')
+            if not EDGE_RE.match(edge):
+                return self.send_error(400, 'bad edge')
+
+            clean = {}
+            for key, value in list(rates.items())[:16]:
+                if not re.fullmatch(r'\d{2,5}x\d{2,5}', str(key)):
+                    continue
+                try:
+                    bits = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if 1000 < bits < 200_000_000:      # мусор и переполнение отсекаем
+                    clean[str(key)] = bits
+            if not clean:
+                return self._json({'stored': 0})
+
+            with LADDER_LOCK:
+                LADDER[user.lower()] = {'user': user, 'edge': edge,
+                                        'at': int(time.time()), 'rates': clean}
+            save_ladder()
+            write_log(f'ladder: от плеера {user} ({edge}), дорожек {len(clean)}')
+            return self._json({'stored': len(clean)})
+
         if path == '/api/activity':
             # История живёт в localStorage браузера, сервер о ней не знает —
             # поэтому список наблюдаемых ников присылает клиент. Ники разных
