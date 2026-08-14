@@ -29,6 +29,7 @@ from urllib.parse import (parse_qs, quote as urlquote, unquote, urlencode,
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STORE = os.path.join(ROOT, 'accounts.json')
 ONLINE_STORE = os.path.join(ROOT, 'online.json')
+LADDER_STORE = os.path.join(ROOT, 'ladder.json')
 PORT = 8777
 
 # Записи кладём на большой диск: час 720p ≈ 1,5 ГБ, час 1080p ≈ 3,8 ГБ.
@@ -143,6 +144,7 @@ SETTINGS_RANGE = {
     'recRate': (0, 100000),      # потолок битрейта записи; выше — пережимаем
     'catalog': (0, 3600),        # период опроса каталога сайта, секунды; 0 — не опрашивать
     'act': (0, 600),             # период замера активности комнат истории; 0 — не мерить
+    'ladder': (0, 86400),        # как часто перемерять битрейты дорожек; 0 — не мерить
 }
 
 # Путь к папке записей — единственная строковая настройка. Разрешаем только
@@ -969,6 +971,14 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/library':
             return self._json(lib_list())
 
+        if path == '/api/ladder':
+            query = parse_qs(urlparse(self.path).query)
+            name = (query.get('user') or [''])[0].lower()
+            with LADDER_LOCK:
+                if name:
+                    return self._json({'room': LADDER.get(name)})
+                return self._json({'rooms': LADDER, 'count': len(LADDER)})
+
         if path.startswith('/rec/'):
             return self._serve_recording(path)
 
@@ -1347,6 +1357,143 @@ def activity_score(samples):
             'median': round(mid, 2), 'count': len(samples)}
 
 
+# --------------------------------------------------------------------------
+# Замеренные битрейты дорожек по комнатам
+#
+# Плеер меряет лесенку сам, но только после первого куска — а до тех пор
+# решения принимаются по заявленному, где у 720p бывает 3.4 при настоящих
+# 0.65. Особенно заметно на первой комнате после перезагрузки страницы:
+# кэша нет, окно шире, и подбор успевает уронить качество.
+#
+# Поэтому сервер меряет то же самое заранее и хранит на диске: плеер получает
+# готовые числа до того, как загрузит первый кусок.
+LADDER_LOCK = threading.Lock()
+LADDER = {}                   # ник → {'edge','at','rates':{'1920x1080': бит/с}}
+LADDER_KEEP = 3000            # комнат в хранилище; дальше вытесняем старые
+
+
+def load_ladder():
+    try:
+        with open(LADDER_STORE, encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_ladder():
+    """Пишем через временный файл: сервер перезапускают на ходу, и оборванная
+    запись оставила бы битый json."""
+    with LADDER_LOCK:
+        rows = sorted(LADDER.items(), key=lambda kv: -(kv[1].get('at') or 0))
+        data = dict(rows[:LADDER_KEEP])
+        LADDER.clear()
+        LADDER.update(data)
+    try:
+        tmp = LADDER_STORE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
+        os.replace(tmp, LADDER_STORE)
+    except OSError:
+        pass
+
+
+def measure_ladder(user, edge):
+    """Настоящий вес каждой дорожки комнаты. Видео не качаем: длину куска
+    отдаёт Content-Length, длительность лежит в плейлисте рядом с #EXTINF.
+
+    Ключ — разрешение: по нему плеер и сопоставляет свои дорожки, а номер в
+    списке для этого не годится (порядок задаётся заявленным битрейтом)."""
+    base = f'https://{host_of(edge)}.bcvcdn.com/hls/stream_{urlquote(user)}/'
+    req = urllib.request.Request(base + 'playlist.m3u8',
+                                 headers={'User-Agent': CATALOG_UA})
+    with urllib.request.urlopen(req, timeout=10) as res:
+        top = res.read().decode('utf-8', 'replace')
+
+    def weigh(pair):
+        """Вес одной дорожки. Запросы идут вперемешку: до заокеанских серверов
+        каждый обходится в полсекунды, и последовательный обход занимал
+        восемнадцать секунд вместо двух."""
+        resolution, rel = pair
+        media_url = urljoin(base, rel)
+        try:
+            req = urllib.request.Request(media_url, headers={'User-Agent': CATALOG_UA})
+            with urllib.request.urlopen(req, timeout=10) as res:
+                media = res.read().decode('utf-8', 'replace')
+            parts = re.findall(r'#EXTINF:([\d.]+)[^\n]*\n([^#\n]+)', media)[-3:]
+            if not parts:
+                return None
+
+            def size_of(name):
+                head = urllib.request.Request(urljoin(media_url, name.strip()),
+                                              headers={'User-Agent': CATALOG_UA},
+                                              method='HEAD')
+                with urllib.request.urlopen(head, timeout=10) as res:
+                    return int(res.headers.get('Content-Length') or 0)
+
+            with ThreadPoolExecutor(len(parts)) as pool:
+                total = sum(pool.map(size_of, [name for _, name in parts]))
+            seconds = sum(float(secs) for secs, _ in parts)
+            return (resolution, int(total * 8 / seconds)) if total and seconds else None
+        except Exception:
+            return None                   # одна дорожка не ответила — не беда
+
+    variants = []
+    for attrs, rel in re.findall(r'#EXT-X-STREAM-INF:([^\n]+)\n([^\n]+)', top):
+        size = re.search(r'RESOLUTION=(\d+x\d+)', attrs)
+        if size:
+            variants.append((size.group(1), rel.strip()))
+    if not variants:
+        return {}
+
+    with ThreadPoolExecutor(len(variants)) as pool:
+        return dict(x for x in pool.map(weigh, variants) if x)
+
+
+def ladder_worker():
+    """Обновление замеров по расписанию. Берём те же комнаты, за которыми
+    следит детектор активности, — это ники из истории, то есть ровно те, куда
+    пользователь заходит."""
+    while True:
+        period = load_settings().get('ladder', 600)
+        if not period:
+            time.sleep(60)
+            continue
+
+        with ACTIVITY_LOCK:
+            wanted = set(ACTIVITY_WATCH)
+        live = [(row[0], str(row[1])) for row in load_online().get('live', [])
+                if row[0].lower() in wanted]
+
+        now = int(time.time())
+        stale = []
+        with LADDER_LOCK:
+            for user, edge in live:
+                item = LADDER.get(user.lower())
+                if not item or item.get('edge') != edge or now - (item.get('at') or 0) >= period:
+                    stale.append((user, edge))
+
+        if stale:
+            def one(pair):
+                user, edge = pair
+                try:
+                    rates = measure_ladder(user, edge)
+                except Exception:
+                    return
+                if not rates:
+                    return
+                with LADDER_LOCK:
+                    LADDER[user.lower()] = {'user': user, 'edge': edge,
+                                            'at': int(time.time()), 'rates': rates}
+
+            with ThreadPoolExecutor(min(4, len(stale))) as pool:
+                list(pool.map(one, stale[:40]))
+            save_ladder()
+            write_log(f'ladder: обновлено комнат {min(len(stale), 40)}, '
+                      f'в хранилище {len(LADDER)}')
+        time.sleep(max(30, period // 4))
+
+
 def activity_worker():
     while True:
         period = load_settings().get('act', 15)
@@ -1401,6 +1548,8 @@ if __name__ == '__main__':
     threading.Thread(target=reaper, daemon=True).start()
     threading.Thread(target=catalog_worker, daemon=True).start()
     threading.Thread(target=activity_worker, daemon=True).start()
+    LADDER.update(load_ladder())
+    threading.Thread(target=ladder_worker, daemon=True).start()
     print(f'Плеер:  http://127.0.0.1:{PORT}/player.html')
     print(f'Записи: {rec_dir()} (логи всегда в {REC_DIR})')
     try:
