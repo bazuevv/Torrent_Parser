@@ -1134,31 +1134,54 @@
   /* Лучшая дорожка в пределах потолка — по тому же правилу, что и при старте:
      главное разрешение, битрейт только отсекает. Нужна, чтобы подсказать
      библиотеке, с чего начинать в режиме «авто». */
+  // Настоящий вес дорожки: измеренный, если замер успел, иначе заявленный.
+  // Поле bitrate для этого не годится — мы им же и блокируем лишние дорожки.
+  const trueRate = lvl => lvl.measuredBitrate || lvl.declaredBitrate || lvl.bitrate || 0;
+
   function bestWithinCap() {
     if (!hls || !hls.levels || !hls.levels.length) return -1;
     const limit = cfg('maxRate') * 1000;
     const px = lvl => (lvl.width || 0) * (lvl.height || 0);
     let best = -1;
     hls.levels.forEach((lvl, i) => {
-      if (limit && (lvl.bitrate || 0) > limit) return;
+      if (limit && trueRate(lvl) > limit) return;
       if (best < 0 || px(lvl) > px(hls.levels[best])) best = i;
     });
     return best < 0 ? 0 : best;      // не влезла ни одна — самая лёгкая
   }
 
+  const BLOCKED_RATE = 1e12;        // столько «весит» запрещённая дорожка
+
   function applyAutoCap() {
     if (!hls || !hls.levels || !hls.levels.length) return;
     const limit = cfg('maxRate') * 1000;
-    if (!limit) { hls.autoLevelCapping = -1; return; }
+    const fits = lvl => !limit || trueRate(lvl) <= limit;
 
-    let cap = -1;
-    for (let i = 0; i < hls.levels.length; i++) {
-      if ((hls.levels[i].bitrate || 0) > limit) break;
-      cap = i;
-    }
-    // Ни одна не влезла — оставляем самую лёгкую: показать что-то лучше,
+    // Ни одна не проходит — оставляем самую лёгкую: показать что-то лучше,
     // чем не показать ничего.
-    hls.autoLevelCapping = cap < 0 ? 0 : cap;
+    const anyFits = hls.levels.some(fits);
+    const lightest = hls.levels.reduce(
+      (best, lvl, i) => (trueRate(lvl) < trueRate(hls.levels[best]) ? i : best), 0);
+
+    /* Запрещаем не номером, а весом. Ограничение autoLevelCapping работает
+       по номеру дорожки, а список библиотека расставила по ЗАЯВЛЕННОМУ
+       битрейту и не пересортировывает: у Shan1302 порядок выходит
+       240p → 480p → 1080p → 720p, потому что 720p объявляет 3.4 при
+       настоящих 2.1. Запрещённые дорожки поэтому не всегда лежат сверху,
+       и границей по номеру такое множество не выразить.
+
+       Вместо этого лишним дорожкам приписывается неподъёмный вес: подбор
+       сам их не выберет, сколько бы канала ни намерил. Настоящее значение
+       хранится отдельно, в measuredBitrate, поэтому подписи не врут и
+       запрет снимается обратно при смене потолка. */
+    let top = -1;
+    hls.levels.forEach((lvl, i) => {
+      const allow = anyFits ? fits(lvl) : i === lightest;
+      lvl.bitrate = allow ? trueRate(lvl) : BLOCKED_RATE;
+      lvl._avgBitrate = allow ? 0 : BLOCKED_RATE;   // иначе часть путей возьмёт его
+      if (allow) top = i;
+    });
+    hls.autoLevelCapping = top < 0 ? -1 : top;      // верхнюю границу тоже держим
   }
 
   function armTimers() {
@@ -1627,10 +1650,12 @@
                заявленном (3.4 против настоящих 2.1) максимум оставил бы
                завышенное — то есть ровно нашу проблему. */
             const level = hls && hls.levels && hls.levels[i];
-            if (level && Math.abs(claimed * 1e6 - bits) / Math.max(bits, 1) > 0.05) {
-              logEvent('качество', `${nameOf(lvl, real)}: заявлено было ` +
-                                   `${claimed.toFixed(2)} Мбит/с — подставлено измеренное`);
-              level.bitrate = Math.round(bits);
+            if (level) {
+              level.measuredBitrate = Math.round(bits);
+              if (Math.abs(claimed * 1e6 - bits) / Math.max(bits, 1) > 0.05) {
+                logEvent('качество', `${nameOf(lvl, real)}: заявлено было ` +
+                                     `${claimed.toFixed(2)} Мбит/с — подставлено измеренное`);
+              }
             }
 
             const opt = options[i + 1];        // нулевой пункт — «авто»
@@ -1680,6 +1705,13 @@
         const rate = lvl => (lvl.bitrate || 0) / 1e6;
         const nameOf = (lvl, mbit) => `${tier(lvl)}p · ${mbit.toFixed(1)} Мбит/с`
                                     + (source(lvl) ? ' · оригинал' : '');
+        // Запоминаем на самой дорожке: заявленное — чтобы вернуть его, если
+        // замер не удастся, и подпись качества — чтобы показывать её в пункте
+        // «авто», где функции tier() уже не видно.
+        data.levels.forEach(lvl => {
+          lvl.declaredBitrate = lvl.bitrate;
+          lvl.tierLabel = `${tier(lvl)}p`;
+        });
         data.levels.forEach((lvl, i) => {
           const opt = document.createElement('option');
           opt.value = i;
@@ -1725,6 +1757,18 @@
           : `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с — пережато сервером; ` +
             `оригинал ${tier(best)}p идёт на ${rate(best).toFixed(1)} и не влезает в потолок.`,
           'ok');
+      });
+
+      /* Пункт «авто» показывает, что библиотека выбрала прямо сейчас: иначе
+         непонятно, работает ли подбор и на чём он остановился. Подпись берём
+         с самой дорожки — tier() объявлена внутри разбора манифеста и сюда
+         не дотягивается. */
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
+        const opt = $('quality').options[0];
+        const lvl = hls.levels && hls.levels[data.level];
+        if (!opt) return;
+        opt.textContent = hls.autoLevelEnabled && lvl && lvl.tierLabel
+          ? `авто (${lvl.tierLabel})` : 'авто';
       });
 
       hls.on(Hls.Events.ERROR, (_, err) => {
