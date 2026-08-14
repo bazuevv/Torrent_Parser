@@ -1916,15 +1916,27 @@
   let recStopped = false;
   let session = null;
 
-  const fmtSize = b => b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' ГБ'
-                     : b >= 1048576 ? Math.round(b / 1048576) + ' МБ'
-                     : Math.round(b / 1024) + ' КБ';
-  const fmtTime = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const fmtSize = raw => {
+    const b = Math.max(0, Number(raw) || 0);
+    return b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' ГБ'
+         : b >= 1048576 ? Math.round(b / 1048576) + ' МБ'
+         : Math.round(b / 1024) + ' КБ';
+  };
+  // Эфиры идут часами, и «157:52» читается плохо — с часа показываем часы.
+  const fmtTime = s => {
+    const total = Math.max(0, Math.round(Number(s) || 0));
+    const mm = String(Math.floor(total / 60) % 60).padStart(2, '0');
+    const ss = String(total % 60).padStart(2, '0');
+    return total >= 3600 ? `${Math.floor(total / 3600)}:${mm}:${ss}`
+                         : `${Math.floor(total / 60)}:${ss}`;
+  };
 
   function paintRec() {
     $('rec').classList.toggle('on', Boolean(session));
     if (session && session.phase === 'merging') $('rec').textContent = 'Склеиваю…';
-    else if (session) $('rec').textContent = `⏺ ${fmtTime(session.seconds | 0)} · ${fmtSize(session.bytes | 0)}`;
+    // Без «| 0»: побитовые действия в JS усекают до 32 бит со знаком, и всё
+    // тяжелее 2 ГиБ уходило в минус — двухчасовая запись показывала «−1615960 КБ».
+    else if (session) $('rec').textContent = `⏺ ${fmtTime(session.seconds)} · ${fmtSize(session.bytes)}`;
     else if (!cfg('recMode')) $('rec').textContent = 'На диск';
     else if (recStopped) $('rec').textContent = 'Запись остановлена';
     else if (video.paused || !video.src) $('rec').textContent = 'Запись ждёт потока';
