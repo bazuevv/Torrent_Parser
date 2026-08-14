@@ -709,6 +709,25 @@
       запросов.</p>
 
     <div class="row">
+      <label for="ladder">Битрейты дорожек</label>
+      <select id="ladder">
+        <option value="0">не мерить</option>
+        <option value="43200">12 часов</option>
+        <option value="86400">1 день</option>
+        <option value="259200">3 дня</option>
+        <option value="604800">1 неделя</option>
+      </select>
+      <i class="tip" data-hint="ladder" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+    </div>
+    <p class="hint" hidden>Сервер заранее взвешивает дорожки комнат из истории
+      и хранит результат, чтобы плеер выбирал качество по настоящим числам с
+      первой же секунды. Без этого первые пару секунд решения принимаются по
+      заявленным в манифесте, где у 720p бывает 3.4 Мбит/с при настоящих 0.65
+      — и подбор успевает уронить качество, особенно на первой комнате после
+      перезагрузки страницы. Значение задаёт срок годности замера; проверка
+      идёт раз в минуту, поэтому новая комната в истории меряется сразу.</p>
+
+    <div class="row">
       <label for="act">Активность комнат</label>
       <select id="act">
         <option value="0">не мерить</option>
@@ -1094,7 +1113,7 @@
                      pull: 60, ttl: 60, gap: 10, pool: 24,
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
-                     catalog: 60, act: 15 };
+                     catalog: 60, act: 15, ladder: 43200 };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];
@@ -1166,6 +1185,19 @@
      не запинается: настоящее подвисание снимает защиту немедленно. */
   const AUTO_GRACE_MS = 8000;
   let autoSeedLevel = -1, autoGraceUntil = 0, autoGraceStalls = 0;
+
+  // Замеры дорожек этой комнаты, полученные с сервера: {'1920x1080': бит/с}.
+  let ladderRates = null;
+
+  async function loadLadderRates(user) {
+    ladderRates = null;
+    try {
+      const res = await fetch(`api/ladder?user=${encodeURIComponent(user)}`,
+                              { cache: 'no-store' });
+      const data = await res.json();
+      if (data.room && data.room.rates) ladderRates = data.room.rates;
+    } catch { /* сервер молчит — обойдёмся своим замером, он всё равно будет */ }
+  }
 
   function applyAutoCap() {
     if (!hls || !hls.levels || !hls.levels.length) return;
@@ -1746,6 +1778,23 @@
           lvl.declaredBitrate = lvl.bitrate;
           lvl.tierLabel = `${tier(lvl)}p`;
         });
+
+        /* Замеры с сервера — до первого куска. Свой замер начинается только
+           после него и занимает секунду-две; всё это время решения шли по
+           заявленному, где у 720p бывает 3.4 против настоящих 0.65. Заметнее
+           всего на первой комнате после перезагрузки страницы: кэша нет, окно
+           шире, и подбор успевает уронить качество.
+
+           Сопоставляем по разрешению: номер дорожки для этого не годится,
+           порядок в списке задан заявленным битрейтом. */
+        if (ladderRates) {
+          let taken = 0;
+          for (const lvl of data.levels) {
+            const bits = ladderRates[`${lvl.width}x${lvl.height}`];
+            if (bits > 0) { lvl.measuredBitrate = bits; taken++; }
+          }
+          if (taken) logEvent('качество', `с сервера взято замеров: ${taken}`);
+        }
         data.levels.forEach((lvl, i) => {
           const opt = document.createElement('option');
           opt.value = i;
@@ -1890,6 +1939,10 @@
       localStorage.setItem('edge:' + user.toLowerCase(), edge);
       location.hash = user;
       playingFrom = 'live';
+      // Замеры с сервера забираем до запуска: запрос свой, локальный, стоит
+      // единицы миллисекунд, а разбор манифеста ждёт ответа с CDN — успеваем
+      // с запасом. Зато решения с первой же секунды идут по настоящим числам.
+      await loadLadderRates(user);
       attach(playlistUrl(user, edge));
       paintSource();
       recStopped = false;                        // новый поток — снова пишем
