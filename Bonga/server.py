@@ -30,6 +30,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 STORE = os.path.join(ROOT, 'accounts.json')
 ONLINE_STORE = os.path.join(ROOT, 'online.json')
 LADDER_STORE = os.path.join(ROOT, 'ladder.json')
+NOTES_STORE = os.path.join(ROOT, 'notes.json')
 PORT = 8777
 
 # Записи кладём на большой диск: час 720p ≈ 1,5 ГБ, час 1080p ≈ 3,8 ГБ.
@@ -679,6 +680,55 @@ def write_play_log(lines):
         pass
 
 
+# --------------------------------------------------------------------------
+# Заметки о комнатах
+#
+# Единственной памятью о комнате было время последнего просмотра. Заметки живут
+# на сервере, а не в localStorage: их пишут для себя надолго, и терять их при
+# смене браузера или чистке данных обидно вдвойне.
+NOTES_LOCK = threading.Lock()
+NOTES = {}                    # ник в нижнем регистре → {'user','text','at'}
+NOTE_MAX = 500                # длина одной заметки
+NOTES_MAX = 5000              # сколько всего храним
+
+
+def load_notes():
+    try:
+        with open(NOTES_STORE, encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_notes():
+    with NOTES_LOCK:
+        data = dict(sorted(NOTES.items(), key=lambda kv: -(kv[1].get('at') or 0))[:NOTES_MAX])
+        NOTES.clear()
+        NOTES.update(data)
+    try:
+        tmp = NOTES_STORE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, NOTES_STORE)
+    except OSError:
+        pass
+
+
+def set_note(user, text):
+    """Пустой текст стирает заметку — отдельной кнопки удаления не нужно."""
+    key = user.lower()
+    clean = ' '.join(str(text).split())[:NOTE_MAX] if text else ''
+    with NOTES_LOCK:
+        if clean:
+            NOTES[key] = {'user': user, 'text': clean, 'at': int(time.time())}
+        else:
+            NOTES.pop(key, None)
+        left = len(NOTES)
+    save_notes()
+    return clean, left
+
+
 def default_gateway():
     """Адрес роутера из таблицы маршрутизации: нужен, чтобы отделить свою
     локальную сеть от участка до провайдера."""
@@ -972,6 +1022,10 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/library':
             return self._json(lib_list())
 
+        if path == '/api/notes':
+            with NOTES_LOCK:
+                return self._json({'notes': dict(NOTES), 'count': len(NOTES)})
+
         if path == '/api/ladder':
             query = parse_qs(urlparse(self.path).query)
             name = (query.get('user') or [''])[0].lower()
@@ -1034,6 +1088,16 @@ class Handler(SimpleHTTPRequestHandler):
                              len(payload['live']), payload['src'])
             return self._json({'at': payload['at'], 'src': payload['src'],
                                'count': len(payload['live'])})
+
+        if path == '/api/notes':
+            if not isinstance(body, dict):
+                return self.send_error(400, 'expected object')
+            user = body.get('user')
+            if not isinstance(user, str) or not user.strip():
+                return self.send_error(400, 'expected user')
+            text, left = set_note(user.strip(), body.get('text') or '')
+            write_log(f'note {"сохранена" if text else "удалена"}: {user.strip()}')
+            return self._json({'user': user.strip(), 'text': text, 'count': left})
 
         if path == '/api/ladder':
             # Комнату, которой сервер ещё не мерил, взвешивает сам плеер —
@@ -1587,6 +1651,7 @@ if __name__ == '__main__':
     threading.Thread(target=catalog_worker, daemon=True).start()
     threading.Thread(target=activity_worker, daemon=True).start()
     LADDER.update(load_ladder())
+    NOTES.update(load_notes())
     threading.Thread(target=ladder_worker, daemon=True).start()
     print(f'Плеер:  http://127.0.0.1:{PORT}/player.html')
     print(f'Записи: {rec_dir()} (логи всегда в {REC_DIR})')
