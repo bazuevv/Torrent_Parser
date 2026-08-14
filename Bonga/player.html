@@ -3331,7 +3331,11 @@
   // сети: обрыв на паузе иначе не поймать — к моменту, когда его замечают,
   // причина уже за пределами видимого состояния. Копия уходит на сервер, в
   // /mnt/DATA/Bonga_rec/playback.log, и переживает перезагрузку страницы.
-  let logOn = false;
+  /* Сбор идёт всегда, панель лишь показывает накопленное. Раньше одно и то же
+     значение управляло и тем и другим — и это подводило ровно тогда, когда
+     журнал нужен: сбой случался при закрытой панели, а к моменту, когда её
+     открывали, объяснять было уже нечего. Строки лежат кольцом на 3000
+     записей, это единицы мегабайт памяти. */
   const logLines = [];
   let logQueue = [];
 
@@ -3346,7 +3350,6 @@
   }
 
   function logEvent(kind, text, cls = '') {
-    if (!logOn) return;
     const line = `${clockMs()} | t=${video.currentTime.toFixed(1)} буф=${bufEnd()} ` +
                  `rs=${video.readyState} ns=${video.networkState} | ${kind}` + (text ? ` | ${text}` : '');
     logLines.push({ line, cls });
@@ -3394,11 +3397,10 @@
   }, 3000);
 
   function toggleLog(on) {
-    logOn = on;
     $('logPanel').hidden = !on;
     if (!on) return;
-    logEvent('журнал', `включён · источник ${playingFrom} · ${$('url').textContent}`, 'act');
-    paintLog();
+    logEvent('журнал', `открыт · источник ${playingFrom} · ${$('url').textContent}`, 'act');
+    paintLog();          // показываем и то, что накопилось до открытия
   }
 
   $('logClose').onclick = e => { e.stopPropagation(); toggleLog(false); };
