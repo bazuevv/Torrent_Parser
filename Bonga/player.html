@@ -1557,14 +1557,36 @@
             const secs = parts.reduce((a, [, d]) => a + Number(d), 0);
             if (!bytes || !secs || run !== ladderRun) return;   // комнату успели сменить
 
-            const real = bytes * 8 / secs / 1e6;
+            const bits = bytes * 8 / secs;
+            const real = bits / 1e6;
+            // Заявленное запоминаем до подмены: ниже мы перезапишем bitrate
+            // дорожки, и declared() стал бы возвращать уже наше число.
+            const claimed = declared(lvl);
+
+            /* Отдаём измеренное самой библиотеке. У неё для этого есть поле
+               realBitrate, но она заполняет его только по дорожкам, которые
+               уже качала, — а решение «переключаться ли на 720p» принимается
+               как раз о тех, что ещё не качали, и принимается по заявленному.
+
+               Пишем в bitrate, а не в realBitrate: производные свойства
+               считаются как Math.max(realBitrate, bitrate) и
+               _avgBitrate || realBitrate || bitrate. При завышенном
+               заявленном (3.4 против настоящих 2.1) максимум оставил бы
+               завышенное — то есть ровно нашу проблему. */
+            const level = hls && hls.levels && hls.levels[i];
+            if (level && Math.abs(claimed * 1e6 - bits) / Math.max(bits, 1) > 0.05) {
+              logEvent('качество', `${nameOf(lvl, real)}: заявлено было ` +
+                                   `${claimed.toFixed(2)} Мбит/с — подставлено измеренное`);
+              level.bitrate = Math.round(bits);
+            }
+
             const opt = options[i + 1];        // нулевой пункт — «авто»
             if (!opt || opt.parentNode !== $('quality')) return;
             // Заявленное показываем только когда оно заметно врёт: иначе
             // строка растёт вдвое ради повтора того же числа.
-            const gap = Math.abs(real - declared(lvl)) / Math.max(real, 0.01);
+            const gap = Math.abs(real - claimed) / Math.max(real, 0.01);
             opt.textContent = nameOf(lvl, real)
-              + (gap > 0.15 ? ` (заявлено ${declared(lvl).toFixed(1)})` : '');
+              + (gap > 0.15 ? ` (заявлено ${claimed.toFixed(1)})` : '');
           } catch { /* дорожка не ответила — оставляем заявленное значение */ }
         });
       }
@@ -1609,7 +1631,11 @@
           opt.textContent = nameOf(lvl, rate(lvl));
           $('quality').appendChild(opt);
         });
-        measureLadder(data.levels, uriOf, nameOf, rate);
+        // Замер начинаем не сразу, а когда первый кусок уже в буфере: к этому
+        // моменту картинка идёт, и наши запросы не соперничают с ней за канал.
+        // Заодно это и есть «базовое качество» — то, что выбрано стартовым.
+        hls.once(Hls.Events.FRAG_BUFFERED,
+                 () => measureLadder(data.levels, uriOf, nameOf, rate));
 
         /* Битрейт здесь — ограничение, а не мера качества. Верхняя дорожка
            это оригинал от модели, все нижние CDN пережимает на лету, и числа
