@@ -136,6 +136,24 @@
   .item.current { background: #23324a; }
   .item .nick { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item .meta { flex: 0 0 auto; color: #6b7484; font-size: 11px; }
+
+  /* Активность комнаты: три столбика, растущие с размахом битрейта. Значок,
+     а не число, — в строке истории нет места, а точная величина всё равно
+     нужна лишь при разборе, и она есть в подсказке. */
+  .item .act {
+    flex: 0 0 auto; display: none; align-items: flex-end; gap: 1px; height: 9px;
+  }
+  .item .act[data-level] { display: inline-flex; }
+  .item .act b { width: 2px; background: #454c57; border-radius: 1px; }
+  .item .act b:nth-child(1) { height: 3px; }
+  .item .act b:nth-child(2) { height: 6px; }
+  .item .act b:nth-child(3) { height: 9px; }
+  .item .act[data-level="1"] b:nth-child(1),
+  .item .act[data-level="2"] b:nth-child(-n+2),
+  .item .act[data-level="3"] b { background: #7ee787; }
+  .item .act[data-level="3"] b { background: #e3b341; }
+  /* Всплеск прямо сейчас: комната шумит громче собственной нормы. */
+  .item .act[data-now="1"] b:last-child { background: #ff7b72; }
   .item .dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: #454c57; }
   .item[data-live="1"] .dot { background: #7ee787; box-shadow: 0 0 6px rgba(126, 231, 135, .5); }
   .item .del { flex: 0 0 auto; color: #5c646f; padding: 0 4px; border-radius: 4px; }
@@ -1004,7 +1022,7 @@
                      pull: 60, ttl: 60, gap: 10, pool: 24,
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
-                     catalog: 60 };
+                     catalog: 60, act: 15 };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];
@@ -1029,11 +1047,20 @@
   }
 
   // Периодические задачи заводятся заново при каждой смене интервала.
-  let thumbTimer = 0, histTimer = 0, pullTimer = 0;
+  let thumbTimer = 0, histTimer = 0, pullTimer = 0, actTimer = 0, watchTimer = 0;
   function armTimers() {
     clearInterval(thumbTimer); clearInterval(histTimer); clearInterval(pullTimer);
+    clearInterval(actTimer); clearInterval(watchTimer);
     if (cfg('thumbs')) thumbTimer = setInterval(refreshThumbs, cfg('thumbs') * 1000);
     if (cfg('hist')) histTimer = setInterval(checkHistory, cfg('hist') * 1000);
+    // Замеряет сервер, нам остаётся забирать готовое — вдвое реже, чем он
+    // считает: чаще незачем, оценка меняется медленнее.
+    if (cfg('act')) {
+      pushWatch();
+      pullActivity();
+      actTimer = setInterval(pullActivity, Math.max(10, cfg('act') * 2) * 1000);
+      watchTimer = setInterval(pushWatch, 300000);   // напоминаем о себе: у ников свой срок годности
+    }
     pullTimer = setInterval(pullTick, cfg('pull') * 1000);
     nextPull = Date.now() + cfg('pull') * 1000;
   }
@@ -1972,6 +1999,7 @@
     const rest = loadHist().filter(x => x.u.toLowerCase() !== user.toLowerCase());
     saveHist([{ u: user, e: edge, t: Date.now() }, ...rest]);
     renderHist();
+    if (cfg('act')) pushWatch();      // новую комнату сервер возьмёт под наблюдение сразу
   }
 
   const when = ts => new Date(ts).toLocaleString('ru-RU',
@@ -2005,6 +2033,10 @@
       nick.className = 'nick';
       nick.textContent = rec.u;
 
+      const act = document.createElement('span');
+      act.className = 'act';
+      act.innerHTML = '<b></b><b></b><b></b>';
+
       const meta = document.createElement('span');
       meta.className = 'meta';
       meta.textContent = stamp(rec.t);                 // полная метка — в подсказке строки
@@ -2019,7 +2051,7 @@
         renderHist();
       };
 
-      row.append(dot, nick, meta, del);
+      row.append(dot, nick, act, meta, del);
       row.onclick = () => openStream(rec.u, rec.e);
       body.appendChild(row);
     }
@@ -2035,6 +2067,40 @@
   const liveStatus = new Map();
   let histChecking = false;
 
+  /* --- активность комнат --------------------------------------------------
+     Измеряет сервер: наблюдение имеет смысл только непрерывное, а вкладку
+     закрывают. От нас — список ников истории (сервер о ней не знает, она
+     лежит в localStorage) и отрисовка ответа.
+
+     spread — размах веса кусков в долях медианы самой комнаты. Порог взят
+     по замерам: у неподвижной сцены выходит 0.02–0.05, у комнаты с небольшой
+     активностью — около 0.25. level сравнивает последние куски с медианой:
+     больше 1.2 значит, что шумит прямо сейчас. */
+  const activity = new Map();
+
+  async function pushWatch() {
+    const users = loadHist().map(rec => rec.u);
+    if (!users.length) return;
+    try {
+      await fetch('api/activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users }),
+      });
+    } catch { /* сервер перезапускают — попросим на следующем круге */ }
+  }
+
+  async function pullActivity() {
+    try {
+      const data = await (await fetch('api/activity', { cache: 'no-store' })).json();
+      activity.clear();
+      for (const [key, value] of Object.entries(data.rooms || {})) activity.set(key, value);
+      paintHist();
+    } catch { /* оценок не будет до следующего круга */ }
+  }
+
+  const actLevel = spread => (spread >= 0.25 ? 3 : spread >= 0.10 ? 2 : spread >= 0.04 ? 1 : 0);
+
   function paintHist() {
     for (const row of $('histBody').querySelectorAll('.item')) {
       // Заодно освежаем метку: за долгую сессию запись может пережить сутки
@@ -2042,10 +2108,28 @@
       const meta = row.querySelector('.meta');
       if (meta && row.dataset.ts) meta.textContent = stamp(Number(row.dataset.ts));
 
-      const st = liveStatus.get((row.dataset.user || '').toLowerCase());
+      const key = (row.dataset.user || '').toLowerCase();
+      const st = liveStatus.get(key);
       row.dataset.live = st ? '1' : '0';
       row.title = `${row.dataset.base} · ` +
         (st === undefined ? 'статус проверяется' : st ? 'в эфире' : 'офлайн или сменила сервер');
+
+      // Значок активности показываем только у вещающих: у ушедшей комнаты
+      // оценка осталась бы от прошлой трансляции и вводила бы в заблуждение.
+      const act = row.querySelector('.act');
+      const score = st ? activity.get(key) : null;
+      if (!act) continue;
+      const level = score ? actLevel(score.spread) : 0;
+      if (!score || !level) {
+        act.removeAttribute('data-level');
+        act.removeAttribute('data-now');
+        continue;
+      }
+      act.dataset.level = String(level);
+      act.dataset.now = score.level >= 1.2 ? '1' : '0';
+      act.title = `Активность: размах ${Math.round(score.spread * 100)}% ` +
+        `от собственной нормы, сейчас ${Math.round(score.level * 100)}% ` +
+        `(по ${score.count} кускам, медиана ${score.median} Мбит/с)`;
     }
   }
 
