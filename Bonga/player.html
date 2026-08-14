@@ -1152,6 +1152,10 @@
 
   const BLOCKED_RATE = 1e12;        // столько «весит» запрещённая дорожка
 
+  // Выбор «авто» — это предпочтение, а не разовое действие: он должен
+  // переживать смену комнаты и перезагрузку страницы.
+  let autoQuality = localStorage.getItem('autoQuality') === '1';
+
   function applyAutoCap() {
     if (!hls || !hls.levels || !hls.levels.length) return;
     const limit = cfg('maxRate') * 1000;
@@ -1608,6 +1612,12 @@
         lowLatencyMode: false,
         backBufferLength: bufferSeconds(),
         abrEwmaDefaultEstimate: (cfg('maxRate') || 8000) * 1000,
+        /* Иначе первый кусок всегда берётся с нижней дорожки. В коде
+           библиотеки это прямым текстом: при startLevel = -1 и включённом
+           testBandwidth она ставит уровень 0 и помечает загрузку как
+           замер канала. Для эфира приём вредный — зритель видит 240p на
+           старте каждой комнаты, а канал мы и так знаем из настройки. */
+        testBandwidth: false,
       });
       /* Заявленный битрейт дорожки — не расход, а заложенный потолок: у 720p
          бывает 3.4 Мбит/с в манифесте против 2.1 на деле. Настоящий вес
@@ -1745,9 +1755,17 @@
           return (a.bitrate || 0) > (b.bitrate || 0) ? i : best;
         }, fits.length ? fits[0] : 0);
 
-        hls.currentLevel = pick;
-        $('quality').value = String(pick);
-        applyAutoCap();                  // на случай переключения в «авто»
+        applyAutoCap();
+        if (autoQuality) {
+          // Пользователь оставил «авто» — новая комната открывается так же,
+          // а не сбрасывается на наш расчётный выбор.
+          hls.currentLevel = -1;
+          $('quality').value = '-1';
+          seedAuto();
+        } else {
+          hls.currentLevel = pick;
+          $('quality').value = String(pick);
+        }
 
         tryPlay();
         const chosen = data.levels[pick];
@@ -3715,23 +3733,30 @@
      при переходе в «авто» задаём отправную точку — лучшую в пределах потолка,
      — а дальше подбор ведёт себя как обычно и опустится сам, если картинка
      начнёт запинаться. */
+  /* Отправная точка для «авто»: лучшая дорожка в пределах потолка. Граница
+     задана номером и из-за путаного порядка в списке бывает строже отбора по
+     битрейту — подчиняем ей, иначе библиотека всё равно осадит выбор вниз,
+     а в журнале осталась бы неверная запись. */
+  function seedAuto() {
+    if (!hls || !hls.levels || !hls.levels.length) return;
+    applyAutoCap();
+    let seed = bestWithinCap();
+    if (hls.autoLevelCapping >= 0) seed = Math.min(seed, hls.autoLevelCapping);
+    if (seed < 0) return;
+    hls.nextAutoLevel = seed;
+    logEvent('качество', `авто: начинаю с дорожки ${seed}, ` +
+                         `${((hls.levels[seed].bitrate || 0) / 1e6).toFixed(2)} Мбит/с`);
+  }
+
   $('quality').onchange = () => {
     if (!hls) return;
     const value = Number($('quality').value);
+    autoQuality = value < 0;
+    try { localStorage.setItem('autoQuality', autoQuality ? '1' : '0'); } catch { /* приватный режим */ }
     if (value >= 0) { hls.currentLevel = value; return; }
 
     hls.currentLevel = -1;
-    applyAutoCap();
-    // Граница задана номером дорожки и из-за путаного порядка в списке бывает
-    // строже, чем отбор по битрейту. Отправную точку подчиняем ей, иначе
-    // библиотека всё равно осадит выбор вниз, а в журнале осталось бы неверное.
-    let seed = bestWithinCap();
-    if (hls.autoLevelCapping >= 0) seed = Math.min(seed, hls.autoLevelCapping);
-    if (seed >= 0) {
-      hls.nextAutoLevel = seed;
-      logEvent('качество', `авто: начинаю с дорожки ${seed}, ` +
-                           `${((hls.levels[seed].bitrate || 0) / 1e6).toFixed(2)} Мбит/с`);
-    }
+    seedAuto();
   };
 
   // --- «картинка в картинке» -------------------------------------------------
