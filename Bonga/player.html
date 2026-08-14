@@ -485,10 +485,12 @@
       </select>
       <i class="tip" data-hint="maxRate" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
-    <p class="hint" hidden>Берётся самое высокое качество, укладывающееся в
-      этот битрейт. Разрешение у моделей разное, а вес — тем более: у части
-      родные 720p идут под 9 Мбит/с. Битрейт каждой дорожки виден в списке
-      «Качество».</p>
+    <p class="hint" hidden>Отсекает слишком тяжёлые дорожки: из уложившихся
+      берётся самое крупное разрешение. Сравнивать дорожки по битрейту нельзя
+      — верхняя приходит от модели как есть, а нижние CDN пережимает на лету
+      и часто вдвое расточительнее. Встречается и прямая ложь: дорожка
+      объявляет 3.4 Мбит/с, а отдаёт 2.1. Битрейт каждой дорожки виден в
+      списке «Качество».</p>
 
     <div class="row">
       <label for="buffer">Буфер памяти</label>
@@ -1424,25 +1426,37 @@
           $('quality').appendChild(opt);
         });
 
-        // Берём самое высокое качество в пределах потолка. Ориентироваться на
-        // разрешение бессмысленно: у одних 720p весит 3 Мбит/с, у других 9.
+        /* Битрейт здесь — ограничение, а не мера качества. Верхняя дорожка
+           это оригинал от модели, все нижние CDN пережимает на лету, и числа
+           у них несопоставимы: замер на Shan1302 показал у 720p заявленные
+           3.4 Мбит/с при настоящих 2.13, тогда как оригинал 1080p отдавал
+           2.69 при заявленных 2.62. У части серверов пережатие идёт вовсе
+           в Constrained Baseline против Main у источника — то есть меньше
+           пикселей и хуже кодирование за те же биты.
+
+           Поэтому среди уложившихся в потолок берём самое крупное
+           разрешение, а битрейт остаётся лишь тем, что отсекает слишком
+           тяжёлые дорожки. При равном разрешении — тот, что тяжелее. */
         const limit = cfg('maxRate') * 1000;
-        const fits = data.levels.map((lvl, i) => i)
-          .filter(i => !limit || (data.levels[i].bitrate || 0) <= limit);
-        const pick = (fits.length ? fits : data.levels.map((lvl, i) => i))
-          .reduce((best, i) => ((data.levels[i].bitrate || 0) > (data.levels[best].bitrate || 0)
-            ? i : best), fits.length ? fits[0] : 0);
+        const pixels = lvl => (lvl.width || 0) * (lvl.height || 0) || tier(lvl) ** 2;
+        const all = data.levels.map((lvl, i) => i);
+        const fits = all.filter(i => !limit || (data.levels[i].bitrate || 0) <= limit);
+        const pick = (fits.length ? fits : all).reduce((best, i) => {
+          const a = data.levels[i], b = data.levels[best];
+          if (pixels(a) !== pixels(b)) return pixels(a) > pixels(b) ? i : best;
+          return (a.bitrate || 0) > (b.bitrate || 0) ? i : best;
+        }, fits.length ? fits[0] : 0);
 
         hls.currentLevel = pick;
         $('quality').value = String(pick);
 
         tryPlay();
         const chosen = data.levels[pick];
-        const heaviest = data.levels.reduce((a, b) => ((a.bitrate || 0) > (b.bitrate || 0) ? a : b));
-        say(chosen === heaviest
+        const best = data.levels.reduce((a, b) => (pixels(a) >= pixels(b) ? a : b));
+        say(chosen === best
           ? `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с — лучшее у модели.`
           : `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с; ` +
-            `верхняя дорожка ${tier(heaviest)}p идёт на ${rate(heaviest).toFixed(1)} — выше потолка.`,
+            `верхняя дорожка ${tier(best)}p идёт на ${rate(best).toFixed(1)} — выше потолка.`,
           'ok');
       });
 
