@@ -271,7 +271,8 @@
     display: flex; align-items: center; gap: 10px; margin-top: 10px;
   }
   #settings .row > label:first-child { flex: 0 0 130px; color: #98a1b0; }
-  #recDir { flex: 1 1 auto; min-width: 0; font-size: 12px; }
+  #recDir, #libDir { flex: 1 1 auto; min-width: 0; font-size: 12px; cursor: pointer; }
+  #libDir.err { border-color: #b5372c; }
   #settings .row > select, #settings .row > button { flex: 0 0 auto; }
   #settings .hint { margin: 4px 0 0 140px; color: #6b7484; font-size: 12px; line-height: 1.4; }
   /* Пояснение свёрнуто, пока не нажали значок. Правило явное: у .hint нет
@@ -306,6 +307,36 @@
   #tipBox[hidden] { display: none; }
   #settings .check { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; color: #e6e8ec; }
   #settings .check input { accent-color: #2f6fd0; }
+
+  /* Список файлов поверх видео. Отдельная панель, а не колонка: нужна изредка,
+     и отнимать под неё постоянное место незачем. */
+  #libPanel {
+    position: absolute; z-index: 47; top: 10px; left: 10px; width: min(560px, 86%);
+    max-height: 84%; padding: 10px 34px 10px 12px; border-radius: 8px;
+    background: rgba(12, 14, 18, .94); border: 1px solid #39404d; color: #d7dde5;
+    display: flex; flex-direction: column;
+  }
+  #libPanel[hidden] { display: none; }      /* display:flex перебил бы hidden */
+  #libHead {
+    flex: 0 0 auto; margin: 0 0 6px; padding-bottom: 5px;
+    border-bottom: 1px solid #2a2f3a; color: #98a1b0; font-size: 12px;
+  }
+  #libBody { overflow: auto; min-height: 60px; }
+  #libBody .file {
+    display: flex; align-items: center; gap: 8px; padding: 5px 6px;
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  #libBody .file:hover { background: #2f6fd0; }
+  #libBody .file.on { color: #7ee787; }
+  #libBody .file b { flex: 1 1 auto; min-width: 0; overflow: hidden;
+                     text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+  #libBody .file i { flex: 0 0 auto; color: #98a1b0; font-style: normal; font-size: 11px; }
+  #libBody .file:hover i { color: #d7dde5; }
+  #libClose {
+    position: absolute; top: 6px; right: 8px; width: 22px; padding: 0;
+    font-size: 12px; color: #98a1b0; background: #262b34; border-color: #39404d;
+  }
+  #libClose:hover { color: #fff; background: #b5372c; border-color: #b5372c; }
 
   /* Выбор вида PiP-окна. Висит под своей кнопкой: left выставляется из JS,
      потому что кнопок в шапке много и положение зависит от их ширины. */
@@ -457,6 +488,7 @@
 
   <button id="rec" title="Состояние записи. Нажатие останавливает запись текущей трансляции">Запись ждёт потока</button>
   <button id="fromRec" title="Переключиться на запись — перемотка глубже, чем помещается в памяти">Из записи</button>
+  <button id="lib" title="Файлы из папки, указанной в настройках">Видео</button>
   <button id="live" title="Вернуться к прямому эфиру">В эфир</button>
   <button id="pip" title="Картинка в картинке: выбор вида окна">PiP</button>
 
@@ -509,6 +541,17 @@
       и часто вдвое расточительнее. Встречается и прямая ложь: дорожка
       объявляет 3.4 Мбит/с, а отдаёт 2.1. Битрейт каждой дорожки виден в
       списке «Качество».</p>
+
+    <div class="row">
+      <label for="libDir">Папка видео</label>
+      <input id="libDir" spellcheck="false" placeholder="не задана" readonly>
+      <i class="tip" data-hint="libDir" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+    </div>
+    <p class="hint" hidden>Откуда кнопка «Видео» берёт файлы. Годится любая
+      папка внутри /mnt/DATA, /mnt/Projects и /home/vladimir — за их пределы
+      сервер не пустит, он виден всей локальной сети. Права на запись здесь не
+      нужны, в отличие от папки записей: сюда мы только читаем. Подпапки не
+      обходятся.</p>
 
     <div class="row">
       <label for="buffer">Буфер памяти</label>
@@ -795,7 +838,7 @@
 </dialog>
 
 <dialog id="dirDlg">
-  <h3>Куда писать записи</h3>
+  <h3 id="dirTitle">Куда писать записи</h3>
   <p id="dirPath">…</p>
   <div id="dirList"></div>
   <div class="row">
@@ -871,6 +914,12 @@
       <button id="netRun" title="Прогнать замеры заново">Ещё раз</button>
       <pre id="netBody"></pre>
     </div>
+
+    <div id="libPanel" hidden>
+      <button id="libClose" title="Закрыть список">×</button>
+      <div id="libHead">Видео</div>
+      <div id="libBody"></div>
+    </div>
   </div>
 
   <div id="ctxMenu" hidden>
@@ -930,6 +979,7 @@
   const video = $('v');
   let hls = null, stallTimer = 0;
   let ladderRun = 0;         // поколение замера дорожек: смена комнаты обесценивает прошлый
+  let libFile = '';          // играющий файл из папки просмотра, если это он
   let userInitiated = false;      // переключение сделано человеком -> звук разрешён
   let liveList = [];              // кто сейчас в эфире: порядок перелистывания комнат
 
@@ -1108,6 +1158,30 @@
     }
   };
 
+  // Папка просмотра проверяется мягче, чем папка записей: право на запись тут
+  // не нужно, достаточно, чтобы каталог существовал внутри разрешённых корней.
+  $('libDir').onchange = async () => {
+    const wanted = $('libDir').value.trim();
+    try {
+      const res = await fetch('api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ libDir: wanted }),
+      });
+      const data = await res.json();
+      settings = { ...DEFAULTS, ...data };
+      $('libDir').value = data.libDir || '';
+      const ok = !wanted || data.libDir === wanted;
+      $('libDir').classList.toggle('err', !ok);
+      say(ok ? (data.libDir ? `Видео берётся из ${data.libDir}.` : 'Папка видео очищена.')
+             : 'Путь отклонён: он вне разрешённых корней или не существует.',
+          ok ? 'ok' : 'err');
+      if (ok && !$('libPanel').hidden) showLibrary();
+    } catch {
+      say('Сервер не ответил — путь не сохранён.', 'err');
+    }
+  };
+
   // Незавершённые записи: сервер перезапускали, ffmpeg погиб вместе с ним,
   // а каталоги с кусками остались. Спрашиваем, что с ними делать.
   async function checkOrphans() {
@@ -1205,20 +1279,31 @@
     }
   }
 
-  $('recDir').onclick = () => {
+  // Обозреватель один на два поля: куда писать записи и откуда смотреть файлы.
+  let dirTarget = 'recDir';
+
+  const openDirPicker = field => {
+    dirTarget = field;
     $('dirNew').value = '';
-    showDirs($('recDir').value.trim() || '');
+    $('dirTitle').textContent = field === 'recDir' ? 'Куда писать записи' : 'Откуда смотреть видео';
+    // Новую подпапку заводим только для записей: в чужую папку с видео нам
+    // писать нечем, да и незачем.
+    $('dirNew').hidden = field !== 'recDir';
+    showDirs($(field).value.trim() || '');
     $('dirDlg').showModal();
   };
+
+  $('recDir').onclick = () => openDirPicker('recDir');
+  $('libDir').onclick = () => openDirPicker('libDir');
 
   $('dirUp').onclick = () => showDirs($('dirUp').dataset.to);
   $('dirCancel').onclick = () => $('dirDlg').close();
 
   $('dirPick').onclick = () => {
-    const extra = $('dirNew').value.trim().replace(/[/\\]/g, '');
-    $('recDir').value = extra ? `${dirAt}/${extra}` : dirAt;
+    const extra = $('dirNew').hidden ? '' : $('dirNew').value.trim().replace(/[/\\]/g, '');
+    $(dirTarget).value = extra ? `${dirAt}/${extra}` : dirAt;
     $('dirDlg').close();
-    $('recDir').onchange();                 // сохраняем и показываем ответ сервера
+    $(dirTarget).onchange();                // сохраняем и показываем ответ сервера
   };
 
   // Раскладываем значения по элементам панели и слушаем изменения.
@@ -1229,6 +1314,7 @@
       if (el) el.onchange = () => { pushSettings({ [key]: Number(el.value) }); armTimers(); };
     }
     $('recDir').value = settings.recDir || '';
+    $('libDir').value = settings.libDir || '';
     armTimers();
     armCarousel();
     applyPanels();
@@ -1903,10 +1989,78 @@
   function paintSource() {
     $('fromRec').classList.toggle('on', playingFrom === 'disk');
     $('fromRec').textContent = playingFrom === 'disk' ? 'Смотрю запись' : 'Из записи';
+    $('lib').classList.toggle('on', playingFrom === 'file');
+    $('lib').textContent = playingFrom === 'file' ? 'Смотрю файл' : 'Видео';
+    if (playingFrom !== 'file') libFile = '';
   }
 
   $('fromRec').onclick = switchToRecording;
   paintSource();
+
+  /* --- файлы из папки ------------------------------------------------------
+     Обычный mp4 играет сам браузер, без hls.js: MSE тут не нужен, а перемотку
+     обеспечивает сервер заголовком Range. Заодно это единственный источник,
+     где длина известна заранее и ползунок показывает всю запись сразу. */
+  const fileSize = bytes => (bytes >= 1073741824
+    ? `${(bytes / 1073741824).toFixed(1)} ГБ` : `${Math.round(bytes / 1048576)} МБ`);
+  const fileLen = secs => (secs >= 3600
+    ? `${Math.floor(secs / 3600)} ч ${Math.floor(secs % 3600 / 60)} мин`
+    : secs >= 60 ? `${Math.round(secs / 60)} мин` : `${secs} с`);
+
+  async function showLibrary() {
+    $('libPanel').hidden = false;
+    $('libBody').innerHTML = '<div class="empty">Читаю папку…</div>';
+    let data;
+    try {
+      data = await (await fetch('api/library', { cache: 'no-store' })).json();
+    } catch {
+      $('libBody').innerHTML = '<div class="empty">Сервер не ответил</div>';
+      return;
+    }
+
+    $('libHead').textContent = data.dir || 'папка не задана';
+    if (data.error || !data.files.length) {
+      $('libBody').innerHTML = `<div class="empty">${data.error === 'папка не задана'
+        ? 'Укажите папку в настройках: «Просмотр» → «Папка видео».'
+        : data.error || 'В папке нет видеофайлов.'}</div>`;
+      return;
+    }
+
+    $('libBody').textContent = '';
+    for (const item of data.files) {
+      const row = document.createElement('div');
+      row.className = 'file' + (item.name === libFile ? ' on' : '');
+      row.innerHTML = '<b></b><i></i>';
+      row.querySelector('b').textContent = item.name;
+      row.querySelector('i').textContent =
+        `${item.seconds ? fileLen(item.seconds) + ' · ' : ''}${fileSize(item.bytes)}`;
+      row.title = `${item.name}\n${new Date(item.at * 1000).toLocaleString('ru-RU')}`;
+      row.onclick = () => playFile(item.name);
+      $('libBody').appendChild(row);
+    }
+  }
+
+  function playFile(name) {
+    stopStream();                    // гасит эфир, запись и автопереключение
+    libFile = name;
+    playingFrom = 'file';
+    ladderRun++;                     // замер дорожек прошлого потока обесценен
+    $('quality').innerHTML = '<option value="-1">авто</option>';
+    video.src = `lib/${encodeURIComponent(name)}`;
+    video.load();
+    video.play().catch(() => { /* автозапуск без звука мог не пройти */ });
+    paintSource();
+    $('url').textContent = name;
+    $('url').title = name;
+    $('libPanel').hidden = true;
+    logEvent('плеер', `файл: ${name}`, 'act');
+    say(`Играю файл ${name}. «В эфир» вернёт трансляцию.`, 'ok');
+  }
+
+  $('lib').onclick = () => {
+    if ($('libPanel').hidden) showLibrary(); else $('libPanel').hidden = true;
+  };
+  $('libClose').onclick = e => { e.stopPropagation(); $('libPanel').hidden = true; };
 
   // Кнопка ничего не включает: она показывает состояние и останавливает запись
   // текущей трансляции. Следующий поток снова начнёт писать.
