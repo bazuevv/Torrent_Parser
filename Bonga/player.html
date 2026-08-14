@@ -154,6 +154,15 @@
   }
   #noteHint { margin: 6px 0 0; color: #6b7484; font-size: 12px; }
 
+  /* Заметка относится к конкретной строке, поэтому окно висит рядом с её
+     значком, а не посреди экрана: так видно, о ком речь, и видео не
+     перекрывается. Отсюда же немодальность — список остаётся под рукой. */
+  #noteDlg {
+    position: fixed; margin: 0; width: min(420px, 92vw); z-index: 60;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .6);
+  }
+  #noteDlg::backdrop { background: transparent; }
+
   /* Активность комнаты: три столбика, растущие с размахом битрейта. Значок,
      а не число, — в строке истории нет места, а точная величина всё равно
      нужна лишь при разборе, и она есть в подсказке. */
@@ -2632,7 +2641,7 @@
       const note = document.createElement('span');
       note.className = 'note';
       note.textContent = '✎';
-      note.onclick = e => { e.stopPropagation(); openNote(rec.u); };  // строка кликабельна целиком
+      note.onclick = e => { e.stopPropagation(); openNote(rec.u, note); };  // строка кликабельна целиком
 
       const del = document.createElement('span');
       del.className = 'del';
@@ -2708,7 +2717,23 @@
                     'хранится на сервере.';
   let noteRun = 0;
 
-  function openNote(user) {
+  // Ставим окно рядом со значком: справа, а если там не помещается — слева.
+  // По вертикали прижимаем к краям экрана, чтобы не уехало за них у нижних
+  // строк длинного списка.
+  function placeNote(anchor) {
+    const dlg = $('noteDlg');
+    if (!anchor) return;
+    const mark = anchor.getBoundingClientRect();
+    const box = dlg.getBoundingClientRect();
+    const gap = 8;
+    let left = mark.right + gap;
+    if (left + box.width > innerWidth - gap) left = mark.left - box.width - gap;
+    dlg.style.left = `${Math.max(gap, Math.min(left, innerWidth - box.width - gap))}px`;
+    dlg.style.top = `${Math.max(gap, Math.min(mark.top - gap,
+                                              innerHeight - box.height - gap))}px`;
+  }
+
+  function openNote(user, anchor) {
     const key = user.toLowerCase();
     const already = notes.get(key) || '';
     const run = ++noteRun;
@@ -2716,7 +2741,8 @@
     $('noteTitle').textContent = `Заметка · ${user}`;
     $('noteText').value = already;
     $('noteHint').textContent = NOTE_HINT;
-    $('noteDlg').showModal();
+    $('noteDlg').show();                 // немодально: список остаётся под рукой
+    placeNote(anchor);
     $('noteText').focus();
     $('noteSave').onclick = () => {
       $('noteDlg').close();
@@ -2753,9 +2779,16 @@
 
   $('noteCancel').onclick = () => $('noteDlg').close();
   // Ctrl+Enter — привычное «сохранить и закрыть» для многострочного поля.
+  // Escape закрывает вручную: немодальному окну браузер этого не делает.
   $('noteText').onkeydown = e => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('noteSave').click();
+    if (e.key === 'Escape') { e.stopPropagation(); $('noteDlg').close(); }
   };
+  // Клик мимо окна закрывает его, не сохраняя, — как и любое всплывающее.
+  document.addEventListener('click', e => {
+    if ($('noteDlg').open && !e.target.closest('#noteDlg, .note')) $('noteDlg').close();
+  });
+  addEventListener('resize', () => { if ($('noteDlg').open) $('noteDlg').close(); });
 
   /* --- активность комнат --------------------------------------------------
      Измеряет сервер: наблюдение имеет смысл только непрерывное, а вкладку
@@ -3184,7 +3217,7 @@
       const note = document.createElement('span');
       note.className = 'note';
       note.textContent = '✎';
-      note.onclick = e => { e.stopPropagation(); openNote(user); };   // карточка кликабельна целиком
+      note.onclick = e => { e.stopPropagation(); openNote(user, note); };   // карточка кликабельна целиком
       cap.appendChild(note);
 
       const offBox = document.createElement('span');
