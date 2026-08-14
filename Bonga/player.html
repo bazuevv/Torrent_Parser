@@ -1634,6 +1634,7 @@
     // Счётчики статистики — на каждый поток свои.
     errorCount = netErrors = mediaErrors = 0;
     stallCount = 0; stallTotal = 0; stallStart = 0; lastStallAt = 0;
+    hasPlayed = false;                       // новый поток — снова ждём первый кадр
     errorLog.length = 0;
     lastFrag = null;
     lastHlsError = '';
@@ -3490,9 +3491,16 @@
   // Подвисания (rebuffering): браузер шлёт waiting, когда данные кончились.
   // Перемотку сюда не считаем — она тоже поднимает waiting, но это не проблема сети.
   let stallCount = 0, stallTotal = 0, stallStart = 0, lastStallAt = 0;
+  let hasPlayed = false;      // был ли хоть один показанный кадр в этом потоке
 
   video.addEventListener('waiting', () => {
     if (video.seeking || stallStart) return;
+    /* Ожидание данных до первого кадра — не подвисание: прерывать ещё нечего.
+       Такое ожидание случается при каждом старте, и раньше оно засчитывалось
+       наравне с настоящими: счётчик в статистике завышался, а защита «авто»
+       снимала себя на второй же секунде комнаты, решив, что картинка
+       запнулась. Ровно это и роняло качество с 1080p на старте. */
+    if (!hasPlayed) return;
     stallStart = performance.now();
     stallCount++;
     lastStallAt = Date.now();
@@ -3502,7 +3510,7 @@
     stallTotal += (performance.now() - stallStart) / 1000;
     stallStart = 0;
   };
-  video.addEventListener('playing', endStall);
+  video.addEventListener('playing', () => { hasPlayed = true; endStall(); });
   video.addEventListener('seeked', () => { stallStart = 0; });
 
   window.addEventListener('offline', () => say('Сеть пропала — поток встанет.', 'err', playbackReport()));
