@@ -1189,14 +1189,28 @@
        сам их не выберет, сколько бы канала ни намерил. Настоящее значение
        хранится отдельно, в measuredBitrate, поэтому подписи не врут и
        запрет снимается обратно при смене потолка. */
-    let top = -1;
+    /* Вторая ловушка того же порядка. Подбор считает, что больший номер в
+       списке значит лучшее качество, — а список отсортирован по заявленному.
+       У zury-moon выходит 240p → 480p → 1080p → 720p, потому что её 720p
+       объявляет 3.4 при настоящих 0.65. Подбор «повышает» качество с 1080p
+       на 720p и роняет картинку, формально ничего не нарушая.
+
+       Поэтому запрещаем всё, что стоит выше лучшей подходящей дорожки: выше
+       неё по качеству всё равно ничего нет, а по номеру — есть. Понижаться
+       есть куда, младшие номера остаются доступны. */
+    const px = lvl => (lvl.width || 0) * (lvl.height || 0);
+    let best = -1;
     hls.levels.forEach((lvl, i) => {
-      const allow = anyFits ? fits(lvl) : i === lightest;
+      if (!(anyFits ? fits(lvl) : i === lightest)) return;
+      if (best < 0 || px(lvl) > px(hls.levels[best])) best = i;
+    });
+
+    hls.levels.forEach((lvl, i) => {
+      const allow = (anyFits ? fits(lvl) : i === lightest) && i <= best;
       lvl.bitrate = allow ? trueRate(lvl) : BLOCKED_RATE;
       lvl._avgBitrate = allow ? 0 : BLOCKED_RATE;   // иначе часть путей возьмёт его
-      if (allow) top = i;
     });
-    hls.autoLevelCapping = top < 0 ? -1 : top;      // верхнюю границу тоже держим
+    hls.autoLevelCapping = best < 0 ? -1 : best;
   }
 
   function armTimers() {
