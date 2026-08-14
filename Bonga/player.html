@@ -1989,8 +1989,14 @@
   function paintSource() {
     $('fromRec').classList.toggle('on', playingFrom === 'disk');
     $('fromRec').textContent = playingFrom === 'disk' ? 'Смотрю запись' : 'Из записи';
+    // Название не меняем: кнопка открывает список файлов и во время
+    // воспроизведения — переименованная в «Смотрю файл», она выглядела
+    // пропавшей, и вернуться к списку было не за что. Состояние показывает
+    // подсветка, а имя файла и так стоит в строке адреса.
     $('lib').classList.toggle('on', playingFrom === 'file');
-    $('lib').textContent = playingFrom === 'file' ? 'Смотрю файл' : 'Видео';
+    $('lib').title = playingFrom === 'file'
+      ? `Играет ${libFile} · нажмите, чтобы выбрать другой файл`
+      : 'Файлы из папки, указанной в настройках';
     if (playingFrom !== 'file') libFile = '';
   }
 
