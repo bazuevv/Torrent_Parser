@@ -137,6 +137,23 @@
   .item .nick { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item .meta { flex: 0 0 auto; color: #6b7484; font-size: 11px; }
 
+  /* Заметка о комнате. Значок бледный, пока пусто, и заметный, когда есть
+     текст: список должен читаться с одного взгляда. */
+  .note {
+    flex: 0 0 auto; cursor: pointer; font-size: 12px; line-height: 1;
+    color: #454c57; padding: 2px; border-radius: 4px; user-select: none;
+  }
+  .note:hover { color: #fff; background: #2f6fd0; }
+  .note.on { color: #e3b341; }
+  .item:not(:hover) .note:not(.on) { visibility: hidden; }   /* не сорим в списке */
+
+  #noteText {
+    width: 100%; box-sizing: border-box; resize: vertical;
+    background: #12151b; color: #e6e8ec; border: 1px solid #39404d;
+    border-radius: 6px; padding: 8px; font: 13px/1.45 system-ui, sans-serif;
+  }
+  #noteHint { margin: 6px 0 0; color: #6b7484; font-size: 12px; }
+
   /* Активность комнаты: три столбика, растущие с размахом битрейта. Значок,
      а не число, — в строке истории нет места, а точная величина всё равно
      нужна лишь при разборе, и она есть в подсказке. */
@@ -877,6 +894,18 @@
     <button id="orphanKeepAll" title="Склеить каждую папку в отдельный mp4 и убрать куски">Сохранить все</button>
     <button id="orphanDropAll" title="Стереть все незавершённые куски без склейки — отменить будет нельзя">Удалить все</button>
     <button id="orphanClose" class="primary" title="Оставить как есть: вопрос повторится при следующем запуске">Позже</button>
+  </div>
+</dialog>
+
+<dialog id="noteDlg">
+  <h3 id="noteTitle">Заметка</h3>
+  <textarea id="noteText" rows="4" maxlength="500"
+            placeholder="Чем эта комната запомнилась"></textarea>
+  <p class="hint" id="noteHint">Пустая заметка удаляется. Видна со всех устройств —
+    хранится на сервере.</p>
+  <div class="dlg-btns">
+    <button id="noteSave" class="primary">Сохранить</button>
+    <button id="noteCancel">Отмена</button>
   </div>
 </dialog>
 
@@ -2600,6 +2629,11 @@
       meta.className = 'meta';
       meta.textContent = stamp(rec.t);                 // полная метка — в подсказке строки
 
+      const note = document.createElement('span');
+      note.className = 'note';
+      note.textContent = '✎';
+      note.onclick = e => { e.stopPropagation(); openNote(rec.u); };  // строка кликабельна целиком
+
       const del = document.createElement('span');
       del.className = 'del';
       del.textContent = '×';
@@ -2610,11 +2644,12 @@
         renderHist();
       };
 
-      row.append(dot, nick, act, meta, del);
+      row.append(dot, nick, act, note, meta, del);
       row.onclick = () => openStream(rec.u, rec.e);
       body.appendChild(row);
     }
     paintHist();
+    paintNotes();
     markCurrent();
   }
 
@@ -2625,6 +2660,67 @@
   // переехала, точка будет серой, но клик по строке всё равно найдёт поток.
   const liveStatus = new Map();
   let histChecking = false;
+
+  /* --- заметки о комнатах --------------------------------------------------
+     Лежат на сервере: их пишут надолго, и терять при чистке браузера обидно.
+     Здесь только зеркало, чтобы не спрашивать сервер на каждую перерисовку
+     списка — он перерисовывается при каждом обходе. */
+  const notes = new Map();
+
+  async function loadNotes() {
+    try {
+      const data = await (await fetch('api/notes', { cache: 'no-store' })).json();
+      notes.clear();
+      for (const [key, item] of Object.entries(data.notes || {})) notes.set(key, item.text);
+      paintNotes();
+    } catch { /* сервер молчит — заметки покажем на следующем круге */ }
+  }
+
+  async function saveNote(user, text) {
+    try {
+      const res = await fetch('api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user, text }),
+      });
+      const data = await res.json();
+      if (data.text) notes.set(user.toLowerCase(), data.text);
+      else notes.delete(user.toLowerCase());
+      paintNotes();
+      say(data.text ? `Заметка о ${user} сохранена.` : `Заметка о ${user} удалена.`, 'ok');
+    } catch {
+      say('Сервер не ответил — заметка не сохранена.', 'err');
+    }
+  }
+
+  // Значки есть и в истории, и на карточках эфира — обходим то и другое.
+  function paintNotes() {
+    for (const el of document.querySelectorAll('.item, .card')) {
+      const mark = el.querySelector('.note');
+      if (!mark) continue;
+      const text = notes.get((el.dataset.user || '').toLowerCase()) || '';
+      mark.classList.toggle('on', Boolean(text));
+      mark.title = text ? `Заметка: ${text}` : 'Добавить заметку';
+    }
+  }
+
+  function openNote(user) {
+    const key = user.toLowerCase();
+    $('noteTitle').textContent = `Заметка · ${user}`;
+    $('noteText').value = notes.get(key) || '';
+    $('noteDlg').showModal();
+    $('noteText').focus();
+    $('noteSave').onclick = () => {
+      $('noteDlg').close();
+      saveNote(user, $('noteText').value);
+    };
+  }
+
+  $('noteCancel').onclick = () => $('noteDlg').close();
+  // Ctrl+Enter — привычное «сохранить и закрыть» для многострочного поля.
+  $('noteText').onkeydown = e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('noteSave').click();
+  };
 
   /* --- активность комнат --------------------------------------------------
      Измеряет сервер: наблюдение имеет смысл только непрерывное, а вкладку
@@ -3050,6 +3146,12 @@
       cap.querySelector('b').textContent = user;
       cap.querySelector('i').textContent = viewers ? `${viewers}👁` : '';
 
+      const note = document.createElement('span');
+      note.className = 'note';
+      note.textContent = '✎';
+      note.onclick = e => { e.stopPropagation(); openNote(user); };   // карточка кликабельна целиком
+      cap.appendChild(note);
+
       const offBox = document.createElement('span');
       offBox.className = 'offBox';
 
@@ -3070,6 +3172,7 @@
       card.onclick = () => openStream(user, edge);
       body.appendChild(card);
     }
+    paintNotes();
     markCurrent();
     filterOnline();          // свежий список сразу под текущий поиск
     queueThumbs();                   // грузим то, что попало на экран
@@ -4226,6 +4329,7 @@
   (async () => {
     await pullSettings();
     applySettingsToUI();
+    loadNotes();               // заметки лежат на сервере, забираем при запуске
 
     if (params.get('u') || location.hash) start();
 
