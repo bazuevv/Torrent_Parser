@@ -1412,17 +1412,30 @@
         // без суффикса в родном разрешении. Ориентируемся на суффикс: у
         // вертикальных трансляций (960x1280) высоты 720 не бывает вовсе,
         // и по lvl.height дорожка «720p» не нашлась бы никогда.
+        const uriOf = lvl => (lvl.url && lvl.url[0]) || lvl.uri || '';
+        // Ступени перечислены поимённо, а не как «_цифры»: в базе есть ники
+        // вроде olga_2 и sergio_2016, и у них имя собственной дорожки
+        // оканчивается ровно так же, как у пережатой.
+        const STEP = /_(144|240|360|480|540|720|1080|1440|2160)\/[^/]*$/;
         const tier = lvl => {
-          const uri = (lvl.url && lvl.url[0]) || lvl.uri || '';
-          const m = /_(\d+)\/[^/]*$/.exec(uri);
+          const m = STEP.exec(uriOf(lvl));
           return m ? Number(m[1]) : Math.min(lvl.width, lvl.height);
         };
+
+        // Тем же суффиксом отличается и происхождение дорожки: пережатые
+        // сервер называет …_720/chunks.m3u8, оригинал идёт без суффикса.
+        // Проверено на 155 лесенках живого эфира: дорожка без суффикса ровно
+        // одна и всегда самая крупная. Отметка нужна потому, что по числам
+        // отличить нельзя — заявленный битрейт у пережатых расходится с
+        // настоящим (у 720p бывает 3.4 заявленных против 2.1 отданных).
+        const source = lvl => !STEP.test(uriOf(lvl));
 
         const rate = lvl => (lvl.bitrate || 0) / 1e6;
         data.levels.forEach((lvl, i) => {
           const opt = document.createElement('option');
           opt.value = i;
-          opt.textContent = `${tier(lvl)}p · ${rate(lvl).toFixed(1)} Мбит/с`;
+          opt.textContent = `${tier(lvl)}p · ${rate(lvl).toFixed(1)} Мбит/с`
+                          + (source(lvl) ? ' · оригинал' : '');
           $('quality').appendChild(opt);
         });
 
@@ -1453,10 +1466,10 @@
         tryPlay();
         const chosen = data.levels[pick];
         const best = data.levels.reduce((a, b) => (pixels(a) >= pixels(b) ? a : b));
-        say(chosen === best
-          ? `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с — лучшее у модели.`
-          : `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с; ` +
-            `верхняя дорожка ${tier(best)}p идёт на ${rate(best).toFixed(1)} — выше потолка.`,
+        say(source(chosen)
+          ? `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с — оригинал от модели.`
+          : `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с — пережато сервером; ` +
+            `оригинал ${tier(best)}p идёт на ${rate(best).toFixed(1)} и не влезает в потолок.`,
           'ok');
       });
 
