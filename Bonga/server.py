@@ -23,7 +23,7 @@ import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, quote as urlquote, urlencode, urljoin, urlparse
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STORE = os.path.join(ROOT, 'accounts.json')
@@ -141,6 +141,7 @@ SETTINGS_RANGE = {
     'maxRate': (0, 100000),      # потолок битрейта просмотра, кбит/с; 0 — без ограничения
     'recRate': (0, 100000),      # потолок битрейта записи; выше — пережимаем
     'catalog': (0, 3600),        # период опроса каталога сайта, секунды; 0 — не опрашивать
+    'act': (0, 600),             # период замера активности комнат истории; 0 — не мерить
 }
 
 # Путь к папке записей — единственная строковая настройка. Разрешаем только
@@ -847,6 +848,15 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/netcheck':
             return self._json(net_check())
 
+        if path == '/api/activity':
+            with ACTIVITY_LOCK:
+                out = {}
+                for key, item in ACTIVITY.items():
+                    score = activity_score(item['samples'])
+                    if score:
+                        out[key] = score | {'user': item['user']}
+                return self._json({'rooms': out, 'watched': len(ACTIVITY_WATCH)})
+
         if path == '/api/browse':
             query = parse_qs(urlparse(self.path).query)
             return self._json(browse_dirs((query.get('path') or [''])[0]))
@@ -907,6 +917,21 @@ class Handler(SimpleHTTPRequestHandler):
                              len(payload['live']), payload['src'])
             return self._json({'at': payload['at'], 'src': payload['src'],
                                'count': len(payload['live'])})
+
+        if path == '/api/activity':
+            # История живёт в localStorage браузера, сервер о ней не знает —
+            # поэтому список наблюдаемых ников присылает клиент. Ники разных
+            # браузеров складываются, каждый со своим сроком годности.
+            names = body.get('users') if isinstance(body, dict) else body
+            if not isinstance(names, list):
+                return self.send_error(400, 'expected array')
+            now = time.time()
+            with ACTIVITY_LOCK:
+                for name in names[:200]:
+                    if isinstance(name, str) and name:
+                        ACTIVITY_WATCH[name.lower()] = now
+                watched = len(ACTIVITY_WATCH)
+            return self._json({'watched': watched})
 
         if path == '/api/record':
             if not isinstance(body, dict):
@@ -1122,6 +1147,139 @@ def catalog_worker():
         time.sleep(max(15, period))
 
 
+# --------------------------------------------------------------------------
+# Активность комнаты по колебаниям битрейта
+#
+# Замеры на живом эфире (2026-08-14) показали: вес куска отражает подвижность
+# сцены, и нижняя ступень отвечает на неё резче всех — при небольшой активности
+# 240p гуляла в 2.3 раза, тогда как оригинал той же комнаты лишь на 42%.
+# Мерить надо поштучно: усреднение по трём кускам стирало у оригинала разброс
+# с 42% до 3%, то есть ровно тот сигнал, который мы ищем.
+#
+# Считает сервер, а не браузеры: наблюдение имеет смысл только непрерывное,
+# а вкладку закрывают. Результат общий для всех клиентов.
+ACTIVITY_LOCK = threading.Lock()
+ACTIVITY = {}                 # ник → {'user','edge','url','seen','samples':[(t, Мбит/с)]}
+ACTIVITY_WATCH = {}           # ник → когда клиент в последний раз им интересовался
+ACTIVITY_TTL = 1800           # столько ник остаётся под наблюдением без спроса
+ACTIVITY_KEEP = 60            # сколько последних кусков помним на комнату
+ACTIVITY_POOL = 8
+
+
+def lowest_variant(user, edge):
+    """Адрес плейлиста самой мелкой пережатой дорожки. Она чувствительнее
+    прочих, а стоит столько же: HEAD не качает тело."""
+    base = f'https://{host_of(edge)}.bcvcdn.com/hls/stream_{urlquote(user)}/'
+    req = urllib.request.Request(base + 'playlist.m3u8',
+                                 headers={'User-Agent': CATALOG_UA})
+    with urllib.request.urlopen(req, timeout=8) as res:
+        text = res.read().decode('utf-8', 'replace')
+
+    best = None
+    for attrs, rel in re.findall(r'#EXT-X-STREAM-INF:([^\n]+)\n([^\n]+)', text):
+        size = re.search(r'RESOLUTION=(\d+)x(\d+)', attrs)
+        if not size:
+            continue
+        pixels = int(size.group(1)) * int(size.group(2))
+        if best is None or pixels < best[0]:
+            best = (pixels, urljoin(base, rel.strip()))
+    return best[1] if best else ''
+
+
+def sample_activity(entry):
+    """Один заход по комнате: сколько весит каждый новый кусок. Куски,
+    посчитанные в прошлый раз, пропускаем по имени — окно плейлиста всего
+    8 секунд, и при частом опросе они повторяются."""
+    try:
+        if not entry.get('url'):
+            entry['url'] = lowest_variant(entry['user'], entry['edge'])
+        if not entry['url']:
+            return
+        req = urllib.request.Request(entry['url'], headers={'User-Agent': CATALOG_UA})
+        with urllib.request.urlopen(req, timeout=8) as res:
+            media = res.read().decode('utf-8', 'replace')
+
+        fresh = []
+        for secs, name in re.findall(r'#EXTINF:([\d.]+)[^\n]*\n([^#\n]+)', media):
+            name = name.strip()
+            if name in entry['seen']:
+                continue
+            head = urllib.request.Request(urljoin(entry['url'], name),
+                                          headers={'User-Agent': CATALOG_UA},
+                                          method='HEAD')
+            with urllib.request.urlopen(head, timeout=8) as res:
+                size = int(res.headers.get('Content-Length') or 0)
+            if size and float(secs):
+                fresh.append((int(time.time()), size * 8 / float(secs) / 1e6))
+            entry['seen'].append(name)
+
+        del entry['seen'][:-12]
+        entry['samples'] += fresh
+        del entry['samples'][:-ACTIVITY_KEEP]
+    except Exception:
+        entry['url'] = ''          # мог смениться сервер — пересоберём адрес
+
+
+def activity_score(samples):
+    """Оценка по собственной норме комнаты: разрешение и энкодер у всех разные,
+    поэтому абсолютные Мбит/с между комнатами несопоставимы.
+
+    spread — размах между десятым и девяностым процентилем в долях медианы:
+    насколько сцена вообще шевелится. level — последние куски против медианы:
+    происходит ли что-то прямо сейчас."""
+    values = sorted(x for _, x in samples)
+    if len(values) < 6:
+        return None
+    mid = values[len(values) // 2]
+    if mid <= 0:
+        return None
+    lo = values[int(len(values) * 0.1)]
+    hi = values[int(len(values) * 0.9)]
+    recent = [x for _, x in samples[-3:]]
+    return {'spread': round((hi - lo) / mid, 2),
+            'level': round(sum(recent) / len(recent) / mid, 2),
+            'median': round(mid, 2), 'count': len(samples)}
+
+
+def activity_worker():
+    while True:
+        period = load_settings().get('act', 15)
+        if not period:
+            time.sleep(30)
+            continue
+
+        now = time.time()
+        with ACTIVITY_LOCK:
+            for key, asked in list(ACTIVITY_WATCH.items()):
+                if now - asked > ACTIVITY_TTL:
+                    ACTIVITY_WATCH.pop(key, None)
+                    ACTIVITY.pop(key, None)
+            wanted = set(ACTIVITY_WATCH)
+
+        # Опрашиваем только тех, кто сейчас вещает: у ушедшей комнаты
+        # плейлиста нет, и каждый заход стоил бы таймаута.
+        live = {}
+        for row in load_online().get('live', []):
+            if row[0].lower() in wanted:
+                live[row[0].lower()] = (row[0], str(row[1]))
+
+        with ACTIVITY_LOCK:
+            for key in list(ACTIVITY):
+                if key not in live:
+                    ACTIVITY.pop(key)
+            for key, (user, edge) in live.items():
+                item = ACTIVITY.get(key)
+                if not item or item['edge'] != edge:
+                    ACTIVITY[key] = {'user': user, 'edge': edge, 'url': '',
+                                     'seen': [], 'samples': []}
+            batch = list(ACTIVITY.values())
+
+        if batch:
+            with ThreadPoolExecutor(min(ACTIVITY_POOL, len(batch))) as pool:
+                list(pool.map(sample_activity, batch))
+        time.sleep(max(5, period))
+
+
 def reaper():
     """Эфир может кончиться сам — тогда ffmpeg выходит, и склейку надо завести."""
     while True:
@@ -1136,6 +1294,7 @@ if __name__ == '__main__':
     os.makedirs(REC_DIR, exist_ok=True)
     threading.Thread(target=reaper, daemon=True).start()
     threading.Thread(target=catalog_worker, daemon=True).start()
+    threading.Thread(target=activity_worker, daemon=True).start()
     print(f'Плеер:  http://127.0.0.1:{PORT}/player.html')
     print(f'Записи: {rec_dir()} (логи всегда в {REC_DIR})')
     try:
