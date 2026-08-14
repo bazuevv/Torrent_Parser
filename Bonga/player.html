@@ -892,6 +892,7 @@
   };
   const video = $('v');
   let hls = null, stallTimer = 0;
+  let ladderRun = 0;         // поколение замера дорожек: смена комнаты обесценивает прошлый
   let userInitiated = false;      // переключение сделано человеком -> звук разрешён
   let liveList = [];              // кто сейчас в эфире: порядок перелистывания комнат
 
@@ -1400,9 +1401,46 @@
       // lowLatencyMode выключен: он подгоняет playhead к живому краю и
       // мешает ручной перемотке.
       hls = new Hls({ lowLatencyMode: false, backBufferLength: bufferSeconds() });
+      /* Заявленный битрейт дорожки — не расход, а заложенный потолок: у 720p
+         бывает 3.4 Мбит/с в манифесте против 2.1 на деле. Настоящий вес
+         считается без скачивания видео: длину куска отдаёт заголовок
+         Content-Length, длительность лежит в плейлисте. HEAD входит в число
+         простых запросов, а Content-Length — в число заголовков, доступных
+         с чужого домена, поэтому браузеру ни прокси, ни сервер не нужны. */
+      async function measureLadder(levels, uriOf, nameOf, declared) {
+        const run = ladderRun;
+        const options = [...$('quality').options];
+        await runPool(levels.map((lvl, i) => [lvl, i]), 2, async ([lvl, i]) => {
+          try {
+            const media = await (await fetch(uriOf(lvl), { cache: 'no-store' })).text();
+            const parts = [...media.matchAll(/#EXTINF:([\d.]+)[^\n]*\n([^#\n]+)/g)].slice(-3);
+            if (!parts.length) return;
+
+            const sizes = await Promise.all(parts.map(async ([, , name]) => {
+              const res = await fetch(new URL(name.trim(), uriOf(lvl)).href,
+                                      { method: 'HEAD', cache: 'no-store' });
+              return Number(res.headers.get('Content-Length') || 0);
+            }));
+            const bytes = sizes.reduce((a, b) => a + b, 0);
+            const secs = parts.reduce((a, [, d]) => a + Number(d), 0);
+            if (!bytes || !secs || run !== ladderRun) return;   // комнату успели сменить
+
+            const real = bytes * 8 / secs / 1e6;
+            const opt = options[i + 1];        // нулевой пункт — «авто»
+            if (!opt || opt.parentNode !== $('quality')) return;
+            // Заявленное показываем только когда оно заметно врёт: иначе
+            // строка растёт вдвое ради повтора того же числа.
+            const gap = Math.abs(real - declared(lvl)) / Math.max(real, 0.01);
+            opt.textContent = nameOf(lvl, real)
+              + (gap > 0.15 ? ` (заявлено ${declared(lvl).toFixed(1)})` : '');
+          } catch { /* дорожка не ответила — оставляем заявленное значение */ }
+        });
+      }
+
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+        ladderRun++;                          // прошлый замер больше не актуален
         if (!data.levels.length) {           // пустышка вместо плейлиста
           hls.destroy(); hls = null;
           return say('Сервер отдал пустой плейлист — эфира на этом edge нет. ' +
@@ -1431,13 +1469,15 @@
         const source = lvl => !STEP.test(uriOf(lvl));
 
         const rate = lvl => (lvl.bitrate || 0) / 1e6;
+        const nameOf = (lvl, mbit) => `${tier(lvl)}p · ${mbit.toFixed(1)} Мбит/с`
+                                    + (source(lvl) ? ' · оригинал' : '');
         data.levels.forEach((lvl, i) => {
           const opt = document.createElement('option');
           opt.value = i;
-          opt.textContent = `${tier(lvl)}p · ${rate(lvl).toFixed(1)} Мбит/с`
-                          + (source(lvl) ? ' · оригинал' : '');
+          opt.textContent = nameOf(lvl, rate(lvl));
           $('quality').appendChild(opt);
         });
+        measureLadder(data.levels, uriOf, nameOf, rate);
 
         /* Битрейт здесь — ограничение, а не мера качества. Верхняя дорожка
            это оригинал от модели, все нижние CDN пережимает на лету, и числа
