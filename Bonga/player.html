@@ -154,6 +154,30 @@
   }
   #noteHint { margin: 6px 0 0; color: #6b7484; font-size: 12px; }
 
+  /* Стена: четыре независимых плеера в сетке. Отдельный режим, а не доработка
+     главного, — тот целиком построен вокруг единственного потока: запись, PiP,
+     замеры, история. Ячейки нарочно облегчённые: только картинка и ник. */
+  #wallGrid {
+    position: absolute; inset: 0; z-index: 20; background: #000;
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;
+  }
+  #wallGrid[hidden] { display: none; }     /* display:grid перебил бы hidden */
+  .tile { position: relative; background: #0a0c10; overflow: hidden; }
+  .tile video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  .tile.loud { outline: 2px solid #7ee787; outline-offset: -2px; }
+  .tcap {
+    position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
+    gap: 6px; padding: 4px 6px; background: linear-gradient(transparent, rgba(0,0,0,.75));
+    font-size: 12px; color: #e6e8ec;
+  }
+  .tcap b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; font-weight: 500; }
+  .tcap span { flex: 0 0 auto; cursor: pointer; padding: 2px 5px; border-radius: 4px;
+               background: rgba(28, 31, 38, .8); }
+  .tcap span:hover { background: #2f6fd0; }
+  .tile .empty { position: absolute; inset: 0; display: flex; align-items: center;
+                 justify-content: center; color: #6b7484; font-size: 13px; }
+
   /* Заметка относится к конкретной строке, поэтому окно висит рядом с её
      значком, а не посреди экрана: так видно, о ком речь, и видео не
      перекрывается. Отсюда же немодальность — список остаётся под рукой. */
@@ -517,6 +541,7 @@
   <button id="lib" title="Файлы из папки, указанной в настройках">Видео</button>
   <button id="live" title="Вернуться к прямому эфиру">В эфир</button>
   <button id="pip" title="Картинка в картинке: выбор вида окна">PiP</button>
+  <button id="wall" title="Четыре трансляции разом в сетке 2×2">Стена</button>
 
   <div id="pipMenu" hidden>
     <div data-pip="native">Стандартное
@@ -970,6 +995,7 @@
 
   <div id="stage">
     <video id="v" controls autoplay playsinline></video>
+    <div id="wallGrid" hidden></div>
     <div id="keepAsk" hidden>
       <div id="keepText"></div>
       <div class="dlg-btns">
@@ -2480,6 +2506,112 @@
     logEvent('плеер', `файл: ${name}`, 'act');
     say(`Играю файл ${name}. «В эфир» вернёт трансляцию.`, 'ok');
   }
+
+  /* --- стена: четыре потока разом ------------------------------------------
+     Каждая ячейка — свой экземпляр hls.js со своим video. Ничего из тяжёлого
+     обвеса главного плеера здесь нет: ни записи, ни замеров лесенки, ни
+     истории. Качество берём невысокое: на четверти экрана разницы с 1080p не
+     видно, а декодирование на процессоре обходится вчетверо дешевле — замер
+     дал 9× реального времени на ядро для 480p против примерно 2× для 1080p. */
+  const WALL_SIZE = 4;
+  const WALL_HEIGHT = 480;          // к какой высоте дорожки стремимся в ячейках
+  const tiles = [];                 // {box, video, hls, user, edge}
+
+  function tileStop(tile) {
+    if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
+    tile.video.removeAttribute('src');
+    tile.video.load();
+    tile.user = '';
+    tile.box.querySelector('b').textContent = '';
+    tile.box.querySelector('.empty').hidden = false;
+    tile.box.classList.remove('loud');
+  }
+
+  function tilePlay(tile, user, edge) {
+    tileStop(tile);
+    tile.user = user;
+    tile.edge = String(edge);
+    tile.box.querySelector('b').textContent = user;
+    tile.box.querySelector('.empty').hidden = true;
+
+    const hlsTile = new Hls({ lowLatencyMode: false, backBufferLength: 10 });
+    tile.hls = hlsTile;
+    hlsTile.loadSource(playlistUrl(user, edge));
+    hlsTile.attachMedia(tile.video);
+    hlsTile.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+      // Ближайшая дорожка не выше заданной высоты; если все выше — самая мелкая.
+      let pick = 0;
+      data.levels.forEach((lvl, i) => {
+        const fits = (lvl.height || 0) <= WALL_HEIGHT;
+        const better = (lvl.height || 0) > (data.levels[pick].height || 0);
+        if (fits && (better || (data.levels[pick].height || 0) > WALL_HEIGHT)) pick = i;
+      });
+      hlsTile.currentLevel = pick;
+      tile.video.play().catch(() => { /* без звука автозапуск обычно проходит */ });
+    });
+    hlsTile.on(Hls.Events.ERROR, (_, err) => {
+      if (err.fatal) logEvent('стена', `${user}: ${err.details}`, 'err');
+    });
+  }
+
+  // Звук — только у одной ячейки: четыре сразу дают кашу, да и браузер не даст.
+  function tileLoud(tile) {
+    for (const other of tiles) {
+      const on = other === tile;
+      other.video.muted = !on;
+      other.box.classList.toggle('loud', on && Boolean(other.user));
+      const icon = other.box.querySelector('.tsnd');
+      if (icon) icon.textContent = on ? '🔊' : '🔇';
+    }
+    if (tile.user) tile.video.play().catch(() => {});
+  }
+
+  function buildWall() {
+    if (tiles.length) return;
+    for (let i = 0; i < WALL_SIZE; i++) {
+      const box = document.createElement('div');
+      box.className = 'tile';
+      box.innerHTML = '<video muted playsinline></video>' +
+                      '<div class="empty">пусто</div>' +
+                      '<div class="tcap"><b></b><span class="tsnd">🔇</span>' +
+                      '<span class="tmain" title="Открыть в главном плеере">⤢</span>' +
+                      '<span class="tclose" title="Освободить ячейку">×</span></div>';
+      const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
+      box.querySelector('.tsnd').onclick = () => tileLoud(tile);
+      box.querySelector('.tclose').onclick = () => tileStop(tile);
+      box.querySelector('.tmain').onclick = () => {
+        if (!tile.user) return;
+        wallOff();
+        openStream(tile.user, tile.edge);
+      };
+      tiles.push(tile);
+      $('wallGrid').appendChild(box);
+    }
+  }
+
+  function wallOn() {
+    buildWall();
+    stopStream();                 // главный поток гасим: ресурсы нужны ячейкам
+    $('wallGrid').hidden = false;
+    $('wall').classList.add('on');
+    // Наполняем тем, что сейчас в эфире и на виду, — по числу ячеек.
+    const picks = (liveList || []).slice(0, WALL_SIZE);
+    tiles.forEach((tile, i) => {
+      const row = picks[i];
+      if (!row) return;
+      tilePlay(tile, row[0], known.get(row[0].toLowerCase()) || row[1]);
+    });
+    if (tiles[0]) tileLoud(tiles[0]);
+    say(`Стена: ${picks.length} трансляций. Звук у первой, ⤢ открывает в главном плеере.`, 'ok');
+  }
+
+  function wallOff() {
+    for (const tile of tiles) tileStop(tile);
+    $('wallGrid').hidden = true;
+    $('wall').classList.remove('on');
+  }
+
+  $('wall').onclick = () => ($('wallGrid').hidden ? wallOn() : wallOff());
 
   $('lib').onclick = () => {
     if ($('libPanel').hidden) showLibrary(); else $('libPanel').hidden = true;
