@@ -23,7 +23,8 @@ import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, quote as urlquote, urlencode, urljoin, urlparse
+from urllib.parse import (parse_qs, quote as urlquote, unquote, urlencode,
+                          urljoin, urlparse)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STORE = os.path.join(ROOT, 'accounts.json')
@@ -201,13 +202,86 @@ def rec_dir():
     return path if isinstance(path, str) and path else REC_DIR
 
 
+VIDEO_EXT = ('.mp4', '.m4v', '.mov', '.webm', '.mkv', '.ts')
+LIB_LOCK = threading.Lock()
+LIB_META = {}                 # (путь, размер, mtime) → длительность в секундах
+
+
+def valid_lib_dir(path):
+    """Папка для просмотра. В отличие от папки записей право на запись не
+    требуется: сюда мы только читаем."""
+    if not isinstance(path, str) or not path.startswith('/'):
+        return None
+    norm = os.path.normpath(path)
+    if not any(norm == root or norm.startswith(root + '/') for root in ALLOWED_ROOTS):
+        return None
+    return norm if os.path.isdir(norm) else None
+
+
+def lib_dir():
+    path = load_settings().get('libDir')
+    return path if isinstance(path, str) and path else ''
+
+
+def probe_duration(full, size, mtime):
+    """Длительность файла. ffprobe стоит десятки миллисекунд, а список
+    перечитывается на каждое открытие панели — поэтому помним ответ,
+    пока файл не изменился."""
+    key = (full, size, int(mtime))
+    with LIB_LOCK:
+        if key in LIB_META:
+            return LIB_META[key]
+    seconds = 0
+    try:
+        out = subprocess.run(
+            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+             '-of', 'default=noprint_wrappers=1:nokey=1', full],
+            capture_output=True, text=True, timeout=10).stdout.strip()
+        seconds = int(float(out)) if out else 0
+    except (OSError, ValueError, subprocess.SubprocessError):
+        seconds = 0
+    with LIB_LOCK:
+        if len(LIB_META) > 4000:
+            LIB_META.clear()
+        LIB_META[key] = seconds
+    return seconds
+
+
+def lib_list():
+    """Видеофайлы в папке просмотра, новые сверху. Подпапки не обходим:
+    записи лежат плоско, а рекурсия по чужой папке может уйти надолго."""
+    root = lib_dir()
+    if not root:
+        return {'dir': '', 'files': [], 'error': 'папка не задана'}
+    if not valid_lib_dir(root):
+        return {'dir': root, 'files': [], 'error': 'папка недоступна'}
+
+    files = []
+    try:
+        with os.scandir(root) as it:
+            for entry in it:
+                if not entry.is_file() or not entry.name.lower().endswith(VIDEO_EXT):
+                    continue
+                stat = entry.stat()
+                files.append({'name': entry.name, 'bytes': stat.st_size,
+                              'at': int(stat.st_mtime),
+                              'seconds': probe_duration(entry.path, stat.st_size,
+                                                        stat.st_mtime)})
+    except OSError as err:
+        return {'dir': root, 'files': [], 'error': err.strerror or str(err)}
+
+    files.sort(key=lambda f: -f['at'])
+    return {'dir': root, 'files': files[:1000]}
+
+
 def load_settings():
     try:
         with open(SETTINGS_STORE, encoding='utf-8') as f:
             data = json.load(f)
         if not isinstance(data, dict):
             return {}
-        return {k: v for k, v in data.items() if k in SETTINGS_RANGE or k == 'recDir'}
+        return {k: v for k, v in data.items()
+                if k in SETTINGS_RANGE or k in ('recDir', 'libDir')}
     except (OSError, ValueError):
         return {}
 
@@ -216,13 +290,13 @@ def save_settings(patch):
     with SETTINGS_LOCK:
         merged = load_settings()
         for key, value in patch.items():
-            if key == 'recDir':
+            if key in ('recDir', 'libDir'):
                 if isinstance(value, str) and not value.strip():
-                    merged.pop('recDir', None)      # пусто — вернуться к умолчанию
+                    merged.pop(key, None)           # пусто — вернуться к умолчанию
                     continue
-                checked = valid_rec_dir(value)
+                checked = valid_rec_dir(value) if key == 'recDir' else valid_lib_dir(value)
                 if checked:
-                    merged['recDir'] = checked
+                    merged[key] = checked
                 continue
             if key not in SETTINGS_RANGE:
                 continue
@@ -783,6 +857,32 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_error(404)
         self._serve_file(full, ctype, cacheable)
 
+    def _serve_library(self, path):
+        """Файл из папки просмотра. Имя берём только последним звеном пути и
+        сверяем со списком папки: так наружу не выйдет ни «..», ни ссылка на
+        соседний каталог — сервер виден всей локальной сети."""
+        name = unquote(path[len('/lib/'):]).strip('/')
+        root = lib_dir()
+        if not root or '/' in name or name in ('', '.', '..'):
+            return self.send_error(404)
+        if not name.lower().endswith(VIDEO_EXT):
+            return self.send_error(404)
+
+        full = os.path.join(root, name)
+        if os.path.realpath(os.path.dirname(full)) != os.path.realpath(root):
+            return self.send_error(404)
+        if not os.path.isfile(full):
+            return self.send_error(404)
+
+        kind = 'video/mp4'
+        if name.lower().endswith('.webm'):
+            kind = 'video/webm'
+        elif name.lower().endswith('.mkv'):
+            kind = 'video/x-matroska'
+        elif name.lower().endswith('.ts'):
+            kind = 'video/mp2t'
+        self._serve_file(full, kind, True)
+
     def _serve_file(self, full, ctype, cacheable):
         try:
             size = os.path.getsize(full)
@@ -866,8 +966,14 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({'recordings': [rec_state(k, v)
                                                   for k, v in RECORDINGS.items()]})
 
+        if path == '/api/library':
+            return self._json(lib_list())
+
         if path.startswith('/rec/'):
             return self._serve_recording(path)
+
+        if path.startswith('/lib/'):
+            return self._serve_library(path)
 
         return super().do_GET()
 
