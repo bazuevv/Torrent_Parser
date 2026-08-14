@@ -22,6 +22,7 @@ import threading
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from html import unescape as html_unescape
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import (parse_qs, quote as urlquote, unquote, urlencode,
                           urljoin, urlparse)
@@ -729,6 +730,59 @@ def set_note(user, text):
     return clean, left
 
 
+# --------------------------------------------------------------------------
+# Раздел «Обо мне» со страницы профиля
+#
+# Модель описывает себя сама, и это самое осмысленное, что можно положить в
+# пустую заметку по умолчанию. Страница профиля серверу доступна: Cloudflare
+# её не закрывает, как и листинг.
+ABOUT_LOCK = threading.Lock()
+ABOUT = {}                    # ник → {'text','at'}
+ABOUT_TTL = 604800            # неделя: описание меняют редко
+PROFILE_BASE = os.environ.get('BONGA_PROFILE_BASE', 'https://ru17.bongacams.com')
+
+
+def fetch_about(user):
+    """Текст раздела «Обо мне». Разметка: заголовок, затем блок с классом
+    txtsm_text — из него и берём содержимое."""
+    url = f'{PROFILE_BASE}/profile/{urlquote(user)}'
+    req = urllib.request.Request(url, headers={'User-Agent': CATALOG_UA,
+                                               'Accept': 'text/html'})
+    with urllib.request.urlopen(req, timeout=20) as res:
+        html = res.read().decode('utf-8', 'replace')
+
+    head = html.find('Обо мне')
+    if head < 0:
+        return ''
+    block = re.search(r'class="txtsm_text[^"]*"[^>]*>(.*?)</div>',
+                      html[head:head + 20000], re.S)
+    if not block:
+        return ''
+    text = re.sub(r'<[^>]+>', ' ', block.group(1))
+    text = html_unescape(text)
+    return ' '.join(text.split())[:NOTE_MAX]
+
+
+def about_of(user):
+    """С кэшем: страница профиля весит триста килобайт, а описание меняют
+    раз в сезон."""
+    key = user.lower()
+    now = int(time.time())
+    with ABOUT_LOCK:
+        item = ABOUT.get(key)
+        if item and now - item['at'] < ABOUT_TTL:
+            return item['text']
+    try:
+        text = fetch_about(user)
+    except Exception:
+        return ''
+    with ABOUT_LOCK:
+        if len(ABOUT) > 3000:
+            ABOUT.clear()
+        ABOUT[key] = {'text': text, 'at': now}
+    return text
+
+
 def default_gateway():
     """Адрес роутера из таблицы маршрутизации: нужен, чтобы отделить свою
     локальную сеть от участка до провайдера."""
@@ -1025,6 +1079,13 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/notes':
             with NOTES_LOCK:
                 return self._json({'notes': dict(NOTES), 'count': len(NOTES)})
+
+        if path == '/api/about':
+            query = parse_qs(urlparse(self.path).query)
+            name = (query.get('user') or [''])[0].strip()
+            if not name:
+                return self.send_error(400, 'expected user')
+            return self._json({'user': name, 'text': about_of(name)})
 
         if path == '/api/ladder':
             query = parse_qs(urlparse(self.path).query)
