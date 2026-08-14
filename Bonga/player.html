@@ -1242,6 +1242,14 @@
       lvl._avgBitrate = allow ? 0 : BLOCKED_RATE;   // иначе часть путей возьмёт его
     });
     hls.autoLevelCapping = best < 0 ? -1 : best;
+
+    /* Нижняя граница для подбора. Когда буфер пустеет, он ныряет не на ступень
+       вниз, а сразу на нижнюю дорожку — на 240p при канале в 4 Мбит/с. Порог
+       в треть от выбранной дорожки оставляет запасом 480p и отсекает 240p:
+       разница между ними в весе невелика, а на глаз громадна. */
+    if (best >= 0) {
+      hls.config.minAutoBitrate = Math.round((hls.levels[best].bitrate || 0) * 0.3);
+    }
   }
 
   function armTimers() {
@@ -1907,9 +1915,14 @@
         if (!hls.autoLevelEnabled || autoSeedLevel < 0) return;
         if (data.level >= autoSeedLevel) return;
 
+        /* Запас берём небольшой — 15%. Оценка канала на живом краю
+           систематически занижена: кусок нельзя скачать быстрее, чем его
+           производят, поэтому измеренная скорость стремится к битрейту самого
+           потока. При запасе в 30% плеер отступал на 3.99 против нужных 3.46,
+           хотя канал на деле держал вдвое больше. */
         const need = (hls.levels[autoSeedLevel] || {}).bitrate || 0;
         const have = hls.bandwidthEstimate || 0;
-        if (have < need * 1.3) {
+        if (have < need * 1.15) {
           logEvent('качество', `авто: канала ${mbit(have)} против ${mbit(need)} — ` +
                                'понижение оправдано, не мешаю', 'err');
           return;
