@@ -560,10 +560,10 @@
       <label for="warm">Разгон канала</label>
       <select id="warm">
         <option value="0">не ждать</option>
+        <option value="1">1 с</option>
+        <option value="3">3 с</option>
         <option value="5">5 с</option>
         <option value="10">10 с</option>
-        <option value="15">15 с</option>
-        <option value="30">30 с</option>
       </select>
       <i class="tip" data-hint="warm" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
@@ -572,9 +572,10 @@
       сразу: замер на десяти серверах показал, что первый кусок занижает
       возможности вчетверо — 2.5 против 9.8 Мбит/с, — а до 80% от предела
       соединение доходит за 4.2 секунды по медиане и за 8.3 в худшем случае.
-      Отсюда десять секунд по умолчанию. Ноль вернёт прежнее поведение, когда
-      подбор верит оценке с первой же секунды и роняет качество на ровном
-      месте.</p>
+      Пять секунд по умолчанию закрывают половину случаев; если качество
+      всё же срывается на старте, стоит поднять до десяти. Ноль вернёт
+      прежнее поведение, когда подбор верит оценке с первой же секунды и
+      роняет качество на ровном месте.</p>
 
     <div class="row">
       <label for="buffer">Буфер памяти</label>
@@ -1133,7 +1134,7 @@
                      pull: 60, ttl: 60, gap: 10, pool: 24,
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
-                     catalog: 60, act: 15, ladder: 43200, warm: 10 };
+                     catalog: 60, act: 15, ladder: 43200, warm: 5 };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];
