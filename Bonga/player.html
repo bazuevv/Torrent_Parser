@@ -1156,6 +1156,17 @@
   // переживать смену комнаты и перезагрузку страницы.
   let autoQuality = localStorage.getItem('autoQuality') === '1';
 
+  /* Первые секунды подбору верить нельзя. Отключив testBandwidth, мы заодно
+     лишились побочной защиты: куски, помеченные как замер канала, библиотека
+     исключала из оценки. Теперь первый же кусок с живого края — а его CDN
+     отдаёт по мере производства, не быстрее — выглядит как узкий канал, и
+     подбор шарахается на нижнюю дорожку.
+
+     Поэтому первые секунды держим выбранную дорожку, но только пока картинка
+     не запинается: настоящее подвисание снимает защиту немедленно. */
+  const AUTO_GRACE_MS = 8000;
+  let autoSeedLevel = -1, autoGraceUntil = 0, autoGraceStalls = 0;
+
   function applyAutoCap() {
     if (!hls || !hls.levels || !hls.levels.length) return;
     const limit = cfg('maxRate') * 1000;
@@ -1670,11 +1681,10 @@
 
             const opt = options[i + 1];        // нулевой пункт — «авто»
             if (!opt || opt.parentNode !== $('quality')) return;
-            // Заявленное показываем только когда оно заметно врёт: иначе
-            // строка растёт вдвое ради повтора того же числа.
-            const gap = Math.abs(real - claimed) / Math.max(real, 0.01);
-            opt.textContent = nameOf(lvl, real)
-              + (gap > 0.15 ? ` (заявлено ${claimed.toFixed(1)})` : '');
+            // Заявленное в подписи не показываем: оно не описывает ни расход,
+            // ни то, по чему теперь принимаются решения, — только сбивает.
+            // Расхождение при этом остаётся в журнале воспроизведения.
+            opt.textContent = nameOf(lvl, real);
           } catch { /* дорожка не ответила — оставляем заявленное значение */ }
         });
         // Числа изменились — границу для «авто» пересчитываем по ним.
@@ -1784,9 +1794,27 @@
       hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
         const opt = $('quality').options[0];
         const lvl = hls.levels && hls.levels[data.level];
-        if (!opt) return;
-        opt.textContent = hls.autoLevelEnabled && lvl && lvl.tierLabel
-          ? `авто (${lvl.tierLabel})` : 'авто';
+        if (opt) {
+          opt.textContent = hls.autoLevelEnabled && lvl && lvl.tierLabel
+            ? `авто (${lvl.tierLabel})` : 'авто';
+        }
+
+        // Провал в первые секунды — почти всегда ошибка оценки, а не узкий
+        // канал: первый кусок с живого края приходит со скоростью его
+        // производства. Возвращаем выбранную дорожку, но лишь пока не было
+        // настоящего подвисания.
+        if (!hls.autoLevelEnabled || autoSeedLevel < 0) return;
+        if (Date.now() >= autoGraceUntil) return;
+        if (stallCount > autoGraceStalls) {
+          autoGraceUntil = 0;                    // запнулось по-настоящему — не мешаем
+          logEvent('качество', 'авто: было подвисание, подбор отпущен', 'err');
+          return;
+        }
+        if (data.level < autoSeedLevel) {
+          hls.nextAutoLevel = autoSeedLevel;
+          logEvent('качество', `авто: возвращаю дорожку ${autoSeedLevel} — ` +
+                               `провал на ${data.level} в первые секунды`);
+        }
       });
 
       hls.on(Hls.Events.ERROR, (_, err) => {
@@ -3744,6 +3772,9 @@
     if (hls.autoLevelCapping >= 0) seed = Math.min(seed, hls.autoLevelCapping);
     if (seed < 0) return;
     hls.nextAutoLevel = seed;
+    autoSeedLevel = seed;
+    autoGraceUntil = Date.now() + AUTO_GRACE_MS;
+    autoGraceStalls = stallCount;
     logEvent('качество', `авто: начинаю с дорожки ${seed}, ` +
                          `${((hls.levels[seed].bitrate || 0) / 1e6).toFixed(2)} Мбит/с`);
   }
