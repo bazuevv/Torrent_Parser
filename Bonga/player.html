@@ -625,6 +625,24 @@
     <details class="sect" open data-sect="upd">
       <summary>Как часто обновлять</summary>
     <div class="row">
+      <label for="catalog">Каталог сайта</label>
+      <select id="catalog">
+        <option value="0">не опрашивать</option>
+        <option value="30">30 с</option>
+        <option value="60">1 мин</option>
+        <option value="180">3 мин</option>
+        <option value="600">10 мин</option>
+      </select>
+      <i class="tip" data-hint="catalog" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+    </div>
+    <p class="hint" hidden>Сервер сам опрашивает список эфира на сайте — это
+      главный источник правой колонки: около 1200 комнат с верными номерами
+      серверов. Собственный обход плеера находит куда меньше, потому что знает
+      лишь прежние серверы, а модели между ними переезжают. Чаще, чем раз в
+      полминуты, спрашивать не стоит: сайт отвечает отказом на частые серии
+      запросов.</p>
+
+    <div class="row">
       <label for="thumbs">Превью справа</label>
       <select id="thumbs">
         <option value="0">не обновлять</option>
@@ -982,7 +1000,8 @@
   const DEFAULTS = { segment: 60, thumbs: 10, hist: 30,
                      pull: 60, ttl: 60, gap: 10, pool: 24,
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
-                     keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0 };
+                     keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
+                     catalog: 60 };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];

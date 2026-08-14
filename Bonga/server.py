@@ -23,7 +23,7 @@ import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STORE = os.path.join(ROOT, 'accounts.json')
@@ -140,6 +140,7 @@ SETTINGS_RANGE = {
     'recMode': (0, 1),           # 0 — запись вручную, 1 — автоматически
     'maxRate': (0, 100000),      # потолок битрейта просмотра, кбит/с; 0 — без ограничения
     'recRate': (0, 100000),      # потолок битрейта записи; выше — пережимаем
+    'catalog': (0, 3600),        # период опроса каталога сайта, секунды; 0 — не опрашивать
 }
 
 # Путь к папке записей — единственная строковая настройка. Разрешаем только
@@ -1045,6 +1046,82 @@ def merge_folder(rid):
     return None
 
 
+CATALOG_URL = 'https://bongacams.com/tools/listing_v3.php'
+CATALOG_TAB = os.environ.get('BONGA_CATALOG_TAB', 'female')
+CATALOG_PAGE = 500                # за один запрос; проверено — отдаёт и тысячу
+CATALOG_UA = ('Mozilla/5.0 (X11; Linux x86_64; rv:153.0) '
+              'Gecko/20100101 Firefox/153.0')
+
+
+def fetch_catalog(pages=8):
+    """Каталог эфира прямо с сайта, без браузера и без чужих кук.
+
+    Единственное требование эндпоинта — заголовок X-Requested-With: он
+    отвечает тем же JSON, что уходит странице при прокрутке списка. Логин
+    не нужен, список публичный. Возвращает [[ник, сервер, зрители], …]
+    только по тем, кто вещает прямо сейчас, — листинг других и не знает."""
+    out, seen = [], set()
+    total = 0
+    for page in range(pages):
+        query = urlencode({'livetab': CATALOG_TAB,
+                           'offset': page * CATALOG_PAGE, 'limit': CATALOG_PAGE})
+        req = urllib.request.Request(
+            f'{CATALOG_URL}?{query}',
+            headers={'User-Agent': CATALOG_UA, 'Accept': '*/*',
+                     'X-Requested-With': 'XMLHttpRequest'})
+        with urllib.request.urlopen(req, timeout=20) as res:
+            data = json.loads(res.read())
+        if not isinstance(data, dict):
+            break
+        total = int(data.get('total_count') or 0)
+        models = data.get('models') or []
+        if not models:
+            break
+        for row in models:
+            user = row.get('username')
+            # Американские серверы приходят как «-us10», с ведущим дефисом:
+            # он часть имени хоста (mobile-edge-us10), а не номера. Без снятия
+            # дефиса треть эфира отсеивалась проверкой EDGE_RE.
+            edge = str(row.get('vsid') or '').lstrip('-')
+            if not isinstance(user, str) or not user or user.lower() in seen:
+                continue
+            if not edge:
+                # запасной путь: номер сервера прячется и в esid («live-edge74»)
+                found = re.search(r'live-edge-?(us\d+|\d+)', str(row.get('esid') or ''))
+                edge = found.group(1) if found else ''
+            if not EDGE_RE.match(edge):
+                continue
+            seen.add(user.lower())
+            out.append([user, edge, int(row.get('viewers') or 0)])
+        if len(models) < CATALOG_PAGE or (total and len(seen) >= total):
+            break
+        time.sleep(0.4)          # без паузы сайт иногда обрывает выдачу на середине
+    return out, total
+
+
+def catalog_worker():
+    """Опрос каталога по расписанию. Отдельный поток, а не задача по таймеру
+    внутри запроса: список нужен и когда ни одна страница плеера не открыта —
+    иначе первый же зашедший увидит устаревший снимок."""
+    while True:
+        period = load_settings().get('catalog', 60)
+        if not period:
+            time.sleep(30)                 # опрос выключен — просто ждём включения
+            continue
+        try:
+            rows, total = fetch_catalog()
+            if rows:
+                _, added, size = merge(rows)
+                payload = save_online(rows, 'catalog')
+                write_log(f'catalog: в эфире {len(payload["live"])} из {total} '
+                          f'по данным сайта, новых ников {added}, в базе {size}')
+            else:
+                write_log('catalog: сайт вернул пустой список')
+        except Exception as exc:           # сеть, разбор, смена формата — не роняем поток
+            write_log(f'catalog: не получилось — {type(exc).__name__}: {exc}')
+        time.sleep(max(15, period))
+
+
 def reaper():
     """Эфир может кончиться сам — тогда ffmpeg выходит, и склейку надо завести."""
     while True:
@@ -1058,6 +1135,7 @@ def reaper():
 if __name__ == '__main__':
     os.makedirs(REC_DIR, exist_ok=True)
     threading.Thread(target=reaper, daemon=True).start()
+    threading.Thread(target=catalog_worker, daemon=True).start()
     print(f'Плеер:  http://127.0.0.1:{PORT}/player.html')
     print(f'Записи: {rec_dir()} (логи всегда в {REC_DIR})')
     try:
