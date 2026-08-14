@@ -1183,8 +1183,7 @@
 
      Поэтому первые секунды держим выбранную дорожку, но только пока картинка
      не запинается: настоящее подвисание снимает защиту немедленно. */
-  const AUTO_GRACE_MS = 8000;
-  let autoSeedLevel = -1, autoGraceUntil = 0, autoGraceStalls = 0;
+  let autoSeedLevel = -1, autoRescues = 0;
 
   // Замеры дорожек этой комнаты, полученные с сервера: {'1920x1080': бит/с}.
   let ladderRates = null;
@@ -1895,22 +1894,35 @@
           ` · буфер ${buf.ahead.toFixed(1)} с`,
           'act');
 
-        // Провал в первые секунды — почти всегда ошибка оценки, а не узкий
-        // канал: первый кусок с живого края приходит со скоростью его
-        // производства. Возвращаем выбранную дорожку, но лишь пока не было
-        // настоящего подвисания.
+        /* Понижать качество осмысленно лишь тогда, когда не хватает канала.
+           У этого CDN окно живого плейлиста — четыре куска по две секунды,
+           больше двух секунд буфера набрать неоткуда, и любая заминка его
+           опустошает. Подбор видит пустеющий буфер и ныряет на нижнюю
+           дорожку — хотя канал в этот момент показывал 5–9 Мбит/с при
+           потребности в 3.46. Меньшим битрейтом такое не лечится: причина не
+           в канале, а в том, что кусок ещё не произведён.
+
+           Поэтому возвращаем выбранную дорожку, пока канала заведомо хватает.
+           Если же его действительно мало — не мешаем, там понижение по делу. */
         if (!hls.autoLevelEnabled || autoSeedLevel < 0) return;
-        if (Date.now() >= autoGraceUntil) return;
-        if (stallCount > autoGraceStalls) {
-          autoGraceUntil = 0;                    // запнулось по-настоящему — не мешаем
-          logEvent('качество', 'авто: было подвисание, подбор отпущен', 'err');
+        if (data.level >= autoSeedLevel) return;
+
+        const need = (hls.levels[autoSeedLevel] || {}).bitrate || 0;
+        const have = hls.bandwidthEstimate || 0;
+        if (have < need * 1.3) {
+          logEvent('качество', `авто: канала ${mbit(have)} против ${mbit(need)} — ` +
+                               'понижение оправдано, не мешаю', 'err');
           return;
         }
-        if (data.level < autoSeedLevel) {
-          hls.nextAutoLevel = autoSeedLevel;
-          logEvent('качество', `авто: возвращаю дорожку ${autoSeedLevel} — ` +
-                               `провал на ${data.level} в первые секунды`);
+        // Спорить бесконечно не будем: если подбор упорствует, значит видит
+        // что-то, чего не видим мы.
+        if (++autoRescues > 6) {
+          if (autoRescues === 7) logEvent('качество', 'авто: отпускаю подбор, спорить бесполезно', 'err');
+          return;
         }
+        hls.nextAutoLevel = autoSeedLevel;
+        logEvent('качество', `авто: возвращаю дорожку ${autoSeedLevel} — ` +
+                             `канала ${mbit(have)} хватает с запасом`);
       });
 
       hls.on(Hls.Events.ERROR, (_, err) => {
@@ -3887,8 +3899,7 @@
     if (seed < 0) return;
     hls.nextAutoLevel = seed;
     autoSeedLevel = seed;
-    autoGraceUntil = Date.now() + AUTO_GRACE_MS;
-    autoGraceStalls = stallCount;
+    autoRescues = 0;
     logEvent('качество', `авто: начинаю с дорожки ${seed}, ` +
                          `${((hls.levels[seed].bitrate || 0) / 1e6).toFixed(2)} Мбит/с`);
   }
