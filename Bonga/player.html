@@ -1881,6 +1881,19 @@
             ? `авто (${lvl.tierLabel})` : 'авто';
         }
 
+        /* Пишем каждое переключение вместе с тем, по чему оно принято: сама
+           дорожка объясняет мало, а вот оценка канала и запас буфера — как
+           раз те две величины, на которые смотрит подбор. Без них разбирать
+           внезапные провалы приходится вслепую. */
+        const buf = bufferRange();
+        logEvent('качество',
+          `дорожка ${data.level}` +
+          (lvl ? ` · ${lvl.tierLabel} · ${mbit(lvl.bitrate || 0)}` : '') +
+          ` · ${hls.autoLevelEnabled ? 'подбор' : 'вручную'}` +
+          ` · канал ${mbit(hls.bandwidthEstimate || 0)}` +
+          ` · буфер ${buf.ahead.toFixed(1)} с`,
+          'act');
+
         // Провал в первые секунды — почти всегда ошибка оценки, а не узкий
         // канал: первый кусок с живого края приходит со скоростью его
         // производства. Возвращаем выбранную дорожку, но лишь пока не было
@@ -2311,12 +2324,17 @@
       row.querySelector('i').textContent =
         `${item.seconds ? fileLen(item.seconds) + ' · ' : ''}${fileSize(item.bytes)}`;
       row.title = `${item.name}\n${new Date(item.at * 1000).toLocaleString('ru-RU')}`;
-      row.onclick = () => playFile(item.name);
+      row.onclick = () => playLibraryFile(item.name);
       $('libBody').appendChild(row);
     }
   }
 
-  function playFile(name) {
+  /* Имя не должно совпадать с playFile() выше: та играет готовую склейку
+     записи по готовому адресу, эта — файл из папки просмотра по имени.
+     Совпадение имён уже стоило поломки — объявленная ниже молча перекрывала
+     первую, и «смотреть запись» уходило в видеотеку с адресом rec/…mp4
+     вместо имени файла, получая 404. */
+  function playLibraryFile(name) {
     stopStream();                    // гасит эфир, запись и автопереключение
     libFile = name;
     playingFrom = 'file';
