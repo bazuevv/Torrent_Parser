@@ -246,6 +246,10 @@ def save_settings(patch):
 
 ONLINE_LOCK = threading.Lock()
 MAX_ONLINE_ROWS = 50000
+# Сколько каталог сайта считается свежим. Закладка присылает его раз в минуту,
+# так что пяти минут хватает пережить пропущенную попытку; после закрытия
+# вкладки со сборщиком список молча возвращается к нашему обходу.
+CATALOG_TRUST_S = 300
 
 
 def load_online():
@@ -259,7 +263,13 @@ def load_online():
     return {'at': 0, 'live': []}
 
 
-def save_online(rows):
+def save_online(rows, src='sweep'):
+    """Список эфира приходит из двух источников. Наш обход (`sweep`) стучится
+    плейлистом по последним известным серверам и находит лишь тех, кто с них
+    не переехал, — вчера это дало 23 комнаты из полутора тысяч. Каталог сайта
+    (`catalog`), который приносит закладка, содержит всех и с верными номерами
+    серверов, поэтому он главнее: обход его не затирает, а лишь дополняет
+    теми, кого в каталоге нет (другие вкладки сайта, ручной поиск)."""
     live = []
     for row in rows[:MAX_ONLINE_ROWS]:
         if not isinstance(row, list) or len(row) < 2:
@@ -283,7 +293,19 @@ def save_online(rows):
 
         live.append([user, edge, viewers, seen])
 
-    payload = {'at': int(time.time()), 'live': live}
+    at = int(time.time())
+    prev = load_online()
+    fresh_catalog = (prev.get('src') == 'catalog'
+                     and at - int(prev.get('at') or 0) < CATALOG_TRUST_S)
+    if src == 'sweep' and fresh_catalog:
+        # Метку времени оставляем каталожную: иначе обход, идущий каждую
+        # минуту, бесконечно продлевал бы доверие к устаревшему каталогу,
+        # и после закрытия вкладки со сборщиком список бы не обновился.
+        known = {row[0].lower() for row in prev['live']}
+        live = prev['live'] + [row for row in live if row[0].lower() not in known]
+        at, src = int(prev['at']), 'catalog'
+
+    payload = {'at': at, 'src': src, 'live': live}
     with ONLINE_LOCK:
         tmp = ONLINE_STORE + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
@@ -878,9 +900,12 @@ class Handler(SimpleHTTPRequestHandler):
             rows = body.get('live') if isinstance(body, dict) else body
             if not isinstance(rows, list):
                 return self.send_error(400, 'expected array')
-            payload = save_online(rows)
-            self.log_message('online: сохранено %d записей', len(payload['live']))
-            return self._json({'at': payload['at'], 'count': len(payload['live'])})
+            src = body.get('src') if isinstance(body, dict) else None
+            payload = save_online(rows, 'catalog' if src == 'catalog' else 'sweep')
+            self.log_message('online: сохранено %d записей (%s)',
+                             len(payload['live']), payload['src'])
+            return self._json({'at': payload['at'], 'src': payload['src'],
+                               'count': len(payload['live'])})
 
         if path == '/api/record':
             if not isinstance(body, dict):

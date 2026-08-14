@@ -10,7 +10,12 @@
 
    Источник 1: /tools/listing_v3.php — ник + номер видеосервера (vsid).
    Источник 2: /sitemap.xml из robots.txt — только имена, зато весь каталог;
-   опрашивается один раз, каталог имён почти не меняется. */
+   опрашивается один раз, каталог имён почти не меняется.
+
+   Листинг возвращает лишь тех, кто вещает прямо сейчас, поэтому он уходит
+   не только в базу ников, но и в список эфира плеера. Пока эта вкладка
+   открыта, правая колонка показывает весь сайт; закроется — плеер вернётся
+   к собственному обходу, который находит заметно меньше. */
 (async () => {
   const PERIOD = 60000;
   const TARGETS = [...new Set(['__PLAYER_ORIGIN__', 'http://127.0.0.1:8777'])];
@@ -144,6 +149,13 @@
   }
 
   async function send(arr) {
+    // Каталог отдаётся в два места. В базу — все имена, она копится годами.
+    // В список эфира — только те, у кого есть номер сервера: листинг сайта
+    // показывает лишь тех, кто вещает прямо сейчас, поэтому он же и есть
+    // готовый ответ на вопрос «кто в эфире», причём с верными серверами.
+    // Своим обходом плеер получал двадцать с небольшим комнат из полутора
+    // тысяч: модели переезжают между серверами, а он помнит прежние.
+    const live = arr.filter(row => row[1]);
     for (const base of TARGETS) {
       try {
         const res = await fetch(base + '/api/accounts', {
@@ -151,7 +163,21 @@
           headers: { 'Content-Type': 'text/plain;charset=UTF-8' },   // «простой» запрос, без preflight
           body: JSON.stringify(arr),
         });
-        if (res.ok) return await res.json();
+        if (!res.ok) continue;
+        const saved = await res.json();
+
+        let online = 0;
+        if (live.length) {
+          try {
+            const res2 = await fetch(base + '/api/online', {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+              body: JSON.stringify({ src: 'catalog', live }),
+            });
+            if (res2.ok) online = (await res2.json()).count | 0;
+          } catch (e) { /* база пополнилась, эфир переживёт до следующего круга */ }
+        }
+        return { ...saved, online };
       } catch (e) { /* пробуем следующий адрес */ }
     }
     return null;
@@ -169,7 +195,7 @@
     const posted = await send(arr);
 
     if (posted) {
-      say(`${clock()}: с сервером ${withEdge}${first ? `, из sitemap ${fromMap}` : ''}` +
+      say(`${clock()}: в эфире ${posted.online}${first ? `, из sitemap ${fromMap}` : ''}` +
           ` → новых ${posted.added}, в базе ${posted.total}`);
     } else {
       say(`${clock()}: собрано ${arr.length}, но плеер не отвечает`);
@@ -179,7 +205,9 @@
       alert(`Сборщик запущен.\n\nСобрано ников: ${arr.length}\n` +
             `с номером сервера: ${withEdge} (страниц листинга: ${pages})\n` +
             `из sitemap, только имена: ${fromMap}\n` +
-            (posted ? `Добавлено в базу: новых ${posted.added}, всего ${posted.total}\n` : 'Плеер не ответил\n') +
+            (posted ? `Передано в эфир плеера: ${posted.online}\n` +
+                      `Добавлено в базу: новых ${posted.added}, всего ${posted.total}\n`
+                    : 'Плеер не ответил\n') +
             `\nДальше обновляю каждые ${PERIOD / 1000} с, пока эта вкладка открыта.\n` +
             'Выключить — плашка в правом нижнем углу или повторное нажатие закладки.');
     }
