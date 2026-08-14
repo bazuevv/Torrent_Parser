@@ -179,6 +179,9 @@
   .tcap span:hover { background: #2f6fd0; }
   .tile .empty { position: absolute; inset: 0; display: flex; align-items: center;
                  justify-content: center; color: #6b7484; font-size: 13px; }
+  /* Четвёртый раз в этом файле: display:flex перебивает атрибут hidden, и
+     надпись «пусто» просвечивала поверх играющего видео. */
+  .tile .empty[hidden] { display: none; }
 
   /* Заметка относится к конкретной строке, поэтому окно висит рядом с её
      значком, а не посреди экрана: так видно, о ком речь, и видео не
