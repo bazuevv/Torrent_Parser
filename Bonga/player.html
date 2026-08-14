@@ -167,6 +167,9 @@
   .tile.loud { outline: 2px solid #7ee787; outline-offset: -2px; }
   /* Выбранная ячейка — та, куда ляжет следующая открытая комната. */
   .tile.picked { box-shadow: inset 0 0 0 2px #6ea8fe; }
+  /* Ячейка под перетаскиваемой карточкой. */
+  .tile.drop { box-shadow: inset 0 0 0 3px #7ee787; background: #16301c; }
+  .card[draggable], .item[draggable] { cursor: grab; }
   .tcap {
     position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
     gap: 6px; padding: 4px 6px; background: linear-gradient(transparent, rgba(0,0,0,.75));
@@ -2642,6 +2645,26 @@
       const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
       const at = i;
       box.onclick = e => { if (!e.target.closest('.tcap')) pickTile(at); };
+
+      /* Перетаскивание карточки из правой колонки или строки истории прямо в
+         ячейку. Подсветку снимаем и по dragleave, и по drop: без первого она
+         остаётся висеть, если карточку увели мимо. */
+      box.ondragover = e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        box.classList.add('drop');
+      };
+      box.ondragleave = () => box.classList.remove('drop');
+      box.ondrop = e => {
+        e.preventDefault();
+        box.classList.remove('drop');
+        try {
+          const room = JSON.parse(e.dataTransfer.getData('text/plain') || '{}');
+          if (!room.user) return;
+          tilePlay(tile, room.user, known.get(room.user.toLowerCase()) || room.edge);
+          pickTile(at);
+        } catch { /* перетащили что-то постороннее */ }
+      };
       box.querySelector('.tsnd').onclick = () => tileLoud(tile);
       box.querySelector('.tclose').onclick = () => tileStop(tile);
       box.querySelector('.tmain').onclick = () => {
@@ -2854,6 +2877,12 @@
 
       row.append(dot, nick, act, note, meta, del);
       row.onclick = () => openStream(rec.u, rec.e);
+      // Из истории тоже можно тащить: тот же приём, что и с карточками.
+      row.draggable = true;
+      row.ondragstart = e => {
+        e.dataTransfer.setData('text/plain', JSON.stringify({ user: rec.u, edge: String(rec.e) }));
+        e.dataTransfer.effectAllowed = 'copy';
+      };
       body.appendChild(row);
     }
     paintHist();
@@ -3437,6 +3466,14 @@
 
       card.append(img, offBox, cap);
       card.onclick = () => openStream(user, edge);
+      // Карточку можно перетащить в ячейку стены. Картинке перетаскивание
+      // запрещаем: иначе браузер потащит её саму, а не карточку.
+      card.draggable = true;
+      img.draggable = false;
+      card.ondragstart = e => {
+        e.dataTransfer.setData('text/plain', JSON.stringify({ user, edge: String(edge) }));
+        e.dataTransfer.effectAllowed = 'copy';
+      };
       body.appendChild(card);
     }
     paintNotes();
