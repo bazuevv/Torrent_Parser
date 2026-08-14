@@ -2557,6 +2557,22 @@
   const tiles = [];                 // {box, video, hls, user, edge}
   let tilePicked = -1;              // ячейка, в которую кладём следующую комнату
 
+  /* Состав стены переживает перезагрузку. Пишем при каждом изменении ячейки,
+     но не при выключении режима и не при пересборке сетки: там ячейки тоже
+     очищаются, и без этой оговорки сохранённое стиралось бы ровно тогда,
+     когда его нужно сберечь. */
+  let wallQuiet = false;
+
+  const loadWall = () => {
+    try { return JSON.parse(localStorage.getItem('wall')) || []; } catch { return []; }
+  };
+
+  function saveWall() {
+    if (wallQuiet) return;
+    const rows = tiles.map(tile => (tile.user ? { u: tile.user, e: tile.edge } : null));
+    try { localStorage.setItem('wall', JSON.stringify(rows)); } catch { /* приватный режим */ }
+  }
+
   function tileStop(tile) {
     if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
     tile.video.removeAttribute('src');
@@ -2565,6 +2581,7 @@
     tile.box.querySelector('b').textContent = '';
     tile.box.querySelector('.empty').hidden = false;
     tile.box.classList.remove('loud');
+    saveWall();
   }
 
   function tilePlay(tile, user, edge) {
@@ -2573,6 +2590,7 @@
     tile.edge = String(edge);
     tile.box.querySelector('b').textContent = user;
     tile.box.querySelector('.empty').hidden = true;
+    saveWall();
 
     const hlsTile = new Hls({ lowLatencyMode: false, backBufferLength: 10 });
     tile.hls = hlsTile;
@@ -2627,7 +2645,9 @@
   function buildWall() {
     const want = cfg('wallN');
     if (tiles.length === want) return;
+    wallQuiet = true;                 // пересборка сетки — не повод стирать состав
     for (const tile of tiles) tileStop(tile);
+    wallQuiet = false;
     tiles.length = 0;
     $('wallGrid').textContent = '';
     // Столбцов — корень из числа ячеек: 4 → 2×2, 6 → 3×2, 9 → 3×3.
@@ -2678,25 +2698,51 @@
   }
 
   function wallOn() {
+    // Всё, что нужно, забираем до пересборки и остановки потока: buildWall
+    // очищает ячейки, а stopStream стирает поля ника и сервера.
+    const saved = loadWall();
+    const now = playingFrom === 'live'
+      ? { u: $('user').value.trim(), e: $('edge').value.trim() } : null;
+
     buildWall();
     stopStream();                 // главный поток гасим: ресурсы нужны ячейкам
     $('wallGrid').hidden = false;
     $('wall').classList.add('on');
-    // Наполняем тем, что сейчас в эфире и на виду, — по числу ячеек.
-    const picks = (liveList || []).slice(0, tiles.length);
+
+    /* Порядок наполнения: сперва то, что смотрели, — иначе нажатие «Стены»
+       теряло бы текущую комнату; затем прошлый состав; остаток добираем из
+       списка эфира. Повторов не допускаем: одна комната в двух ячейках —
+       двойной трафик без пользы. */
+    const plan = [];
+    const seen = new Set();
+    const add = (user, edge) => {
+      const key = String(user || '').toLowerCase();
+      if (!key || seen.has(key) || plan.length >= tiles.length) return;
+      seen.add(key);
+      plan.push({ u: user, e: String(edge || '') });
+    };
+    if (now && now.u) add(now.u, now.e);
+    for (const item of saved) if (item) add(item.u, item.e);
+    for (const row of liveList || []) add(row[0], row[1]);
+
+    wallQuiet = true;                       // раскладываем — пишем один раз в конце
     tiles.forEach((tile, i) => {
-      const row = picks[i];
-      if (!row) return;
-      tilePlay(tile, row[0], known.get(row[0].toLowerCase()) || row[1]);
+      const item = plan[i];
+      if (item) tilePlay(tile, item.u, known.get(item.u.toLowerCase()) || item.e);
     });
+    wallQuiet = false;
+    saveWall();
+
     if (tiles[0]) tileLoud(tiles[0]);
     pickTile(0);
-    say(`Стена: ${picks.length} трансляций. Клик по комнате справа кладёт её ` +
-        'в выбранную ячейку, ⤢ открывает в главном плеере.', 'ok');
+    say(`Стена: ${plan.length} трансляций. Перетащите карточку в ячейку или ` +
+        'выберите ячейку кликом, ⤢ открывает в главном плеере.', 'ok');
   }
 
   function wallOff() {
+    wallQuiet = true;              // выключение — не повод забывать состав
     for (const tile of tiles) tileStop(tile);
+    wallQuiet = false;
     $('wallGrid').hidden = true;
     $('wall').classList.remove('on');
   }
