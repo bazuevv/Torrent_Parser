@@ -2704,16 +2704,51 @@
     }
   }
 
+  const NOTE_HINT = 'Пустая заметка удаляется. Видна со всех устройств — ' +
+                    'хранится на сервере.';
+  let noteRun = 0;
+
   function openNote(user) {
     const key = user.toLowerCase();
+    const already = notes.get(key) || '';
+    const run = ++noteRun;
+
     $('noteTitle').textContent = `Заметка · ${user}`;
-    $('noteText').value = notes.get(key) || '';
+    $('noteText').value = already;
+    $('noteHint').textContent = NOTE_HINT;
     $('noteDlg').showModal();
     $('noteText').focus();
     $('noteSave').onclick = () => {
       $('noteDlg').close();
       saveNote(user, $('noteText').value);
     };
+    if (!already) fillFromProfile(user, run);
+  }
+
+  /* Пустую заметку заполняем тем, что модель написала о себе сама: это
+     осмысленнее пустого поля, а дописать или стереть можно тут же. Запрос
+     идёт после открытия окна, а не до: страница профиля весит триста
+     килобайт, и ждать её перед показом редактора незачем. */
+  async function fillFromProfile(user, run) {
+    $('noteHint').textContent = 'Читаю профиль…';
+    let text = '';
+    try {
+      const res = await fetch(`api/about?user=${encodeURIComponent(user)}`,
+                              { cache: 'no-store' });
+      text = (await res.json()).text || '';
+    } catch { /* профиль недоступен — останется пустое поле */ }
+
+    // Пока ходили за профилем, окно могли закрыть, открыть для другой
+    // комнаты или начать печатать — в любом из этих случаев не мешаем.
+    if (run !== noteRun || !$('noteDlg').open || $('noteText').value.trim()) return;
+
+    if (text) {
+      $('noteText').value = text;
+      $('noteHint').textContent = 'Подставлено из раздела «Обо мне» профиля — ' +
+                                  'правьте как удобно. ' + NOTE_HINT;
+    } else {
+      $('noteHint').textContent = 'В профиле раздел «Обо мне» не заполнен. ' + NOTE_HINT;
+    }
   }
 
   $('noteCancel').onclick = () => $('noteDlg').close();
