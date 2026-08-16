@@ -2185,7 +2185,6 @@
     'узел.41': 'Скопировано',
     'узел.42': 'Выделите вручную',
     'узел.43': 'Копировать',
-    'узел.44': '\n      body { margin: 0; background: #000; color: #e6e8ec; overflow: hidden; position: relative;\n             font: 12px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }\n      #vid { flex: 1 1 auto; min-height: 0; }\n      video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }\n      #bar { flex: 0 0 auto; display: flex; align-items: center; gap: 5px;\n             padding: 5px 6px; background: #1c1f26; border-top: 1px solid #2a2f3a; }\n      #bar button, #bar select { font: 12px system-ui, sans-serif; color: #e6e8ec;\n             background: #262b34; border: 1px solid #39404d; border-radius: 5px;\n             padding: 3px 7px; cursor: pointer; }\n      #bar button:hover { background: #303743; }\n      #bar label { color: #98a1b0; }\n      #nick { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap;\n              text-overflow: ellipsis; color: #98a1b0; }\n      /* Вопрос о судьбе записи переезжает сюда, когда открыто это окно. */\n      #keepAsk { position: absolute; z-index: 9; right: 10px; bottom: 46px; width: 280px;\n                 padding: 10px 12px; border-radius: 10px; background: #1c1f26;\n                 border: 1px solid #39404d; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); }\n      #keepText { font-size: 12px; line-height: 1.45; }\n      #keepText b { color: #7ee787; }\n      #keepText i { color: #98a1b0; font-style: normal; }\n      #keepAsk .dlg-btns { display: flex; gap: 8px; margin-top: 8px; }\n      #keepAsk button { padding: 4px 10px; }\n      #keepYes { background: #2f6fd0; border-color: #2f6fd0; }\n      /* Свой список вместо <select>: в системном нельзя покрасить часть текста,\n         а нужен зелёный счётчик рядом с названием интервала. */\n      #pick { position: relative; }\n      #autoBtn { min-width: 84px; text-align: left; }\n      #autoBtn b { color: #7ee787; font-weight: 600; }\n      #autoMenu { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 5;\n                  min-width: 96px; padding: 4px; background: #262b34;\n                  border: 1px solid #39404d; border-radius: 6px;\n                  box-shadow: 0 6px 18px rgba(0, 0, 0, .6); }\n      #autoMenu div { padding: 5px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; }\n      #autoMenu div:hover { background: #2f6fd0; }\n      #autoMenu div.on { color: #7ee787; }\n    ',
     'узел.5': 'Копировать',
     'узел.6': 'Склеиваю…',
     'узел.7': 'На диск',
@@ -7201,7 +7200,43 @@
     });
 
     const style = win.document.createElement('style');
-    style.textContent = t('узел.44');
+    style.textContent = `
+      body { margin: 0; background: #000; color: #e6e8ec; overflow: hidden; position: relative;
+             font: 12px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+      #vid { flex: 1 1 auto; min-height: 0; }
+      video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+      #bar { flex: 0 0 auto; display: flex; align-items: center; gap: 5px;
+             padding: 5px 6px; background: #1c1f26; border-top: 1px solid #2a2f3a; }
+      #bar button, #bar select { font: 12px system-ui, sans-serif; color: #e6e8ec;
+             background: #262b34; border: 1px solid #39404d; border-radius: 5px;
+             padding: 3px 7px; cursor: pointer; }
+      #bar button:hover { background: #303743; }
+      #bar label { color: #98a1b0; }
+      #nick { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap;
+              text-overflow: ellipsis; color: #98a1b0; }
+      /* Вопрос о судьбе записи переезжает сюда, когда открыто это окно. */
+      #keepAsk { position: absolute; z-index: 9; right: 10px; bottom: 46px; width: 280px;
+                 padding: 10px 12px; border-radius: 10px; background: #1c1f26;
+                 border: 1px solid #39404d; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); }
+      #keepText { font-size: 12px; line-height: 1.45; }
+      #keepText b { color: #7ee787; }
+      #keepText i { color: #98a1b0; font-style: normal; }
+      #keepAsk .dlg-btns { display: flex; gap: 8px; margin-top: 8px; }
+      #keepAsk button { padding: 4px 10px; }
+      #keepYes { background: #2f6fd0; border-color: #2f6fd0; }
+      /* Свой список вместо <select>: в системном нельзя покрасить часть текста,
+         а нужен зелёный счётчик рядом с названием интервала. */
+      #pick { position: relative; }
+      #autoBtn { min-width: 84px; text-align: left; }
+      #autoBtn b { color: #7ee787; font-weight: 600; }
+      #autoMenu { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 5;
+                  min-width: 96px; padding: 4px; background: #262b34;
+                  border: 1px solid #39404d; border-radius: 6px;
+                  box-shadow: 0 6px 18px rgba(0, 0, 0, .6); }
+      #autoMenu div { padding: 5px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+      #autoMenu div:hover { background: #2f6fd0; }
+      #autoMenu div.on { color: #7ee787; }
+    `;
     win.document.head.append(style);
 
     const holder = win.document.createElement('div');
