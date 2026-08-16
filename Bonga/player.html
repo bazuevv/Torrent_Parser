@@ -44,7 +44,9 @@
      шапке, да и трансляции внизу остаются видны. */
   #scrWin {
     display: flex; flex-direction: column; gap: 10px;
-    max-width: 100%; max-height: 100%;
+    /* Треть ширины сетки: окно стоит под своей кнопкой в середине шапки и не
+       закрывает собой трансляции по краям. Что не влезло — листается вбок. */
+    width: calc(100% / 3); min-width: 260px; max-width: 100%; max-height: 100%;
     padding: 12px 14px; background: #14171d;
     border: 1px solid #39404d; border-radius: 12px;
     box-shadow: 0 18px 48px rgba(0, 0, 0, .7);
@@ -60,10 +62,11 @@
      ширину — листаем по горизонтали. */
   #scrBody {
     display: flex; gap: 12px; align-items: flex-start;
-    overflow-x: auto; overflow-y: hidden; padding-bottom: 4px;
+    overflow-x: auto; overflow-y: hidden; padding-bottom: 6px;
+    scrollbar-width: thin; scrollbar-color: #3a4250 transparent;
   }
   .scr {
-    flex: 0 0 320px; border: 1px solid #2a2f3a; border-radius: 10px; overflow: hidden;
+    flex: 0 0 280px; border: 1px solid #2a2f3a; border-radius: 10px; overflow: hidden;
     background: #14171d; cursor: pointer;
   }
   .scr:hover { border-color: #2f6fd0; }
