@@ -4515,6 +4515,70 @@
     } catch { return Infinity; }
   }
 
+  /* Карточка комнаты. Отдельной функцией, потому что такую же строит поиск для
+     ника, которого нет в эфире: раньше он предлагал только строку «Открыть»,
+     и было не видно ни последнего кадра, ни того, когда комната пропала. */
+  function buildCard(user, edge, viewers, seen) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.user = user;
+    card.dataset.edge = String(edge);
+    card.title = `${user} · edge ${edge}`;
+
+    // Картинку не подставляем сразу: её загрузит refreshThumbs, и статус
+    // комнаты появится тем же запросом, вместе с кадром.
+    const img = document.createElement('img');
+    img.alt = user;
+    img.dataset.base = thumbUrl(user, edge);
+    img.dataset.visible = '0';
+    visObserver.observe(img);
+
+    const cap = document.createElement('div');
+    cap.className = 'cap';
+    cap.innerHTML = '<b></b><i></i>';
+    cap.querySelector('b').textContent = user;
+    cap.querySelector('i').textContent = viewers ? `${viewers}👁` : '';
+
+    const note = document.createElement('span');
+    note.className = 'note';
+    note.textContent = '✎';
+    note.onclick = e => { e.stopPropagation(); openNote(user, note); };   // карточка кликабельна целиком
+    cap.appendChild(note);
+
+    const offBox = document.createElement('span');
+    offBox.className = 'offBox';
+
+    const off = document.createElement('span');
+    off.className = 'off';
+    off.textContent = 'нет';
+
+    const offAt = document.createElement('span');
+    offAt.className = 'offAt';
+    offBox.append(off, offAt);
+    // seen — «когда обновлялось превью на момент обхода», а не сейчас.
+    // Сравнивать его с текущим временем нельзя: обходу могут быть десятки
+    // минут, и тогда ушедшими окажутся все подряд. Значение просто держим
+    // при карточке, а статус определяет свежая проверка видимых.
+    if (seen) card.dataset.seen = String(seen);
+
+    card.append(img, offBox, cap);
+    card.onclick = () => {
+      // Запрос, который довёл до комнаты, попадает в историю поиска: именно
+      // такие и повторяют. Пустое поле не запоминаем — там и запроса не было.
+      rememberFind($('onlineFind').value);
+      openStream(user, edge);
+    };
+    // Карточку можно перетащить в ячейку стены. Картинке перетаскивание
+    // запрещаем: иначе браузер потащит её саму, а не карточку.
+    card.draggable = true;
+    img.draggable = false;
+    card.ondragstart = e => {
+      e.dataTransfer.setData('text/plain', JSON.stringify({ user, edge: String(edge) }));
+      e.dataTransfer.effectAllowed = 'copy';
+    };
+    return card;
+  }
+
   function renderOnline(live) {
     const body = $('onlineBody');
     liveList = live;                       // порядок для перелистывания комнат
@@ -4531,66 +4595,8 @@
       // Снимку эфира может быть до часа, а база обновляется каждую минуту —
       // поэтому сервер берём из неё, если он там известен. Иначе карточка
       // стучалась бы на старый сервер и считала модель ушедшей.
-      const edge = known.get(user.toLowerCase()) || edgeAtSweep;
-
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.dataset.user = user;
-      card.dataset.edge = String(edge);
-      card.title = `${user} · edge ${edge}`;
-
-      // Картинку не подставляем сразу: её загрузит refreshThumbs, и статус
-      // комнаты появится тем же запросом, вместе с кадром.
-      const img = document.createElement('img');
-      img.alt = user;
-      img.dataset.base = thumbUrl(user, edge);
-      img.dataset.visible = '0';
-      visObserver.observe(img);
-
-      const cap = document.createElement('div');
-      cap.className = 'cap';
-      cap.innerHTML = '<b></b><i></i>';
-      cap.querySelector('b').textContent = user;
-      cap.querySelector('i').textContent = viewers ? `${viewers}👁` : '';
-
-      const note = document.createElement('span');
-      note.className = 'note';
-      note.textContent = '✎';
-      note.onclick = e => { e.stopPropagation(); openNote(user, note); };   // карточка кликабельна целиком
-      cap.appendChild(note);
-
-      const offBox = document.createElement('span');
-      offBox.className = 'offBox';
-
-      const off = document.createElement('span');
-      off.className = 'off';
-      off.textContent = 'нет';
-
-      const offAt = document.createElement('span');
-      offAt.className = 'offAt';
-      offBox.append(off, offAt);
-      // seen — «когда обновлялось превью на момент обхода», а не сейчас.
-      // Сравнивать его с текущим временем нельзя: обходу могут быть десятки
-      // минут, и тогда ушедшими окажутся все подряд. Значение просто держим
-      // при карточке, а статус определяет свежая проверка видимых.
-      if (seen) card.dataset.seen = String(seen);
-
-      card.append(img, offBox, cap);
-      card.onclick = () => {
-        // Запрос, который довёл до комнаты, попадает в историю поиска: именно
-        // такие и повторяют. Пустое поле не запоминаем — там и запроса не было.
-        rememberFind($('onlineFind').value);
-        openStream(user, edge);
-      };
-      // Карточку можно перетащить в ячейку стены. Картинке перетаскивание
-      // запрещаем: иначе браузер потащит её саму, а не карточку.
-      card.draggable = true;
-      img.draggable = false;
-      card.ondragstart = e => {
-        e.dataTransfer.setData('text/plain', JSON.stringify({ user, edge: String(edge) }));
-        e.dataTransfer.effectAllowed = 'copy';
-      };
-      body.appendChild(card);
+      body.appendChild(buildCard(user, known.get(user.toLowerCase()) || edgeAtSweep,
+                                 viewers, seen));
     }
     paintNotes();
     markCurrent();
@@ -4602,27 +4608,55 @@
   // предлагаем открыть введённый ник напрямую, он может быть и не в списке.
   function filterOnline() {
     const query = $('onlineFind').value.trim().toLowerCase();
-    let shown = 0;
 
+    /* Добавленное прошлым поиском убираем до подсчёта совпадений. Иначе своя
+       же карточка шла бы в зачёт, следующий набранный символ считал бы, что
+       в эфире кто-то нашёлся, — и колонка оставалась бы пустой. */
+    const old = $('openFound');
+    if (old) old.remove();
+    for (const card of $('onlineBody').querySelectorAll('.card.found')) {
+      const img = card.querySelector('img');
+      if (img && img.blobUrl) URL.revokeObjectURL(img.blobUrl);   // иначе память подтекает
+      card.remove();
+    }
+
+    let shown = 0;
     for (const card of $('onlineBody').querySelectorAll('.card')) {
       const match = !query || (card.dataset.user || '').toLowerCase().includes(query);
       card.classList.toggle('hidden', !match);
       if (match) shown++;
     }
+    if (!query || shown) return;
 
-    const old = $('openFound');
-    if (old) old.remove();
-    if (query && !shown) {
-      const row = document.createElement('div');
-      row.id = 'openFound';
-      const proper = canon.get(query) || $('onlineFind').value.trim();
-      row.textContent = `Открыть «${proper}»`;
-      row.onclick = () => {
-        rememberFind(proper);
-        openStream(proper, known.get(proper.toLowerCase()) || '');
-      };
-      $('onlineBody').appendChild(row);
+    /* Совпадений в эфире нет. Если ник знаком базе — показываем такую же
+       карточку: её кадр и есть последнее, что от комнаты осталось, а плашка
+       скажет, когда она пропала. Раньше тут была только строка «Открыть», и
+       по ней нельзя было понять даже, существует ли такая комната. */
+    const proper = canon.get(query) || $('onlineFind').value.trim();
+    const edge = known.get(proper.toLowerCase());
+    if (edge) {
+      const card = buildCard(proper, edge, 0, 0);
+      card.classList.add('found');
+      $('onlineBody').appendChild(card);
+      const img = card.querySelector('img');
+      // Наблюдатель за видимостью отметит картинку лишь на следующем кадре, а
+      // loadThumb невидимые пропускает. Карточка тут одна и заведомо на экране,
+      // поэтому отмечаем сами и грузим сразу — иначе кадр появлялся бы рывком.
+      img.dataset.visible = '1';
+      loadThumb(img);                         // кадр и статус — одним запросом
+      return;
     }
+
+    // Сервер неизвестен — кадр запросить не у кого, остаётся прямое открытие:
+    // поиск найдёт сервер сам.
+    const row = document.createElement('div');
+    row.id = 'openFound';
+    row.textContent = `Открыть «${proper}»`;
+    row.onclick = () => {
+      rememberFind(proper);
+      openStream(proper, known.get(proper.toLowerCase()) || '');
+    };
+    $('onlineBody').appendChild(row);
   }
 
   /* История поисковых запросов. Ищут одних и тех же по многу раз, а набирать
@@ -4678,7 +4712,12 @@
         else if (low.includes(query)) inside.push(name);
         if (starts.length >= 12) break;
       }
-      for (const name of [...starts, ...inside].slice(0, 12)) rows.push({ name, kind: 'в базе' });
+      /* Подпись именно «не в эфире»: «в базе» ничего не говорит человеку —
+         база тут внутреннее слово для накопленного списка ников, а важно
+         другое, что комната существует, но сейчас не вещает. */
+      for (const name of [...starts, ...inside].slice(0, 12)) {
+        rows.push({ name, kind: 'не в эфире' });
+      }
     }
 
     box.textContent = '';
