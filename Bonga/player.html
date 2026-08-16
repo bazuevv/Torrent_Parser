@@ -194,6 +194,10 @@
      поток, меняется только место в сетке, поэтому картинка не моргает. */
   .tile.zoomed { z-index: 40; }
   .tile.zoomed .tcap { font-size: 14px; }
+  /* У развёрнутой крестик убран: рядом с ⤡ он читается как «свернуть», а на
+     деле удаляет трансляцию насовсем. Свернуть можно ⤡ или Esc, а убрать —
+     вернувшись в сетку, там крестик снова на месте. */
+  .tile.zoomed .tclose { display: none; }
   .card[draggable], .item[draggable] { cursor: grab; }
   .tcap {
     position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
