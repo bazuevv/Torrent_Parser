@@ -101,6 +101,28 @@
     display: flex; align-items: center;
     background: #171a20; border-bottom: 1px solid #2a2f3a;
   }
+
+  /* Подсказки к поиску. Своим списком, а не <datalist>, по двум причинам:
+     нужны пометки, откуда взялась строка (история, эфир, база), и крестик,
+     чтобы выкинуть запрос из истории. Ни того, ни другого datalist не умеет. */
+  #findTips {
+    position: absolute; top: 100%; left: 6px; right: 6px; z-index: 40;
+    max-height: 300px; overflow: auto;
+    background: #1a1e26; border: 1px solid #2a2f3a; border-radius: 8px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, .5);
+  }
+  #findTips[hidden] { display: none; }
+  #findTips .row {
+    display: flex; align-items: center; gap: 7px; padding: 6px 9px;
+    font-size: 12px; color: #e6e8ec; cursor: pointer;
+  }
+  #findTips .row:hover, #findTips .row.on { background: #2f6fd0; }
+  #findTips .row b { flex: 1 1 auto; min-width: 0; overflow: hidden;
+                     text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+  #findTips .row i { flex: 0 0 auto; color: #8a93a3; font-size: 11px; font-style: normal; }
+  #findTips .row.on i { color: #dbe6ff; }
+  #findTips .row .del { flex: 0 0 auto; padding: 0 4px; color: #8a93a3; border-radius: 4px; }
+  #findTips .row .del:hover { color: #fff; background: #b5372c; }
   #onlineFind {
     flex: 1 1 auto; min-width: 0; padding: 6px 26px 6px 9px; font-size: 12px;
     color: #fff; background: #46536b;          /* заметно светлее панели */
@@ -1253,8 +1275,10 @@
       <button id="onlineRefresh" title="Проверить, кто в эфире">↻</button>
     </div>
     <div class="panel-find">
-      <input id="onlineFind" spellcheck="false" placeholder="Поиск по нику">
+      <input id="onlineFind" spellcheck="false" placeholder="Поиск по нику"
+             autocomplete="off">
       <button id="findClear" title="Очистить поиск" hidden>×</button>
+      <div id="findTips" hidden></div>
     </div>
     <div class="panel-body" id="onlineBody"></div>
   </aside>
@@ -4552,7 +4576,12 @@
       if (seen) card.dataset.seen = String(seen);
 
       card.append(img, offBox, cap);
-      card.onclick = () => openStream(user, edge);
+      card.onclick = () => {
+        // Запрос, который довёл до комнаты, попадает в историю поиска: именно
+        // такие и повторяют. Пустое поле не запоминаем — там и запроса не было.
+        rememberFind($('onlineFind').value);
+        openStream(user, edge);
+      };
       // Карточку можно перетащить в ячейку стены. Картинке перетаскивание
       // запрещаем: иначе браузер потащит её саму, а не карточку.
       card.draggable = true;
@@ -4588,19 +4617,142 @@
       row.id = 'openFound';
       const proper = canon.get(query) || $('onlineFind').value.trim();
       row.textContent = `Открыть «${proper}»`;
-      row.onclick = () => openStream(proper, known.get(proper.toLowerCase()) || '');
+      row.onclick = () => {
+        rememberFind(proper);
+        openStream(proper, known.get(proper.toLowerCase()) || '');
+      };
       $('onlineBody').appendChild(row);
     }
   }
 
+  /* История поисковых запросов. Ищут одних и тех же по многу раз, а набирать
+     ник целиком каждый раз незачем. Держим дюжину последних: длиннее список
+     уже не помогает, а перекрывает собой колонку. */
+  const FIND_KEEP = 12;
+  const loadFinds = () => {
+    try { return JSON.parse(localStorage.getItem('findHist')) || []; } catch { return []; }
+  };
+  const saveFinds = list => {
+    try { localStorage.setItem('findHist', JSON.stringify(list)); } catch { /* приватный */ }
+  };
+
+  function rememberFind(text) {
+    const value = String(text || '').trim();
+    if (value.length < 2) return;            // одна буква — это не запрос
+    const list = loadFinds().filter(item => item.toLowerCase() !== value.toLowerCase());
+    list.unshift(value);
+    saveFinds(list.slice(0, FIND_KEEP));
+  }
+
+  const forgetFind = text =>
+    saveFinds(loadFinds().filter(item => item.toLowerCase() !== text.toLowerCase()));
+
+  /* Подсказки: сперва прошлые запросы, потом те, кто сейчас в эфире, и лишь
+     затем остальная база. Порядок именно такой — колонка показывает эфир, и
+     попадание в него ценнее совпадения с ником, которого сейчас нет. */
+  function paintFindTips() {
+    const box = $('findTips');
+    const query = $('onlineFind').value.trim().toLowerCase();
+    const seen = new Set();
+    const rows = [];
+
+    for (const item of loadFinds()) {
+      if (query && !item.toLowerCase().includes(query)) continue;
+      seen.add(item.toLowerCase());
+      rows.push({ name: item, kind: 'из истории', old: true });
+    }
+    for (const row of liveList || []) {
+      if (rows.length >= 24) break;
+      const name = String(row[0]);
+      const low = name.toLowerCase();
+      if (seen.has(low) || (query && !low.includes(query))) continue;
+      seen.add(low);
+      rows.push({ name, kind: 'в эфире' });
+    }
+    if (query.length >= 2) {
+      const starts = [], inside = [];
+      for (const [name] of catalog) {
+        const low = name.toLowerCase();
+        if (seen.has(low)) continue;
+        if (low.startsWith(query)) starts.push(name);
+        else if (low.includes(query)) inside.push(name);
+        if (starts.length >= 12) break;
+      }
+      for (const name of [...starts, ...inside].slice(0, 12)) rows.push({ name, kind: 'в базе' });
+    }
+
+    box.textContent = '';
+    box.hidden = !rows.length;
+    if (box.hidden) return;
+
+    for (const item of rows.slice(0, 24)) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.dataset.name = item.name;
+      const name = document.createElement('b');
+      name.textContent = item.name;
+      const kind = document.createElement('i');
+      kind.textContent = item.kind;
+      row.append(name, kind);
+      if (item.old) {
+        const del = document.createElement('span');
+        del.className = 'del';
+        del.textContent = '×';
+        del.title = 'Убрать из истории';
+        del.onmousedown = e => e.preventDefault();     // не отдаём фокус полю
+        del.onclick = e => { e.stopPropagation(); forgetFind(item.name); paintFindTips(); };
+        row.appendChild(del);
+      }
+      row.onmousedown = e => e.preventDefault();
+      row.onclick = () => pickFind(item.name);
+      box.appendChild(row);
+    }
+  }
+
+  function pickFind(name) {
+    $('onlineFind').value = name;
+    $('findClear').hidden = false;
+    $('findTips').hidden = true;
+    rememberFind(name);
+    filterOnline();
+  }
+
+  // Стрелками ходим по подсказкам, Enter берёт выделенную либо запоминает
+  // набранное как есть — ник может быть и не из списка.
+  function moveFindTip(step) {
+    const rows = [...$('findTips').querySelectorAll('.row')];
+    if (!rows.length) return;
+    const at = rows.findIndex(row => row.classList.contains('on'));
+    const next = at < 0 ? (step > 0 ? 0 : rows.length - 1)
+                        : (at + step + rows.length) % rows.length;
+    rows.forEach((row, i) => row.classList.toggle('on', i === next));
+    rows[next].scrollIntoView({ block: 'nearest' });
+  }
+
   $('onlineFind').addEventListener('input', () => {
     $('findClear').hidden = !$('onlineFind').value;
+    paintFindTips();
     filterOnline();
+  });
+  $('onlineFind').addEventListener('focus', paintFindTips);
+  $('onlineFind').addEventListener('blur', () => {
+    setTimeout(() => { $('findTips').hidden = true; }, 120);   // успеть поймать клик
+  });
+  $('onlineFind').addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); return moveFindTip(1); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); return moveFindTip(-1); }
+    if (e.key === 'Escape') { $('findTips').hidden = true; return; }
+    if (e.key !== 'Enter') return;
+    const on = $('findTips').querySelector('.row.on');
+    if (on) return pickFind(on.dataset.name);
+    rememberFind($('onlineFind').value);
+    $('findTips').hidden = true;
   });
 
   $('findClear').onclick = () => {
     $('onlineFind').value = '';
     $('findClear').hidden = true;
+    $('findTips').hidden = true;
     filterOnline();
     $('onlineFind').focus();
   };
