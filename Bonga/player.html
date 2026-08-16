@@ -200,14 +200,23 @@
   .tile.zoomed .tclose { display: none; }
   /* Развёрнутой ячейке достаётся штатная панель браузера: громкость,
      полноэкранный режим, PiP — всё уже написано и появляется по наведению.
-     Своего значка звука ей не нужно, а подпись уезжает наверх: внизу её
-     перекрыла бы та самая панель. В сетке всё наоборот — там панель заняла бы
-     половину ячейки, поэтому там подпись внизу и значок звука свой. */
+     Своего значка звука ей не нужно. В сетке наоборот: там панель заняла бы
+     половину ячейки, поэтому она выключена, а звук переключается своим
+     значком.
+
+     Подпись с ником и кнопкой ⤡ ложится вплотную над панелью. Внутрь неё
+     кнопку не вставить — панель живёт в теневом DOM браузера и чужих детей
+     не принимает; а положить поверх значит закрыть собой полноэкранную. */
   .tile.zoomed .tcap {
-    top: 0; bottom: auto;
-    background: linear-gradient(rgba(0, 0, 0, .75), transparent);
+    top: auto; bottom: 44px; background: none;
+    opacity: 0; transition: opacity .15s;
   }
+  /* Появляется и гаснет вместе с панелью: браузер показывает её на движение
+     курсора и убирает через пару секунд покоя — повторяем то же правило. */
+  .tile.zoomed.ctl .tcap, .tile.zoomed .tcap:hover { opacity: 1; }
   .tile.zoomed .tsnd { display: none; }
+  .tile.zoomed .tcap b { text-shadow: 0 1px 3px #000; }
+  .tile.zoomed .tmain { background: rgba(20, 23, 30, .82); }
   .card[draggable], .item[draggable] { cursor: grab; }
   .tcap {
     position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
@@ -2952,6 +2961,18 @@
       box.classList.add('drop');
     };
     box.ondragleave = () => box.classList.remove('drop');
+
+    /* Подпись развёрнутой ячейки живёт по расписанию штатной панели: та
+       всплывает на движение курсора и прячется через пару секунд покоя.
+       Спросить у браузера, видна ли она, нельзя — панель в теневом DOM,
+       поэтому повторяем правило у себя. */
+    let ctlTimer = 0;
+    box.onmousemove = () => {
+      box.classList.add('ctl');
+      clearTimeout(ctlTimer);
+      ctlTimer = setTimeout(() => box.classList.remove('ctl'), 2500);
+    };
+    box.onmouseleave = () => { clearTimeout(ctlTimer); box.classList.remove('ctl'); };
     box.ondrop = e => {
       e.preventDefault();
       box.classList.remove('drop');
