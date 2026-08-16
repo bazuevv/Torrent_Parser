@@ -833,40 +833,40 @@
        поднимают его при развороте. Из разметки не удаляем — код заполняет этот
        список при разборе плейлиста записи и файла. -->
   <span id="qualityBox" hidden>
-    <label for="quality" title="Дорожка текущего потока; сбрасывается при переключении комнаты">Качество</label>
+    <label for="quality" title="Дорожка текущего потока; сбрасывается при переключении комнаты" data-i18n-title="подпись.1">Качество</label>
     <select id="quality"
-            title="Дорожки этого эфира. По умолчанию берётся лучшая в пределах «Максимального битрейта» из настроек">
-      <option value="-1">авто</option>
+            title="Дорожки этого эфира. По умолчанию берётся лучшая в пределах «Максимального битрейта» из настроек" data-i18n-title="подпись.2">
+      <option value="-1" data-i18n="текст.1">авто</option>
     </select>
   </span>
 
-  <button id="rec" data-i18n="панель.запись" data-i18n-title="панель.запись.подсказка">Запись ждёт потока</button>
-  <button id="fromRec" data-i18n="панель.изЗаписи" data-i18n-title="панель.изЗаписи.подсказка">Из записи</button>
-  <button id="lib" data-i18n="панель.видео" data-i18n-title="панель.видео.подсказка">Видео</button>
-  <button id="live" data-i18n="панель.вЭфир" data-i18n-title="панель.вЭфир.подсказка">В эфир</button>
-  <button id="pip" data-i18n="панель.pip" data-i18n-title="панель.pip.подсказка">PiP</button>
+  <button id="rec" data-i18n="панель.запись" data-i18n-title="панель.запись.подсказка" data-i18n-title="подпись.3">Запись ждёт потока</button>
+  <button id="fromRec" data-i18n="панель.изЗаписи" data-i18n-title="панель.изЗаписи.подсказка" data-i18n-title="подпись.4">Из записи</button>
+  <button id="lib" data-i18n="панель.видео" data-i18n-title="панель.видео.подсказка" data-i18n-title="подпись.5">Видео</button>
+  <button id="live" data-i18n="панель.вЭфир" data-i18n-title="панель.вЭфир.подсказка" data-i18n-title="подпись.6">В эфир</button>
+  <button id="pip" data-i18n="панель.pip" data-i18n-title="панель.pip.подсказка" data-i18n-title="подпись.7">PiP</button>
 
   <div id="pipMenu" hidden>
-    <div data-pip="native">Стандартное
-      <small>рисует браузер: только видео, наших кнопок нет</small></div>
-    <div data-pip="doc">С панелью
-      <small>стрелки комнат и автопереключение; рамка и адрес</small></div>
+    <div data-pip="native"><span data-i18n="pip.обычное">Стандартное</span>
+      <small data-i18n="pip.обычное.описание">рисует браузер: только видео, наших кнопок нет</small></div>
+    <div data-pip="doc"><span data-i18n="pip.сПанелью">С панелью</span>
+      <small data-i18n="pip.сПанелью.описание">стрелки комнат и автопереключение; рамка и адрес</small></div>
   </div>
   <!-- Значок «окна внахлёст». Следом U+FE0E — селектор текстового начертания:
        без него часть шрифтов рисует символ цветным эмодзи, и он выбивается
        из одноцветной панели. -->
   <button id="scrAll" data-i18n-aria="панель.экраны"
-          data-i18n-title="панель.экраны.подсказка">&#x1F5D7;&#xFE0E;</button>
+          data-i18n-title="панель.экраны.подсказка" data-i18n-title="подпись.8">&#x1F5D7;&#xFE0E;</button>
 
   <div id="settings" hidden>
-    <button id="settingsClose" data-i18n-title="настройки.закрыть">×</button>
+    <button id="settingsClose" data-i18n-title="настройки.закрыть" data-i18n-title="подпись.9">×</button>
     <h3 data-i18n="настройки.заголовок">Настройки</h3>
 
     <details class="sect" open data-sect="base">
       <summary data-i18n="настройки.раздел.base">База ников</summary>
     <div class="row">
       <label data-i18n="настройки.подпись1">Пополнение</label>
-      <button id="accounts"  data-i18n="настройки.accounts.кнопка" data-i18n-title="настройки.accounts.кнопка.подсказка">Обновить аккаунты</button>
+      <button id="accounts"  data-i18n="настройки.accounts.кнопка" data-i18n-title="настройки.accounts.кнопка.подсказка" data-i18n-title="подпись.10">Обновить аккаунты</button>
       <i class="tip" data-hint="accounts" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
     <p class="hint" data-i18n="настройки.accounts.пояснение" hidden>База ников общая для всех браузеров — она живёт на
@@ -917,7 +917,7 @@
 
     <div class="row">
       <label for="libDir" data-i18n="настройки.libDir.подпись">Папка видео</label>
-      <input id="libDir" spellcheck="false" placeholder="не задана" readonly>
+      <input id="libDir" spellcheck="false" placeholder="не задана" data-i18n-ph="подпись.11" readonly>
       <i class="tip" data-hint="libDir" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
     <p class="hint" data-i18n="настройки.libDir.пояснение" hidden>Откуда кнопка «Видео» берёт файлы. Годится любая
@@ -1010,7 +1010,7 @@
 
     <div class="row">
       <label data-i18n="настройки.подпись3">Связь</label>
-      <button id="net"  data-i18n="настройки.net.кнопка" data-i18n-title="настройки.net.кнопка.подсказка">📡 Проверить</button>
+      <button id="net"  data-i18n="настройки.net.кнопка" data-i18n-title="настройки.net.кнопка.подсказка" data-i18n-title="подпись.12">📡 Проверить</button>
       <i class="tip" data-hint="net" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
     <p class="hint" data-i18n="настройки.net.пояснение" hidden>Пингует по очереди роутер, нейтральные узлы и
@@ -1287,7 +1287,7 @@
   <!-- Настройки последними: правый угол, подальше от кнопок, которые жмут
        постоянно. Отступом этого не добиться — строка статуса растягивается
        и всё равно встала бы правее. -->
-  <button id="gear" data-i18n-title="панель.настройки">⚙</button>
+  <button id="gear" data-i18n-title="панель.настройки" data-i18n-title="подпись.13">⚙</button>
 
   <div id="statusDetails" hidden>
     <pre id="statusText"></pre>
@@ -1298,22 +1298,22 @@
 </header>
 
 <dialog id="orphanDlg">
-  <h3>Незавершённые записи</h3>
-  <p>Сервер перезапускался во время записи, и эти куски остались без хозяина.
+  <h3 data-i18n="диалог.осколки.заголовок">Незавершённые записи</h3>
+  <p data-i18n="текст.2">Сервер перезапускался во время записи, и эти куски остались без хозяина.
      «Сохранить» склеит их в один mp4, «Удалить» — сотрёт.</p>
   <div id="orphanList"></div>
   <div class="dlg-btns">
-    <button id="orphanKeepAll"  data-i18n="настройки.orphanKeepAll.кнопка" data-i18n-title="настройки.orphanKeepAll.кнопка.подсказка">Сохранить все</button>
-    <button id="orphanDropAll"  data-i18n="настройки.orphanDropAll.кнопка" data-i18n-title="настройки.orphanDropAll.кнопка.подсказка">Удалить все</button>
-    <button id="orphanClose" class="primary"  data-i18n="настройки.orphanClose.кнопка" data-i18n-title="настройки.orphanClose.кнопка.подсказка">Позже</button>
+    <button id="orphanKeepAll"  data-i18n="настройки.orphanKeepAll.кнопка" data-i18n-title="настройки.orphanKeepAll.кнопка.подсказка" data-i18n-title="подпись.14">Сохранить все</button>
+    <button id="orphanDropAll"  data-i18n="настройки.orphanDropAll.кнопка" data-i18n-title="настройки.orphanDropAll.кнопка.подсказка" data-i18n-title="подпись.15">Удалить все</button>
+    <button id="orphanClose" class="primary"  data-i18n="настройки.orphanClose.кнопка" data-i18n-title="настройки.orphanClose.кнопка.подсказка" data-i18n-title="подпись.16">Позже</button>
   </div>
 </dialog>
 
 <dialog id="noteDlg">
-  <h3 id="noteTitle">Заметка</h3>
+  <h3 id="noteTitle" data-i18n="диалог.заметка.заголовок">Заметка</h3>
   <textarea id="noteText" rows="4" maxlength="500"
-            placeholder="Чем эта комната запомнилась"></textarea>
-  <p class="hint" id="noteHint">Пустая заметка удаляется. Видна со всех устройств —
+            placeholder="Чем эта комната запомнилась" data-i18n-ph="подпись.17"></textarea>
+  <p class="hint" id="noteHint" data-i18n="текст.3">Пустая заметка удаляется. Видна со всех устройств —
     хранится на сервере.</p>
   <div class="dlg-btns">
     <button id="noteSave" class="primary" data-i18n="настройки.noteSave.кнопка">Сохранить</button>
@@ -1322,22 +1322,22 @@
 </dialog>
 
 <dialog id="dirDlg">
-  <h3 id="dirTitle">Куда писать записи</h3>
+  <h3 id="dirTitle" data-i18n="диалог.папка.заголовок">Куда писать записи</h3>
   <p id="dirPath">…</p>
   <div id="dirList"></div>
   <div class="row">
-    <input id="dirNew" spellcheck="false" placeholder="имя новой подпапки (необязательно)"
-           title="Создать подпапку внутри текущей и выбрать её. Оставьте пустым, чтобы взять текущую">
+    <input id="dirNew" spellcheck="false" placeholder="имя новой подпапки (необязательно)" data-i18n-ph="подпись.18"
+           title="Создать подпапку внутри текущей и выбрать её. Оставьте пустым, чтобы взять текущую" data-i18n-title="подпись.19">
   </div>
   <div class="dlg-btns">
-    <button id="dirUp"  data-i18n="настройки.dirUp.кнопка" data-i18n-title="настройки.dirUp.кнопка.подсказка">Наверх</button>
-    <button id="dirPick" class="primary"  data-i18n="настройки.dirPick.кнопка" data-i18n-title="настройки.dirPick.кнопка.подсказка">Выбрать эту папку</button>
-    <button id="dirCancel"  data-i18n="настройки.dirCancel.кнопка" data-i18n-title="настройки.dirCancel.кнопка.подсказка">Отмена</button>
+    <button id="dirUp"  data-i18n="настройки.dirUp.кнопка" data-i18n-title="настройки.dirUp.кнопка.подсказка" data-i18n-title="подпись.20">Наверх</button>
+    <button id="dirPick" class="primary"  data-i18n="настройки.dirPick.кнопка" data-i18n-title="настройки.dirPick.кнопка.подсказка" data-i18n-title="подпись.21">Выбрать эту папку</button>
+    <button id="dirCancel"  data-i18n="настройки.dirCancel.кнопка" data-i18n-title="настройки.dirCancel.кнопка.подсказка" data-i18n-title="подпись.22">Отмена</button>
   </div>
 </dialog>
 
 <dialog id="baseDlg">
-  <h3>База ников</h3>
+  <h3 data-i18n="диалог.база.заголовок">База ников</h3>
   <p id="baseCount"></p>
   <ol>
     <li>Один раз перетащите ссылку <a id="bmLink" href="#">Собрать ники BongaCams</a>
@@ -1347,7 +1347,7 @@
         Выключить — плашка в углу той страницы или повторное нажатие закладки.</li>
   </ol>
   <details>
-    <summary>Если сервер был недоступен — вставить список вручную</summary>
+    <summary data-i18n="текст.4">Если сервер был недоступен — вставить список вручную</summary>
     <textarea id="importText" placeholder='[["ник",67,4589], …]'></textarea>
     <div class="dlg-btns">
       <button id="importOk" data-i18n="настройки.importOk.кнопка">Импортировать</button>
@@ -1363,15 +1363,15 @@
     <div class="panel-head">
       <span data-i18n="история.заголовок">История</span>
       <span id="histProgress"></span>
-      <button id="histClear" data-i18n="история.очистить" data-i18n-title="история.очистить.подсказка">Очистить</button>
+      <button id="histClear" data-i18n="история.очистить" data-i18n-title="история.очистить.подсказка" data-i18n-title="подпись.23">Очистить</button>
       <!-- Значок отдельным узлом: анимация на самой кнопке крутила её
            целиком, вместе с рамкой и фоном. -->
-      <button id="histCheck" data-i18n-title="история.проверить"><span class="rot">↻</span></button>
+      <button id="histCheck" data-i18n-title="история.проверить" data-i18n-title="подпись.24"><span class="rot">↻</span></button>
     </div>
     <div class="panel-body" id="histBody"></div>
   </aside>
 
-  <div class="grip" id="gripLeft"><span data-i18n-title="ручка.история"></span></div>
+  <div class="grip" id="gripLeft"><span data-i18n-title="ручка.история" data-i18n-title="подпись.25"></span></div>
 
   <div id="stage">
     <video id="v" controls autoplay playsinline></video>
@@ -1386,78 +1386,78 @@
     <div id="keepAsk" hidden>
       <div id="keepText"></div>
       <div class="dlg-btns">
-        <button id="keepYes" class="primary">Сохранить</button>
-        <button id="keepNo">Удалить</button>
+        <button id="keepYes" class="primary" data-i18n="текст.5">Сохранить</button>
+        <button id="keepNo" data-i18n="текст.6">Удалить</button>
       </div>
     </div>
 
     <div id="logPanel" hidden>
-      <div id="logHead">Журнал воспроизведения · пишется в /mnt/DATA/Bonga_rec/playback.log</div>
-      <button id="logClose" title="Закрыть журнал">×</button>
-      <button id="logCopy" title="Скопировать журнал">Копировать</button>
+      <div id="logHead" data-i18n="текст.7">Журнал воспроизведения · пишется в /mnt/DATA/Bonga_rec/playback.log</div>
+      <button id="logClose" title="Закрыть журнал" data-i18n-title="подпись.26">×</button>
+      <button id="logCopy" title="Скопировать журнал" data-i18n-title="подпись.27">Копировать</button>
       <pre id="logBody"></pre>
     </div>
 
     <div id="stats" hidden>
-      <button id="statsClose" title="Закрыть статистику">×</button>
+      <button id="statsClose" title="Закрыть статистику" data-i18n-title="подпись.28">×</button>
       <pre id="statsBody"></pre>
     </div>
 
     <div id="netPanel" hidden>
-      <button id="netClose" title="Закрыть проверку">×</button>
-      <button id="netRun" title="Прогнать замеры заново">Ещё раз</button>
+      <button id="netClose" title="Закрыть проверку" data-i18n-title="подпись.29">×</button>
+      <button id="netRun" title="Прогнать замеры заново" data-i18n-title="подпись.30">Ещё раз</button>
       <pre id="netBody"></pre>
     </div>
 
     <div id="libPanel" hidden>
-      <button id="libClose" title="Закрыть список">×</button>
-      <div id="libHead">Видео</div>
+      <button id="libClose" title="Закрыть список" data-i18n-title="подпись.31">×</button>
+      <div id="libHead" data-i18n="текст.8">Видео</div>
       <div id="libBody"></div>
     </div>
   </div>
 
   <div id="ctxMenu" hidden>
     <div data-act="stats"
-         title="Разрешение, битрейт, буфер, потерянные кадры, подвисания и ошибки — обновляется каждую секунду">Статистика для сисадминов</div>
+         title="Разрешение, битрейт, буфер, потерянные кадры, подвисания и ошибки — обновляется каждую секунду" data-i18n-title="подпись.32">Статистика для сисадминов</div>
     <div data-act="log"
-         title="Лента событий плеера: смены качества, обрывы сегментов, восстановления. Пишется и в файл на сервере">Журнал воспроизведения</div>
+         title="Лента событий плеера: смены качества, обрывы сегментов, восстановления. Пишется и в файл на сервере" data-i18n-title="подпись.33">Журнал воспроизведения</div>
     <hr>
     <div class="hint" id="ctxAutoTitle"
-         title="Плеер сам перейдёт в следующую комнату из списка справа через заданный срок">Автопереключение комнат</div>
-    <div data-act="auto:0" title="Оставаться в текущей комнате, пока не переключите вручную">выключить</div>
-    <div data-act="auto:30" title="Менять комнату каждые 30 секунд">каждые 30 секунд</div>
-    <div data-act="auto:60" title="Менять комнату раз в минуту">каждую минуту</div>
-    <div data-act="auto:180" title="Менять комнату раз в 3 минуты">каждые 3 минуты</div>
+         title="Плеер сам перейдёт в следующую комнату из списка справа через заданный срок" data-i18n-title="подпись.34">Автопереключение комнат</div>
+    <div data-act="auto:0" title="Оставаться в текущей комнате, пока не переключите вручную" data-i18n-title="подпись.35">выключить</div>
+    <div data-act="auto:30" title="Менять комнату каждые 30 секунд" data-i18n-title="подпись.36">каждые 30 секунд</div>
+    <div data-act="auto:60" title="Менять комнату раз в минуту" data-i18n-title="подпись.37">каждую минуту</div>
+    <div data-act="auto:180" title="Менять комнату раз в 3 минуты" data-i18n-title="подпись.38">каждые 3 минуты</div>
     <hr>
     <div data-act="pip"
-         title="Вынести видео в отдельное окно поверх других окон — со своими кнопками смены комнат">Картинка в картинке</div>
-    <div data-act="full" title="Развернуть видео на весь экран">Во весь экран</div>
-    <div data-act="mute" title="Приглушить или вернуть звук, не трогая громкость системы">Звук вкл/выкл</div>
+         title="Вынести видео в отдельное окно поверх других окон — со своими кнопками смены комнат" data-i18n-title="подпись.39">Картинка в картинке</div>
+    <div data-act="full" title="Развернуть видео на весь экран" data-i18n-title="подпись.40">Во весь экран</div>
+    <div data-act="mute" title="Приглушить или вернуть звук, не трогая громкость системы" data-i18n-title="подпись.41">Звук вкл/выкл</div>
     <hr>
-    <div data-act="profile" title="Открыть страницу модели на bongacams.com в новой вкладке">Открыть профиль на сайте</div>
-    <div data-act="copy" title="Скопировать адрес m3u8 — его понимают VLC, mpv и ffmpeg">Копировать адрес потока</div>
+    <div data-act="profile" title="Открыть страницу модели на bongacams.com в новой вкладке" data-i18n-title="подпись.42">Открыть профиль на сайте</div>
+    <div data-act="copy" title="Скопировать адрес m3u8 — его понимают VLC, mpv и ffmpeg" data-i18n-title="подпись.43">Копировать адрес потока</div>
     <div data-act="reload"
-         title="Пересоздать поток с нуля: помогает, когда картинка замерла или звук ушёл вперёд">Перезапустить поток</div>
+         title="Пересоздать поток с нуля: помогает, когда картинка замерла или звук ушёл вперёд" data-i18n-title="подпись.44">Перезапустить поток</div>
     <hr>
     <div data-act="haltAll"
-         title="Разорвать все потоки этого экрана: трафик прекращается, комнаты остаются в ячейках с последним кадром">Остановить все на экране</div>
+         title="Разорвать все потоки этого экрана: трафик прекращается, комнаты остаются в ячейках с последним кадром" data-i18n-title="подпись.45">Остановить все на экране</div>
     <div data-act="goOnAll"
-         title="Поднять заново все остановленные ячейки этого экрана">Возобновить все</div>
+         title="Поднять заново все остановленные ячейки этого экрана" data-i18n-title="подпись.46">Возобновить все</div>
     <hr>
-    <div class="hint">Shift + правая кнопка — меню браузера</div>
+    <div class="hint" data-i18n="текст.9">Shift + правая кнопка — меню браузера</div>
   </div>
 
-  <div class="grip" id="gripRight"><span data-i18n-title="ручка.эфир"></span></div>
+  <div class="grip" id="gripRight"><span data-i18n-title="ручка.эфир" data-i18n-title="подпись.47"></span></div>
 
   <aside id="online">
     <div class="panel-head">
       <span id="onlineCount" data-i18n="эфир.заголовок">Доступные</span>
-      <button id="onlineRefresh" data-i18n-title="эфир.обновить">↻</button>
+      <button id="onlineRefresh" data-i18n-title="эфир.обновить" data-i18n-title="подпись.48">↻</button>
     </div>
     <div class="panel-find">
       <input id="onlineFind" spellcheck="false" data-i18n-ph="эфир.поиск"
              autocomplete="off">
-      <button id="findClear" data-i18n-title="эфир.поиск.очистить" hidden>×</button>
+      <button id="findClear" data-i18n-title="эфир.поиск.очистить" data-i18n-title="подпись.49" hidden>×</button>
       <div id="findTips" hidden></div>
     </div>
     <div class="panel-body" id="onlineBody"></div>
@@ -1607,6 +1607,14 @@
      Ключи именуются по месту: «панель.запись», «настройки.битрейт.подпись».
      Так видно, откуда строка, и перевод можно сверять по разделам. */
   const RU = {
+    'pip.обычное': 'Стандартное',
+    'pip.обычное.описание': 'рисует браузер: только видео, наших кнопок нет',
+    'pip.сПанелью': 'С панелью',
+    'pip.сПанелью.описание': 'стрелки комнат и автопереключение; рамка и адрес',
+    'диалог.база.заголовок': 'База ников',
+    'диалог.заметка.заголовок': 'Заметка',
+    'диалог.осколки.заголовок': 'Незавершённые записи',
+    'диалог.папка.заголовок': 'Куда писать записи',
     'журнал.1': 'новый источник: {url}',
     'журнал.10': 'прыжок к живому краю',
     'журнал.11': '{id}: {знач1} — короче порога, удаляю',
@@ -1833,6 +1841,55 @@
     'панель.настройки': 'Настройки',
     'панель.экраны': 'Экраны',
     'панель.экраны.подсказка': 'Экраны: обзор всех экранов с превью трансляций',
+    'подпись.1': 'Дорожка текущего потока; сбрасывается при переключении комнаты',
+    'подпись.10': 'настройки.accounts.кнопка.подсказка',
+    'подпись.11': 'не задана',
+    'подпись.12': 'настройки.net.кнопка.подсказка',
+    'подпись.13': 'панель.настройки',
+    'подпись.14': 'настройки.orphanKeepAll.кнопка.подсказка',
+    'подпись.15': 'настройки.orphanDropAll.кнопка.подсказка',
+    'подпись.16': 'настройки.orphanClose.кнопка.подсказка',
+    'подпись.17': 'Чем эта комната запомнилась',
+    'подпись.18': 'имя новой подпапки (необязательно)',
+    'подпись.19': 'Создать подпапку внутри текущей и выбрать её. Оставьте пустым, чтобы взять текущую',
+    'подпись.2': 'Дорожки этого эфира. По умолчанию берётся лучшая в пределах «Максимального битрейта» из настроек',
+    'подпись.20': 'настройки.dirUp.кнопка.подсказка',
+    'подпись.21': 'настройки.dirPick.кнопка.подсказка',
+    'подпись.22': 'настройки.dirCancel.кнопка.подсказка',
+    'подпись.23': 'история.очистить.подсказка',
+    'подпись.24': 'история.проверить',
+    'подпись.25': 'ручка.история',
+    'подпись.26': 'Закрыть журнал',
+    'подпись.27': 'Скопировать журнал',
+    'подпись.28': 'Закрыть статистику',
+    'подпись.29': 'Закрыть проверку',
+    'подпись.3': 'панель.запись.подсказка',
+    'подпись.30': 'Прогнать замеры заново',
+    'подпись.31': 'Закрыть список',
+    'подпись.32': 'Разрешение, битрейт, буфер, потерянные кадры, подвисания и ошибки — обновляется каждую секунду',
+    'подпись.33': 'Лента событий плеера: смены качества, обрывы сегментов, восстановления. Пишется и в файл на сервере',
+    'подпись.34': 'Плеер сам перейдёт в следующую комнату из списка справа через заданный срок',
+    'подпись.35': 'Оставаться в текущей комнате, пока не переключите вручную',
+    'подпись.36': 'Менять комнату каждые 30 секунд',
+    'подпись.37': 'Менять комнату раз в минуту',
+    'подпись.38': 'Менять комнату раз в 3 минуты',
+    'подпись.39': 'Вынести видео в отдельное окно поверх других окон — со своими кнопками смены комнат',
+    'подпись.4': 'панель.изЗаписи.подсказка',
+    'подпись.40': 'Развернуть видео на весь экран',
+    'подпись.41': 'Приглушить или вернуть звук, не трогая громкость системы',
+    'подпись.42': 'Открыть страницу модели на bongacams.com в новой вкладке',
+    'подпись.43': 'Скопировать адрес m3u8 — его понимают VLC, mpv и ffmpeg',
+    'подпись.44': 'Пересоздать поток с нуля: помогает, когда картинка замерла или звук ушёл вперёд',
+    'подпись.45': 'Разорвать все потоки этого экрана: трафик прекращается, комнаты остаются в ячейках с последним кадром',
+    'подпись.46': 'Поднять заново все остановленные ячейки этого экрана',
+    'подпись.47': 'ручка.эфир',
+    'подпись.48': 'эфир.обновить',
+    'подпись.49': 'эфир.поиск.очистить',
+    'подпись.5': 'панель.видео.подсказка',
+    'подпись.6': 'панель.вЭфир.подсказка',
+    'подпись.7': 'панель.pip.подсказка',
+    'подпись.8': 'панель.экраны.подсказка',
+    'подпись.9': 'настройки.закрыть',
     'подсказка.нажмите': 'Нажмите для получения подробной информации',
     'подсказка.пояснение': 'Пояснение',
     'ручка.история': 'Свернуть/развернуть историю',
@@ -1932,10 +1989,76 @@
     'статус.9': '12 секунд без данных — похоже, эфир закончился.',
     'статус.начало': 'Стена поднимается сама. Комнату можно взять из правой колонки.',
     'стена.новаяЯчейка': '＋ новая ячейка',
+    'текст.1': 'авто',
+    'текст.2': 'Сервер перезапускался во время записи, и эти куски остались без хозяина. «Сохранить» склеит их в один mp4, «Удалить» — сотрёт.',
+    'текст.3': 'Пустая заметка удаляется. Видна со всех устройств — хранится на сервере.',
+    'текст.4': 'Если сервер был недоступен — вставить список вручную',
+    'текст.5': 'Сохранить',
+    'текст.6': 'Удалить',
+    'текст.7': 'Журнал воспроизведения · пишется в /mnt/DATA/Bonga_rec/playback.log',
+    'текст.8': 'Видео',
+    'текст.9': 'Shift + правая кнопка — меню браузера',
+    'узел.1': 'Сохранить',
+    'узел.10': 'Записи нет!',
+    'узел.11': 'Перейти на этот экран',
+    'узел.12': 'Экран {знач1}',
+    'узел.13': 'открыт',
+    'узел.14': 'Убрать этот экран вместе с трансляциями',
+    'узел.15': 'Завести пустой экран',
+    'узел.16': 'нет',
+    'узел.17': 'стоп',
+    'узел.18': '⏭ отстаём на {знач1}',
+    'узел.19': 'Открыть профиль на сайте',
+    'узел.2': 'Удалить',
+    'узел.20': 'Убрать из истории',
+    'узел.21': 'Заметка · {user}',
+    'узел.22': 'Читаю профиль…',
+    'узел.23': 'Подставлено из раздела «Обо мне» профиля — ',
+    'узел.24': 'В профиле раздел «Обо мне» не заполнен. ',
+    'узел.25': 'Активность: размах {знач1}% ',
+    'узел.26': 'Точно?',
+    'узел.27': 'Очистить',
+    'узел.28': 'Очистить',
+    'узел.29': 'Проверяю…',
+    'узел.3': 'Скопировано',
+    'узел.30': 'Проверяю… {done}/{length}',
+    'узел.31': 'В эфире: {length} из {знач1}',
+    'узел.32': 'Проверено ников с известным сервером: {length}. ',
+    'узел.33': 'В эфире: {length} · {знач1}',
+    'узел.34': 'Показан прошлый результат проверки. Полный обход запускается ',
+    'узел.35': 'нет',
+    'узел.36': 'Открыть «{proper}»',
+    'узел.37': 'Убрать из истории',
+    'узел.38': 'bookmarklet.js не найден',
+    'узел.39': 'Сейчас в базе {length} ников: {знач1} из сохранённой ',
+    'узел.4': 'Не вышло — выделите вручную',
+    'узел.40': 'Обновить аккаунты ({left})',
+    'узел.41': 'Скопировано',
+    'узел.42': 'Выделите вручную',
+    'узел.43': 'Копировать',
+    'узел.44': '\n      body { margin: 0; background: #000; color: #e6e8ec; overflow: hidden; position: relative;\n             font: 12px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }\n      #vid { flex: 1 1 auto; min-height: 0; }\n      video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }\n      #bar { flex: 0 0 auto; display: flex; align-items: center; gap: 5px;\n             padding: 5px 6px; background: #1c1f26; border-top: 1px solid #2a2f3a; }\n      #bar button, #bar select { font: 12px system-ui, sans-serif; color: #e6e8ec;\n             background: #262b34; border: 1px solid #39404d; border-radius: 5px;\n             padding: 3px 7px; cursor: pointer; }\n      #bar button:hover { background: #303743; }\n      #bar label { color: #98a1b0; }\n      #nick { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap;\n              text-overflow: ellipsis; color: #98a1b0; }\n      /* Вопрос о судьбе записи переезжает сюда, когда открыто это окно. */\n      #keepAsk { position: absolute; z-index: 9; right: 10px; bottom: 46px; width: 280px;\n                 padding: 10px 12px; border-radius: 10px; background: #1c1f26;\n                 border: 1px solid #39404d; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); }\n      #keepText { font-size: 12px; line-height: 1.45; }\n      #keepText b { color: #7ee787; }\n      #keepText i { color: #98a1b0; font-style: normal; }\n      #keepAsk .dlg-btns { display: flex; gap: 8px; margin-top: 8px; }\n      #keepAsk button { padding: 4px 10px; }\n      #keepYes { background: #2f6fd0; border-color: #2f6fd0; }\n      /* Свой список вместо <select>: в системном нельзя покрасить часть текста,\n         а нужен зелёный счётчик рядом с названием интервала. */\n      #pick { position: relative; }\n      #autoBtn { min-width: 84px; text-align: left; }\n      #autoBtn b { color: #7ee787; font-weight: 600; }\n      #autoMenu { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 5;\n                  min-width: 96px; padding: 4px; background: #262b34;\n                  border: 1px solid #39404d; border-radius: 6px;\n                  box-shadow: 0 6px 18px rgba(0, 0, 0, .6); }\n      #autoMenu div { padding: 5px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; }\n      #autoMenu div:hover { background: #2f6fd0; }\n      #autoMenu div.on { color: #7ee787; }\n    ',
+    'узел.5': 'Копировать',
+    'узел.6': 'Склеиваю…',
+    'узел.7': 'На диск',
+    'узел.8': 'Запись остановлена',
+    'узел.9': 'Запись ждёт потока',
     'эфир.заголовок': 'Доступные',
     'эфир.обновить': 'Проверить, кто в эфире',
     'эфир.поиск': 'Поиск по нику',
     'эфир.поиск.очистить': 'Очистить поиск',
+    'ячейка.pip': 'Картинка в картинке',
+    'ячейка.громкость': 'Громкость',
+    'ячейка.догнать': 'Догнать живой край',
+    'ячейка.звук': 'Звук (M)',
+    'ячейка.копировать': 'Скопировать ник',
+    'ячейка.нет': 'нет',
+    'ячейка.пауза': 'Пауза (пробел)',
+    'ячейка.развернуть': 'Развернуть поверх остальных',
+    'ячейка.свободна': 'Свободно. Щёлкните карточку справа — комната придёт в последнюю ячейку; перетаскиванием можно в любую',
+    'ячейка.стоп': 'Остановить приём: трафик прекращается, комната остаётся в ячейке',
+    'ячейка.убрать': 'Убрать ячейку',
+    'ячейка.ушла': 'Комната ушла из эфира. Нажмите, чтобы попробовать снова',
+    'ячейка.экран': 'На весь экран (F)',
   };
   let words = RU;                    // словарь текущего языка
   let langNow = 'ru';
@@ -2262,11 +2385,11 @@
                          `${fmtSize(item.bytes)} · ${when(item.at * 1000)}`;
 
       const keep = document.createElement('button');
-      keep.textContent = 'Сохранить';
+      keep.textContent = t('узел.1');
       keep.onclick = () => orphanAct('keep', item.id, keep);
 
       const drop = document.createElement('button');
-      drop.textContent = 'Удалить';
+      drop.textContent = t('узел.2');
       drop.onclick = () => orphanAct('drop', item.id, drop);
 
       row.append(name, info, keep, drop);
@@ -2438,9 +2561,9 @@
 
   $('statusCopy').onclick = () => {
     navigator.clipboard.writeText($('statusText').textContent)
-      .then(() => { $('statusCopy').textContent = 'Скопировано'; })
-      .catch(() => { $('statusCopy').textContent = 'Не вышло — выделите вручную'; })
-      .finally(() => setTimeout(() => { $('statusCopy').textContent = 'Копировать'; }, 2000));
+      .then(() => { $('statusCopy').textContent = t('узел.3'); })
+      .catch(() => { $('statusCopy').textContent = t('узел.4'); })
+      .finally(() => setTimeout(() => { $('statusCopy').textContent = t('узел.5'); }, 2000));
   };
 
   // edge бывает числовой (67 -> mobile-edge67) и американский (us14 -> mobile-edge-us14)
@@ -3142,14 +3265,14 @@
 
   function paintRec() {
     $('rec').classList.toggle('on', Boolean(session));
-    if (session && session.phase === 'merging') $('rec').textContent = 'Склеиваю…';
+    if (session && session.phase === 'merging') $('rec').textContent = t('узел.6');
     // Без «| 0»: побитовые действия в JS усекают до 32 бит со знаком, и всё
     // тяжелее 2 ГиБ уходило в минус — двухчасовая запись показывала «−1615960 КБ».
     else if (session) $('rec').textContent = `⏺ ${fmtTime(session.seconds)} · ${fmtSize(session.bytes)}`;
-    else if (!cfg('recMode')) $('rec').textContent = 'На диск';
-    else if (recStopped) $('rec').textContent = 'Запись остановлена';
-    else if (video.paused || !video.src) $('rec').textContent = 'Запись ждёт потока';
-    else $('rec').textContent = 'Записи нет!';
+    else if (!cfg('recMode')) $('rec').textContent = t('узел.7');
+    else if (recStopped) $('rec').textContent = t('узел.8');
+    else if (video.paused || !video.src) $('rec').textContent = t('узел.9');
+    else $('rec').textContent = t('узел.10');
   }
 
   // Готовую склейку играем как обычный файл: hls.js тут не нужен, а браузер
@@ -3611,19 +3734,19 @@
       const busy = screen.tiles.filter(tile => tile.user);
       const card = document.createElement('div');
       card.className = 'scr';
-      card.title = 'Перейти на этот экран';
+      card.title = t('узел.11');
 
       const cap = document.createElement('div');
       cap.className = 'scrCap';
       const name = document.createElement('span');
-      name.textContent = `Экран ${at + 1}`;
+      name.textContent = t('узел.12', { знач1: at + 1 });
       const count = document.createElement('i');
       count.textContent = busy.length
         ? `${busy.length} ${plural(busy.length, 'трансляция', 'трансляции', 'трансляций')}`
         : 'пусто';
       const now = document.createElement('span');
       now.className = 'now';
-      now.textContent = 'открыт';
+      now.textContent = t('узел.13');
       cap.append(name, count, now);
 
       /* Крестик убирает экран целиком. Раньше он жил на полоске в шапке, а
@@ -3633,7 +3756,7 @@
         const gone = document.createElement('span');
         gone.className = 'kill';
         gone.textContent = '×';
-        gone.title = 'Убрать этот экран вместе с трансляциями';
+        gone.title = t('узел.14');
         gone.onclick = e => { e.stopPropagation(); dropScreen(at); scrPaint(); };
         cap.appendChild(gone);
       }
@@ -3676,7 +3799,7 @@
     const [wide, high] = wallArea();
     const add = document.createElement('div');
     add.className = 'scr add';
-    add.title = 'Завести пустой экран';
+    add.title = t('узел.15');
     const cap = document.createElement('div');
     cap.className = 'scrCap';
     cap.innerHTML = '<span>Новый экран</span><i>ещё шестнадцать ячеек</i>';
@@ -3687,6 +3810,7 @@
     add.append(cap, grid);
     add.onclick = () => { addScreen(); scrPaint(); };
     body.appendChild(add);
+    applyLang(body);          // карточки экранов созданы только что
     scrMark();
   }
 
@@ -3756,7 +3880,7 @@
     tile.video.load();
     tile.box.classList.add('offline');
     tile.box.classList.remove('loud');
-    tile.box.querySelector('.off').textContent = 'нет';
+    tile.box.querySelector('.off').textContent = t('узел.16');
     paintQuality(tile);
 
     const shot = tile.box.querySelector('.tshot');
@@ -3828,7 +3952,7 @@
     tile.video.load();
     tile.box.classList.add('halted');
     tile.box.classList.remove('loud');
-    tile.box.querySelector('.off').textContent = 'стоп';
+    tile.box.querySelector('.off').textContent = t('узел.17');
     paintQuality(tile);           // играть нечему — качества нет
 
     const shot = tile.box.querySelector('.tshot');
@@ -4057,7 +4181,7 @@
     const lag = tileLag(tile);
     const live = bar.querySelector('.tlive');
     live.hidden = lag <= 6;
-    if (!live.hidden) live.textContent = `⏭ отстаём на ${clock(lag)}`;
+    if (!live.hidden) live.textContent = t('узел.18', { знач1: clock(lag) });
 
     const full = bar.querySelector('.tfull');
     full.title = document.fullscreenElement ? 'Выйти из полного экрана (F)' : 'На весь экран (F)';
@@ -4394,32 +4518,33 @@
   function makeTile() {
     const box = document.createElement('div');
     box.className = 'tile';
+    /* Подписи размечены атрибутами, а сами тексты лежат в словаре: ячейка
+       создаётся уже после запуска страницы, поэтому язык применяется к ней
+       отдельно — строкой applyLang ниже. */
     box.innerHTML = '<video muted playsinline></video>' +
-                    '<img class="tshot" alt="" title="Комната ушла из эфира. ' +
-                    'Нажмите, чтобы попробовать снова">' +
-                    '<div class="offBox"><span class="off">нет</span>' +
+                    '<img class="tshot" alt="" data-i18n-title="ячейка.ушла">' +
+                    '<div class="offBox"><span class="off" data-i18n="ячейка.нет">нет</span>' +
                     '<span class="offAt"></span></div>' +
-                    '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
-                    'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
+                    '<div class="empty" data-i18n-title="ячейка.свободна">＋</div>' +
                     '<div class="tcap"><i class="tnum"></i>' +
                     '<span class="tname"><b></b>' +
-                    '<span class="tcopy" title="Скопировать ник">⧉</span>' +
+                    '<span class="tcopy" data-i18n-title="ячейка.копировать">⧉</span>' +
                     '<i class="tq"></i></span>' +
-                    '<span class="tclose" title="Убрать ячейку">×</span></div>' +
+                    '<span class="tclose" data-i18n-title="ячейка.убрать">×</span></div>' +
                     '<div class="tbar">' +
-                      '<span class="tb tplay" title="Пауза (пробел)">⏸</span>' +
-                      '<span class="tb tstop" title="Остановить приём: трафик ' +
-                        'прекращается, комната остаётся в ячейке">⏹</span>' +
-                      '<span class="tb tmute" title="Звук (M)">🔇</span>' +
+                      '<span class="tb tplay" data-i18n-title="ячейка.пауза">⏸</span>' +
+                      '<span class="tb tstop" data-i18n-title="ячейка.стоп">⏹</span>' +
+                      '<span class="tb tmute" data-i18n-title="ячейка.звук">🔇</span>' +
                       '<input class="tvol" type="range" min="0" max="1" step="0.02" ' +
-                        'aria-label="Громкость">' +
+                        'data-i18n-aria="ячейка.громкость">' +
                       '<span class="ttime">0:00</span>' +
-                      '<span class="tb tlive" title="Догнать живой край" hidden></span>' +
+                      '<span class="tb tlive" data-i18n-title="ячейка.догнать" hidden></span>' +
                       '<span class="gap"></span>' +
-                      '<span class="tb tpip" title="Картинка в картинке">🖼</span>' +
-                      '<span class="tb tfull" title="На весь экран (F)">⛶</span>' +
-                      '<span class="tb tzoom" title="Развернуть поверх остальных">⤢</span>' +
+                      '<span class="tb tpip" data-i18n-title="ячейка.pip">🖼</span>' +
+                      '<span class="tb tfull" data-i18n-title="ячейка.экран">⛶</span>' +
+                      '<span class="tb tzoom" data-i18n-title="ячейка.развернуть">⤢</span>' +
                     '</div>';
+    applyLang(box);           // узел создан после старта — переводим его сам
     const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
 
     /* Ячейку можно взять и переставить. Тащим за картинку, а не за отдельную
@@ -4536,7 +4661,7 @@
     // Щелчок по нику открывает профиль модели на сайте. Подпись есть у каждой
     // ячейки, а кнопка в шапке знает только ту комнату, на которую смотрят.
     const nick = box.querySelector('b');
-    nick.title = 'Открыть профиль на сайте';
+    nick.title = t('узел.19');
     nick.onclick = () => { if (tile.user) openProfile(tile.user); };
 
     box.querySelector('.tcopy').onclick = e => {
@@ -4975,7 +5100,7 @@
       const del = document.createElement('span');
       del.className = 'del';
       del.textContent = '×';
-      del.title = 'Убрать из истории';
+      del.title = t('узел.20');
       del.onclick = e => {
         e.stopPropagation();
         saveHist(loadHist().filter(x => x.u !== rec.u));
@@ -5073,7 +5198,7 @@
     const already = notes.get(key) || '';
     const run = ++noteRun;
 
-    $('noteTitle').textContent = `Заметка · ${user}`;
+    $('noteTitle').textContent = t('узел.21', { user: user });
     $('noteText').value = already;
     $('noteHint').textContent = NOTE_HINT;
     $('noteDlg').show();                 // немодально: список остаётся под рукой
@@ -5091,7 +5216,7 @@
      идёт после открытия окна, а не до: страница профиля весит триста
      килобайт, и ждать её перед показом редактора незачем. */
   async function fillFromProfile(user, run) {
-    $('noteHint').textContent = 'Читаю профиль…';
+    $('noteHint').textContent = t('узел.22');
     let text = '';
     try {
       const res = await fetch(`api/about?user=${encodeURIComponent(user)}`,
@@ -5105,10 +5230,10 @@
 
     if (text) {
       $('noteText').value = text;
-      $('noteHint').textContent = 'Подставлено из раздела «Обо мне» профиля — ' +
+      $('noteHint').textContent = t('узел.23') +
                                   'правьте как удобно. ' + NOTE_HINT;
     } else {
-      $('noteHint').textContent = 'В профиле раздел «Обо мне» не заполнен. ' + NOTE_HINT;
+      $('noteHint').textContent = t('узел.24') + NOTE_HINT;
     }
   }
 
@@ -5190,7 +5315,7 @@
       }
       act.dataset.level = String(level);
       act.dataset.now = score.level >= 1.2 ? '1' : '0';
-      act.title = `Активность: размах ${Math.round(score.spread * 100)}% ` +
+      act.title = t('узел.25', { знач1: Math.round(score.spread * 100) }) +
         `от собственной нормы, сейчас ${Math.round(score.level * 100)}% ` +
         `(по ${score.count} кускам, медиана ${score.median} Мбит/с)`;
     }
@@ -5282,18 +5407,18 @@
     const armed = Date.now() - clearArmed < 4000;
     if (!armed) {
       clearArmed = Date.now();
-      $('histClear').textContent = 'Точно?';
+      $('histClear').textContent = t('узел.26');
       $('histClear').classList.add('on');
       setTimeout(() => {
         if (Date.now() - clearArmed < 4000) return;
-        $('histClear').textContent = 'Очистить';
+        $('histClear').textContent = t('узел.27');
         $('histClear').classList.remove('on');
       }, 4000);
       return;
     }
 
     clearArmed = 0;
-    $('histClear').textContent = 'Очистить';
+    $('histClear').textContent = t('узел.28');
     $('histClear').classList.remove('on');
     const count = loadHist().length;
     localStorage.removeItem('history');
@@ -5366,7 +5491,7 @@
     if (!force && Date.now() - lastProbeAt < onlineGap()) return;
     probing = true;
     $('onlineRefresh').disabled = true;
-    $('onlineCount').textContent = 'Проверяю…';
+    $('onlineCount').textContent = t('узел.29');
 
     // Ники без номера сервера (пришедшие из sitemap) проверить нечем: перебирать
     // ради каждого все 105 edge слишком дорого. Они живут в подсказках поля «Ник»,
@@ -5384,15 +5509,15 @@
     await runPool(all, cfg('pool'), async m => {
       const age = await thumbAge(m[0], m[1]);
       if (age <= FRESH_MS) live.push([m[0], m[1], m[2] | 0, Math.round((Date.now() - age) / 1000)]);
-      if (++done % 10 === 0) $('onlineCount').textContent = `Проверяю… ${done}/${all.length}`;
+      if (++done % 10 === 0) $('onlineCount').textContent = t('узел.30', { done: done, length: all.length });
     });
 
     live.sort((a, b) => b[2] - a[2]);                  // по зрителям из снимка
     lastProbeAt = Date.now();
     saveOnlineCache(live);
     renderOnline(live);
-    $('onlineCount').textContent = `В эфире: ${live.length} из ${all.length}`;
-    $('onlineCount').title = `Проверено ников с известным сервером: ${all.length}. ` +
+    $('onlineCount').textContent = t('узел.31', { length: live.length, знач1: all.length });
+    $('onlineCount').title = t('узел.32', { length: all.length }) +
       `Ещё ${catalog.length - all.length} в базе без сервера — они есть в подсказках поля «Ник».`;
     $('onlineRefresh').disabled = false;
     probing = false;
@@ -5410,8 +5535,8 @@
 
     lastProbeAt = at;
     renderOnline(cache.live);
-    $('onlineCount').textContent = `В эфире: ${cache.live.length} · ${ageText(at)}`;
-    $('onlineCount').title = 'Показан прошлый результат проверки. Полный обход запускается ' +
+    $('onlineCount').textContent = t('узел.33', { length: cache.live.length, знач1: ageText(at) });
+    $('onlineCount').title = t('узел.34') +
       'кнопкой ↻ или сам, если данным больше часа.';
     return true;
   }
@@ -5587,7 +5712,7 @@
 
     const off = document.createElement('span');
     off.className = 'off';
-    off.textContent = 'нет';
+    off.textContent = t('узел.35');
 
     const offAt = document.createElement('span');
     offAt.className = 'offAt';
@@ -5613,6 +5738,7 @@
       e.dataTransfer.setData('text/plain', JSON.stringify({ user, edge: String(edge) }));
       e.dataTransfer.effectAllowed = 'copy';
     };
+    applyLang(card);          // карточка создана после старта
     return card;
   }
 
@@ -5688,7 +5814,7 @@
     // поиск найдёт сервер сам.
     const row = document.createElement('div');
     row.id = 'openFound';
-    row.textContent = `Открыть «${proper}»`;
+    row.textContent = t('узел.36', { proper: proper });
     row.onclick = () => {
       rememberFind(proper);
       openStream(proper, known.get(proper.toLowerCase()) || '');
@@ -5774,7 +5900,7 @@
         const del = document.createElement('span');
         del.className = 'del';
         del.textContent = '×';
-        del.title = 'Убрать из истории';
+        del.title = t('узел.37');
         del.onmousedown = e => e.preventDefault();     // не отдаём фокус полю
         del.onclick = e => { e.stopPropagation(); forgetFind(item.name); paintFindTips(); };
         row.appendChild(del);
@@ -5954,7 +6080,7 @@
       $('bmLink').href = 'javascript:' +
         encodeURIComponent(src.replace('__PLAYER_ORIGIN__', location.origin));
     })
-    .catch(() => { $('bmLink').removeAttribute('href'); $('bmLink').textContent = 'bookmarklet.js не найден'; });
+    .catch(() => { $('bmLink').removeAttribute('href'); $('bmLink').textContent = t('узел.38'); });
 
   // Разбор списка. Возвращает null, если это не наш JSON — тогда вызывающий
   // сам решает, ругаться или открыть окно с инструкцией.
@@ -5994,7 +6120,7 @@
   function openBaseDialog() {
     const extra = Object.keys(loadExtra()).length;
     $('baseCount').textContent =
-      `Сейчас в базе ${catalog.length} ников: ${(window.BONGA_MODELS || []).length} из сохранённой ` +
+      t('узел.39', { length: catalog.length, знач1: (window.BONGA_MODELS || []).length }) +
       `страницы и ${extra} добавленных. С известным сервером — ${catalog.filter(m => m[1]).length}.`;
     $('baseDlg').showModal();
   }
@@ -6011,7 +6137,7 @@
 
   function paintAccounts() {
     const left = Math.max(0, Math.round((nextPull - Date.now()) / 1000));
-    $('accounts').textContent = `Обновить аккаунты (${left})`;
+    $('accounts').textContent = t('узел.40', { left: left });
   }
 
   async function pullTick() {
@@ -6233,9 +6359,9 @@
   $('logCopy').onclick = e => {
     e.stopPropagation();
     navigator.clipboard.writeText(logLines.map(i => i.line).join('\n'))
-      .then(() => { $('logCopy').textContent = 'Скопировано'; })
-      .catch(() => { $('logCopy').textContent = 'Выделите вручную'; })
-      .finally(() => setTimeout(() => { $('logCopy').textContent = 'Копировать'; }, 2000));
+      .then(() => { $('logCopy').textContent = t('узел.41'); })
+      .catch(() => { $('logCopy').textContent = t('узел.42'); })
+      .finally(() => setTimeout(() => { $('logCopy').textContent = t('узел.43'); }, 2000));
   };
 
   // События самого видеоэлемента — их и не хватает, когда «встало на паузе».
@@ -6788,43 +6914,7 @@
     });
 
     const style = win.document.createElement('style');
-    style.textContent = `
-      body { margin: 0; background: #000; color: #e6e8ec; overflow: hidden; position: relative;
-             font: 12px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
-      #vid { flex: 1 1 auto; min-height: 0; }
-      video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
-      #bar { flex: 0 0 auto; display: flex; align-items: center; gap: 5px;
-             padding: 5px 6px; background: #1c1f26; border-top: 1px solid #2a2f3a; }
-      #bar button, #bar select { font: 12px system-ui, sans-serif; color: #e6e8ec;
-             background: #262b34; border: 1px solid #39404d; border-radius: 5px;
-             padding: 3px 7px; cursor: pointer; }
-      #bar button:hover { background: #303743; }
-      #bar label { color: #98a1b0; }
-      #nick { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap;
-              text-overflow: ellipsis; color: #98a1b0; }
-      /* Вопрос о судьбе записи переезжает сюда, когда открыто это окно. */
-      #keepAsk { position: absolute; z-index: 9; right: 10px; bottom: 46px; width: 280px;
-                 padding: 10px 12px; border-radius: 10px; background: #1c1f26;
-                 border: 1px solid #39404d; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); }
-      #keepText { font-size: 12px; line-height: 1.45; }
-      #keepText b { color: #7ee787; }
-      #keepText i { color: #98a1b0; font-style: normal; }
-      #keepAsk .dlg-btns { display: flex; gap: 8px; margin-top: 8px; }
-      #keepAsk button { padding: 4px 10px; }
-      #keepYes { background: #2f6fd0; border-color: #2f6fd0; }
-      /* Свой список вместо <select>: в системном нельзя покрасить часть текста,
-         а нужен зелёный счётчик рядом с названием интервала. */
-      #pick { position: relative; }
-      #autoBtn { min-width: 84px; text-align: left; }
-      #autoBtn b { color: #7ee787; font-weight: 600; }
-      #autoMenu { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 5;
-                  min-width: 96px; padding: 4px; background: #262b34;
-                  border: 1px solid #39404d; border-radius: 6px;
-                  box-shadow: 0 6px 18px rgba(0, 0, 0, .6); }
-      #autoMenu div { padding: 5px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
-      #autoMenu div:hover { background: #2f6fd0; }
-      #autoMenu div.on { color: #7ee787; }
-    `;
+    style.textContent = t('узел.44');
     win.document.head.append(style);
 
     const holder = win.document.createElement('div');
