@@ -1665,16 +1665,28 @@
   }
 
   async function useLang(code) {
+    langNow = code;
+    if (code === 'ru') {                  // русский освежает сам pickLang
+      words = base;
+      applyLang();
+      return;
+    }
+
+    /* Кэш показываем сразу, но обновляемся с сервера всегда. Прежде обновление
+       стояло под «если кэша нет» — а к тому месту кэш есть уже гарантированно:
+       либо лежал изначально, либо его только что записал fetchLang. Условие не
+       срабатывало никогда, и однажды сохранённый словарь оставался в браузере
+       навечно: правка перевода не доходила до человека вовсе, а образец на
+       два десятка ключей выглядел как «язык не работает». */
+    const cached = cachedLang(code);
     // Недостающие ключи берутся из русского: перевод отстаёт от страницы
     // всегда, и смешанный язык лучше дыр в интерфейсе.
-    if (code === 'ru') {
-      words = base;
-    } else {
-      const other = cachedLang(code) || await fetchLang(code) || {};
-      words = { ...base, ...other };
-      if (!cachedLang(code)) fetchLang(code);        // освежим в фоне
+    if (cached) {
+      words = { ...base, ...cached };
+      applyLang();
     }
-    langNow = code;
+    const fresh = await fetchLang(code);
+    words = fresh ? { ...base, ...fresh } : (cached ? words : base);
     applyLang();
   }
 
@@ -2042,10 +2054,11 @@
        словарей, а не перечислением в коде. */
     $('lang').value = String(cfg('lang') || 'auto');
     $('lang').onchange = () => {
-      pushSettings({ lang: $('lang').value });
-      useLang($('lang').value === 'auto' ? '' : $('lang').value).then(() => {
-        if ($('lang').value === 'auto') pickLang();
-      });
+      const pick = $('lang').value;
+      pushSettings({ lang: pick });
+      // «Авто» — это не код языка: спрашивать api/lang/ впустую незачем,
+      // выбор делает pickLang по списку браузера.
+      if (pick === 'auto') pickLang(); else useLang(pick);
     };
     fillLangs();
 
