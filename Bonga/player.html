@@ -86,6 +86,11 @@
     padding: 1px 6px; border-radius: 4px;
     background: rgba(126, 231, 135, .18); color: #8fd69a; font-size: 11px;
   }
+  /* Пометка есть у каждой карточки, показывает её только класс: так переход
+     между экранами не требует пересборки мозаики. */
+  .scr:not(.on) .scrCap .now { display: none; }
+  /* Карточка «новый экран» пометки не имеет вовсе. */
+  .scr.add .scrCap .now { display: none; }
   /* Пропорцию задаёт код — ту же, что у настоящей сетки: обзор должен быть
      её уменьшенной копией, а не квадратом с той же начинкой. */
   .scrGrid { display: grid; gap: 2px; background: #000; }
@@ -3098,14 +3103,41 @@
   const roomShot = (user, edge) =>
     `${siteShot(user) || thumbUrl(user, edge)}?t=${Date.now()}`;
 
+  /* Обзор пересобирается, только когда изменился состав экранов. Раньше он
+     строился заново при каждом открытии, и все превью грузились с нуля —
+     мозаика моргала на пустом месте, а с наведением это стало заметно особенно.
+     Признак — ники по своим местам. Номер открытого экрана в него не входит
+     нарочно: переключение экрана меняет только пометку, а ради неё пересобирать
+     мозаику и заново тянуть десяток картинок незачем. */
+  let scrSign = '';
+  let scrShotAt = 0;
+  const SHOT_FRESH = 30000;          // кадры старше — обновить, но без пересборки
+
   function scrPaint() {
     const body = $('scrBody');
+    const sign = screens.map(screen => screen.tiles.map(tile => tile.user || '').join(','))
+                        .join('|');
+
+    if (sign === scrSign && body.children.length) {
+      // Состав тот же: разве что кадры устарели — меняем адреса на месте.
+      if (Date.now() - scrShotAt > SHOT_FRESH) {
+        scrShotAt = Date.now();
+        const all = screens.flatMap(screen => screen.tiles);
+        for (const img of body.querySelectorAll('img')) {
+          const tile = all.find(item => item.user === img.alt);
+          if (tile) img.src = roomShot(tile.user, tile.edge);
+        }
+      }
+      return scrMark();
+    }
+    scrSign = sign;
+    scrShotAt = Date.now();
     body.textContent = '';
 
     screens.forEach((screen, at) => {
       const busy = screen.tiles.filter(tile => tile.user);
       const card = document.createElement('div');
-      card.className = 'scr' + (at === screenAt ? ' on' : '');
+      card.className = 'scr';
       card.title = 'Перейти на этот экран';
 
       const cap = document.createElement('div');
@@ -3116,13 +3148,10 @@
       count.textContent = busy.length
         ? `${busy.length} ${plural(busy.length, 'трансляция', 'трансляции', 'трансляций')}`
         : 'пусто';
-      cap.append(name, count);
-      if (at === screenAt) {
-        const now = document.createElement('span');
-        now.className = 'now';
-        now.textContent = 'открыт';
-        cap.appendChild(now);
-      }
+      const now = document.createElement('span');
+      now.className = 'now';
+      now.textContent = 'открыт';
+      cap.append(name, count, now);
 
       /* Ячейки расставляем по тем же номерам, что и настоящая сетка: пустые
          места тоже показываем, иначе обзор врал бы о расположении. */
@@ -3173,12 +3202,32 @@
     add.append(cap, grid);
     add.onclick = () => { addScreen(); scrPaint(); };
     body.appendChild(add);
+    scrMark();
+  }
+
+  /* Пометка «открыт» — единственное, что меняется при переходе между экранами.
+     Отдельной функцией, чтобы не пересобирать ради неё всю мозаику. */
+  function scrMark() {
+    [...$('scrBody').children].forEach((card, at) => {
+      card.classList.toggle('on', at === screenAt);
+    });
   }
 
   function scrShow(on) {
     $('scrPanel').hidden = !on;
     if (on) scrPaint();
   }
+
+  /* Колесо листает строку вбок. Само по себе оно шлёт прокрутку по вертикали,
+     а вертикали у списка нет — экраны стоят в ряд, и колесо не делало ничего.
+     Шифт браузер и так переводит в горизонталь, его не перехватываем. */
+  $('scrBody').addEventListener('wheel', e => {
+    const body = $('scrBody');
+    const room = body.scrollWidth - body.clientWidth;
+    if (!e.deltaY || e.shiftKey || room <= 0) return;
+    e.preventDefault();
+    body.scrollLeft += e.deltaY;
+  }, { passive: false });
 
   function paintScreens() {
     const host = $('screens');
