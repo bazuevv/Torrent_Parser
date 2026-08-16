@@ -199,8 +199,16 @@
   .tcap span { flex: 0 0 auto; cursor: pointer; padding: 2px 5px; border-radius: 4px;
                background: rgba(28, 31, 38, .8); }
   .tcap span:hover { background: #2f6fd0; }
-  .tile .empty { position: absolute; inset: 0; display: flex; align-items: center;
-                 justify-content: center; color: #6b7484; font-size: 13px; }
+  /* Свободная ячейка приглашает: крупный плюс вместо чёрного квадрата, чтобы
+     место читалось как готовое принять трансляцию, а не как след неудачного
+     удаления. */
+  .tile .empty {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: #454c57; font-size: 46px; line-height: 1;
+    cursor: pointer; user-select: none;
+  }
+  .tile .empty:hover { color: #6ea8fe; }
+  .tile.drop .empty { color: #7ee787; }
   /* Четвёртый раз в этом файле: display:flex перебивает атрибут hidden, и
      надпись «пусто» просвечивала поверх играющего видео. */
   .tile .empty[hidden] { display: none; }
@@ -2616,6 +2624,7 @@
     tile.box.querySelector('.empty').hidden = false;
     tile.box.classList.remove('loud');
     saveWall();
+    if (!wallQuiet) layoutWall();     // форма сетки зависит от числа занятых
   }
 
   function tilePlay(tile, user, edge) {
@@ -2625,6 +2634,7 @@
     tile.box.querySelector('b').textContent = user;
     tile.box.querySelector('.empty').hidden = true;
     saveWall();
+    if (!wallQuiet) layoutWall();
 
     const hlsTile = new Hls({ lowLatencyMode: false, backBufferLength: 10 });
     tile.hls = hlsTile;
@@ -2684,8 +2694,10 @@
      Считаем площадь кадра 16:9, вписанного в ячейку: корень из числа ячеек
      давал квадратную сетку независимо от формы окна, и на широком экране две
      трансляции получались вчетверо мельче, чем могли бы. */
-  function layoutWall() {
-    const count = Math.max(1, tiles.length);
+  /* Форма сетки считается от числа ЗАНЯТЫХ ячеек: пустые в счёт не идут,
+     иначе удаление трансляции не меняло бы раскладку вовсе. */
+  function wallShape() {
+    const count = Math.max(1, tiles.filter(tile => tile.user).length);
     const grid = $('wallGrid');
     let cols = cfg('wallCols');
 
@@ -2701,15 +2713,34 @@
       }
     }
     cols = Math.max(1, Math.min(cols, count));
+    return { cols, rows: Math.ceil(count / cols) };
+  }
+
+  /* Сетка держится полным прямоугольником: свободные места остаются ячейками
+     с крупным плюсом. Пустое место в сетке само по себе выглядит чёрным
+     квадратом и читается как несработавшее удаление, а плюс прямо говорит,
+     что сюда можно положить трансляцию. */
+  function layoutWall() {
+    const { cols, rows } = wallShape();
+    const grid = $('wallGrid');
+    const need = Math.min(16, cols * rows);
+
+    while (tiles.length < need) makeTile(true);
+    for (let i = tiles.length - 1; i >= 0 && tiles.length > need; i--) {
+      if (tiles[i].user) continue;              // занятые не трогаем
+      const [gone] = tiles.splice(i, 1);
+      gone.box.remove();
+    }
     /* Заполняем по столбцам: новая ячейка встаёт под предыдущей и только
        заполнив столбец сверху донизу, переходит в следующий. Для этого задаём
        строки, а столбцы оставляем неявными — при grid-auto-flow: column
        браузер сам добавляет их по мере надобности. Обычный построчный порядок
        раскидывал бы соседние трансляции по разным краям экрана. */
     grid.style.gridTemplateColumns = '';
-    grid.style.gridTemplateRows = `repeat(${Math.ceil(count / cols)}, 1fr)`;
+    grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
     grid.style.gridAutoFlow = 'column';
     grid.style.gridAutoColumns = '1fr';
+
   }
 
   // Окно меняют редко, но раскладка от его формы зависит напрямую.
@@ -2719,7 +2750,7 @@
     const box = document.createElement('div');
     box.className = 'tile';
     box.innerHTML = '<video muted playsinline></video>' +
-                    '<div class="empty">пусто</div>' +
+                    '<div class="empty" title="Перетащите сюда карточку из правой колонки">＋</div>' +
                     '<div class="tcap"><b></b><span class="tsnd">🔇</span>' +
                     '<span class="tmain" title="Открыть в главном плеере">⤢</span>' +
                     '<span class="tclose" title="Убрать ячейку">×</span></div>';
@@ -2755,7 +2786,8 @@
     };
     tiles.push(tile);
     $('wallGrid').appendChild(box);
-    layoutWall();
+    // Раскладку тут не трогаем: layoutWall сам достраивает недостающие ячейки
+    // и вызвал бы себя по кругу.
     return tile;
   }
 
@@ -2768,21 +2800,26 @@
 
   // Ячейку теперь можно и убрать совсем: раз их добавляют по одной, то и
   // лишнюю логично не освобождать, а удалять — иначе сетка обрастает дырами.
+  /* Крестик убирает трансляцию, а сетка тут же пересчитывается под новое
+     число занятых. Саму ячейку удалять не нужно: layoutWall либо уберёт её как
+     лишнюю, либо оставит свободной — с плюсом, приглашающим положить сюда
+     другую комнату. Место, которое геометрия отдать не может, так и остаётся
+     полезным. */
   function dropTile(tile) {
-    if (tiles.length <= 1) return tileStop(tile);
     tileStop(tile);
-    tiles.splice(tiles.indexOf(tile), 1);
-    tile.box.remove();
-    layoutWall();
-    saveWall();                 // число ячеек хранится составом, не настройкой
+    saveWall();
   }
 
   function addTile(user, edge) {
-    if (tiles.length >= 16) return say('Больше шестнадцати ячеек — перебор.', 'err');
-    const tile = makeTile();
+    // Свободная ячейка с плюсом уже ждёт — занимаем её, а не плодим новую.
+    let tile = tiles.find(item => !item.user);
+    if (!tile) {
+      if (tiles.length >= 16) return say('Больше шестнадцати ячеек — перебор.', 'err');
+      tile = makeTile();
+    }
     if (user) tilePlay(tile, user, known.get(String(user).toLowerCase()) || edge);
-    else saveWall();               // пустую ячейку тоже надо запомнить
-    pickTile(tiles.length - 1);
+    else { saveWall(); layoutWall(); }
+    pickTile(tiles.indexOf(tile));
     return tile;
   }
 
@@ -2845,6 +2882,7 @@
     });
     wallQuiet = false;
     saveWall();
+    layoutWall();                 // достроит свободные ячейки до прямоугольника
 
     if (tiles[0]) tileLoud(tiles[0]);
     pickTile(0);
