@@ -2217,22 +2217,22 @@
        выравнивает по своей длине слов. */
     const line = (key, value) => `${t('отчёт.' + key)}${value}`;
     return [
-      line(t('текст.16'), new Date().toLocaleString()),
-      line(t('текст.17'), `${current.user || '—'} · edge ${current.edge || '—'}`),
-      line(t('текст.18'), playingFrom === 'disk' ? t('отчёт.сДиска') : t('отчёт.вЭфире')),
-      line(t('текст.19'), streamUrl || '—'),
-      line(t('текст.20'), `readyState=${video.readyState} networkState=${video.networkState} `
+      line('время', new Date().toLocaleString()),
+      line('ник', `${current.user || '—'} · edge ${current.edge || '—'}`),
+      line('источник', playingFrom === 'disk' ? t('отчёт.сДиска') : t('отчёт.вЭфире')),
+      line('адрес', streamUrl || '—'),
+      line('видео', `readyState=${video.readyState} networkState=${video.networkState} `
         + `currentTime=${video.currentTime.toFixed(1)} paused=${video.paused}`),
-      line(t('текст.21'), buf.join(', ') || t('отчёт.пусто')),
+      line('буфер', buf.join(', ') || t('отчёт.пусто')),
       line('hls', hls
         ? t('отчёт.дорожки', { сколько: hls.levels ? hls.levels.length : 0,
                                какая: hls.currentLevel })
         : t('отчёт.безHls')),
-      lastHlsError ? line(t('текст.22'), lastHlsError) : '',
-      line(t('текст.23'), session
+      lastHlsError ? line('ошибка', lastHlsError) : '',
+      line('запись', session
         ? t('отчёт.идёт', { id: session.id, фаза: session.phase })
         : t('отчёт.нет')),
-      line(t('текст.24'), navigator.userAgent),
+      line('браузер', navigator.userAgent),
     ].filter(Boolean).join('\n');
   }
 
@@ -6303,43 +6303,43 @@
     const row = (key, value) => `${t('статистика.' + key)}${value}`;
 
     $('statsBody').innerHTML = [
-      row(t('текст.204'), (playingFrom === 'disk' ? t('отчёт.сДиска') : t('отчёт.вЭфире'))
+      row('источник', (playingFrom === 'disk' ? t('отчёт.сДиска') : t('отчёт.вЭфире'))
         + (session ? t('статистика.пишется') : '')),
-      row(t('текст.205'), `${video.videoWidth}×${video.videoHeight}`
+      row('картинка', `${video.videoWidth}×${video.videoHeight}`
         + (lvl ? t('статистика.дорожка', { высота: lvl.height }) : '')
         + (hls && hls.currentLevel < 0 ? t('статистика.авто') : '')),
-      row(t('текст.206'), t('статистика.кадрыВсего', { всего: num(q.totalVideoFrames) })
+      row('кадры', t('статистика.кадрыВсего', { всего: num(q.totalVideoFrames) })
         + `${lost > 1 ? '<i>' : '<b>'}${num(q.droppedVideoFrames)} (${lost.toFixed(2)}%)`
         + `${lost > 1 ? '</i>' : '</b>'}`),
-      row(t('текст.207'), t('статистика.вСекунду', { сколько: fps ? fps.toFixed(1) : '—' })
+      row('частота', t('статистика.вСекунду', { сколько: fps ? fps.toFixed(1) : '—' })
         + (video.mozPaintedFrames !== undefined
           ? t('статистика.нарисовано', { сколько: num(video.mozPaintedFrames) }) : '')),
-      row(t('текст.208'), t('статистика.канал', { дорожка: lvl ? mbit(lvl.bitrate) : '—',
+      row('битрейт', t('статистика.канал', { дорожка: lvl ? mbit(lvl.bitrate) : '—',
                                              канал: hls ? mbit(hls.bandwidthEstimate || 0) : '—' })),
-      row(t('текст.209'), t('статистика.буферСтрока', { вперёд: buf.ahead.toFixed(1),
+      row('буфер', t('статистика.буферСтрока', { вперёд: buf.ahead.toFixed(1),
                                            назад: buf.behind.toFixed(0) })),
-      row(t('текст.210'), playingFrom === 'live'
+      row('отставание', playingFrom === 'live'
         ? t('статистика.отЖивого', { сколько: lag.toFixed(1) })
         : t('статистика.вЗаписи')),
-      row(t('текст.211'), lastFrag
+      row('сегмент', lastFrag
         ? t('статистика.сегментСтрока', { номер: lastFrag.sn, мс: lastFrag.ms, ответ: lastFrag.ttfb,
                                     мб: (lastFrag.size / 1048576).toFixed(2) })
           + (lastFrag.ms > 0 ? ` · ${mbit(lastFrag.size * 8 / (lastFrag.ms / 1000))}` : '')
         : '—'),
-      row(t('текст.212'), netLine()),
-      row(t('текст.213'), stallCount
+      row('сеть', netLine()),
+      row('подвисания', stallCount
         ? `<i>` + t('статистика.подвисало', { сколько: stallCount,
               раз: plural(stallCount, t('статистика.раз1'), t('статистика.раз2'), t('статистика.раз5')),
               всего: stallTotal.toFixed(1) })
           + (lastStallAt ? t('статистика.последнее',
               { когда: new Date(lastStallAt).toLocaleTimeString() }) : '') + '</i>'
         : `<b>${t('статистика.нетПодвисаний')}</b>`),
-      row(t('текст.214'), errorCount
+      row('ошибки', errorCount
         ? `<i>${errorCount}</i>` + t('статистика.ошибкиСтрока', { сеть: netErrors, медиа: mediaErrors,
               прочие: errorCount - netErrors - mediaErrors })
         : '<b>0</b>'),
-      errorLog.length ? row(t('текст.215'), errorLog.join('\n           ')) : '',
-      row(t('текст.216'), streamUrl || '—'),
+      errorLog.length ? row('последние', errorLog.join('\n           ')) : '',
+      row('адрес', streamUrl || '—'),
     ].filter(Boolean).join('\n');
   }
 
