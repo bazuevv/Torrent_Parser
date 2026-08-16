@@ -1530,8 +1530,13 @@
     let line = words[key];
     if (line === undefined) line = base[key];
     if (line === undefined) return key;          // ключ без перевода виден сразу
+    /* Имя подстановки берём как «всё до закрывающей скобки», а не \w+:
+       в JavaScript \w это только латиница с цифрами, поэтому русские имена
+       ({знач1}, {сколько}) не находились вовсе — человек видел на экране
+       «отстаём на {знач1}». В регулярках Python \w юникодный, и проверка
+       этого не замечала. */
     return vars
-      ? line.replace(/\{(\w+)\}/g, (whole, name) =>
+      ? line.replace(/\{([^{}\s]+)\}/g, (whole, name) =>
           (vars[name] === undefined ? whole : vars[name]))
       : line;
   }

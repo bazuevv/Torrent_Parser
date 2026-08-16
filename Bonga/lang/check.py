@@ -54,7 +54,10 @@ def used_by_page(ru):
 
 
 def slots(line):
-    return set(re.findall(r'\{(\w+)\}', line))
+    # Тот же шаблон, что в странице: «всё до закрывающей скобки». В Python \w
+    # юникодный и поймал бы русские имена, в JavaScript — нет, и проверка,
+    # написанная иначе, пропустила бы ровно ту ошибку, ради которой она есть.
+    return set(re.findall(r'\{([^{}\s]+)\}', line))
 
 
 def check(code, ru):
