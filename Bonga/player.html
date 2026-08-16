@@ -160,11 +160,27 @@
   /* Число столбцов и строк задаётся из кода: оно зависит от количества ячеек
      и пропорций окна. Зашивать сюда 2×2 было ошибкой — раскладка перестала
      соответствовать содержимому, как только ячеек стало не четыре. */
-  #wallGrid {
-    position: absolute; inset: 0; z-index: 20; background: #000;
-    display: grid; gap: 2px;
+  /* Экранов может быть несколько, видна всегда одна сетка. Сама #wallGrid —
+     только подложка: сетку держит .screen, иначе переключение экранов пришлось
+     бы делать переносом узлов, а это остановка воспроизведения. */
+  #wallGrid { position: absolute; inset: 0; z-index: 20; background: #000; }
+  #wallGrid[hidden] { display: none; }
+  .screen { position: absolute; inset: 0; display: grid; gap: 2px; }
+  .screen[hidden] { display: none; }       /* display:grid перебил бы hidden */
+
+  /* Переключатель экранов в верхней панели — виден, только пока стена включена. */
+  #screens { display: flex; align-items: center; gap: 4px; }
+  #screens[hidden] { display: none; }      /* display:flex перебил бы hidden */
+  #screens .lbl { color: #6b7484; font-size: 12px; }
+  #screens .chip {
+    display: flex; align-items: center; gap: 5px; cursor: pointer;
+    padding: 3px 8px; border-radius: 5px; background: #232833;
+    color: #b8c0cc; font-size: 12px; user-select: none;
   }
-  #wallGrid[hidden] { display: none; }     /* display:grid перебил бы hidden */
+  #screens .chip:hover { background: #2c3340; }
+  #screens .chip.on { background: #2f6fd0; color: #fff; }
+  #screens .chip .x { opacity: .65; }
+  #screens .chip .x:hover { opacity: 1; }
   .tile { position: relative; background: #0a0c10; overflow: hidden; }
   .tile video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
   .tile.loud { outline: 2px solid #7ee787; outline-offset: -2px; }
@@ -651,6 +667,7 @@
   <button id="live" title="Вернуться к прямому эфиру">В эфир</button>
   <button id="pip" title="Картинка в картинке: выбор вида окна">PiP</button>
   <button id="wall" title="Четыре трансляции разом в сетке 2×2">Стена</button>
+  <div id="screens" hidden></div>
 
   <div id="pipMenu" hidden>
     <div data-pip="native">Стандартное
@@ -2668,7 +2685,14 @@
      истории. Качество берём невысокое: на четверти экрана разницы с 1080p не
      видно, а декодирование на процессоре обходится вчетверо дешевле — замер
      дал 9× реального времени на ядро для 480p против примерно 2× для 1080p. */
-  const tiles = [];                 // {box, video, hls, user, edge}
+  /* Экраны стены. Шестнадцати ячеек на экране хватает по площади, но не по
+     желанию — вместо того чтобы поднимать предел и упираться в канал, заводим
+     второй экран. Ячейки спящего экрана не качают и не декодируют (stopLoad
+     плюс пауза), но плееры целы, поэтому возврат мгновенный: тот же приём,
+     что и при развороте ячейки. */
+  const screens = [];               // {box, tiles}
+  let screenAt = 0;
+  let tiles = [];                   // ячейки видимого экрана: {box, video, hls, user, edge}
   let tilePicked = -1;              // подсвеченная ячейка — та, куда ляжет комната
 
   /* Состав стены переживает перезагрузку. Пишем при каждом изменении ячейки,
@@ -2677,14 +2701,137 @@
      когда его нужно сберечь. */
   let wallQuiet = false;
 
+  /* В хранилище раньше лежал просто список ячеек. Теперь экранов несколько,
+     поэтому формат стал объектом — но старую запись читаем как один экран,
+     иначе вчерашний состав пропал бы при первом же открытии. */
   const loadWall = () => {
-    try { return JSON.parse(localStorage.getItem('wall')) || []; } catch { return []; }
+    try {
+      const raw = JSON.parse(localStorage.getItem('wall'));
+      if (Array.isArray(raw)) return { screens: [raw], at: 0 };
+      if (raw && Array.isArray(raw.screens) && raw.screens.length) {
+        return { screens: raw.screens, at: Number(raw.at) || 0 };
+      }
+    } catch { /* мусор в хранилище — начнём с чистого листа */ }
+    return { screens: [[]], at: 0 };
   };
 
   function saveWall() {
     if (wallQuiet) return;
-    const rows = tiles.map(tile => (tile.user ? { u: tile.user, e: tile.edge } : null));
-    try { localStorage.setItem('wall', JSON.stringify(rows)); } catch { /* приватный режим */ }
+    const data = {
+      screens: screens.map(screen =>
+        screen.tiles.map(tile => (tile.user ? { u: tile.user, e: tile.edge } : null))),
+      at: screenAt,
+    };
+    try { localStorage.setItem('wall', JSON.stringify(data)); } catch { /* приватный режим */ }
+  }
+
+  function makeScreen() {
+    const box = document.createElement('div');
+    box.className = 'screen';
+    box.hidden = true;
+    $('wallGrid').appendChild(box);
+    const screen = { box, tiles: [] };
+    screens.push(screen);
+    return screen;
+  }
+
+  /* Усыпление и пробуждение экрана. Ячейки не разрушаем: шестнадцать плееров
+     заново поднимать — это секунды чёрного экрана на каждый, а так переход
+     мгновенный, ценой лишь памяти под спящие буферы. */
+  function sleepScreen(screen) {
+    for (const tile of screen.tiles) {
+      if (tile.hls) tile.hls.stopLoad();
+      tile.video.pause();
+      tile.video.muted = true;
+      tile.box.classList.remove('loud');
+    }
+  }
+
+  function wakeScreen(screen) {
+    for (const tile of screen.tiles) {
+      if (tile.hls) tile.hls.startLoad(-1);      // -1 — снова с живого края
+      if (tile.user) tile.video.play().catch(() => {});
+    }
+    const loud = screen.tiles.find(tile => tile.user);
+    if (loud) tileLoud(loud);                    // звук достаётся первой занятой
+  }
+
+  function useScreen(index) {
+    if (index < 0 || index >= screens.length || index === screenAt) return;
+    zoomShut();                                  // разворот принадлежит своему экрану
+    sleepScreen(screens[screenAt]);
+    screens[screenAt].box.hidden = true;
+    screenAt = index;
+    tiles = screens[index].tiles;
+    screens[index].box.hidden = false;
+    wakeScreen(screens[index]);
+    layoutWall();
+    paintScreens();
+    saveWall();
+  }
+
+  function addScreen() {
+    makeScreen();
+    useScreen(screens.length - 1);               // новый экран сразу и показываем
+  }
+
+  function dropScreen(index) {
+    if (screens.length < 2) return;              // последний экран — это и есть стена
+    zoomShut();
+    const gone = screens[index];
+    wallQuiet = true;                            // сносим целиком, раскладка не нужна
+    for (const tile of gone.tiles) tileStop(tile);
+    wallQuiet = false;
+    gone.box.remove();
+    screens.splice(index, 1);
+    // Номер видимого экрана сдвигается вместе со списком.
+    if (screenAt > index || screenAt >= screens.length) screenAt--;
+    screenAt = Math.max(0, screenAt);
+    tiles = screens[screenAt].tiles;
+    screens.forEach((screen, i) => { screen.box.hidden = i !== screenAt; });
+    wakeScreen(screens[screenAt]);
+    layoutWall();
+    paintScreens();
+    saveWall();
+  }
+
+  function paintScreens() {
+    const host = $('screens');
+    host.textContent = '';
+    host.hidden = $('wallGrid').hidden || !screens.length;
+    if (host.hidden) return;
+
+    const label = document.createElement('span');
+    label.className = 'lbl';
+    label.textContent = 'Экран';
+    host.appendChild(label);
+
+    screens.forEach((screen, i) => {
+      const busy = screen.tiles.filter(tile => tile.user).length;
+      const chip = document.createElement('span');
+      chip.className = 'chip' + (i === screenAt ? ' on' : '');
+      chip.title = `Экран ${i + 1}: трансляций ${busy}`;
+      chip.onclick = () => useScreen(i);
+      chip.appendChild(document.createTextNode(`${i + 1}${busy ? ` · ${busy}` : ''}`));
+      // Крестик только у видимого и только когда экранов больше одного:
+      // убрать чужой экран вслепую — верный способ снести не то.
+      if (screens.length > 1 && i === screenAt) {
+        const x = document.createElement('b');
+        x.className = 'x';
+        x.textContent = '×';
+        x.title = 'Убрать этот экран';
+        x.onclick = e => { e.stopPropagation(); dropScreen(i); };
+        chip.appendChild(x);
+      }
+      host.appendChild(chip);
+    });
+
+    const plus = document.createElement('span');
+    plus.className = 'chip';
+    plus.textContent = '＋';
+    plus.title = 'Новый экран: ещё шестнадцать ячеек';
+    plus.onclick = addScreen;
+    host.appendChild(plus);
   }
 
   // Ближайшая дорожка не выше заданной высоты; если все выше — самая мелкая.
@@ -3037,8 +3184,9 @@
      квадратом и читается как несработавшее удаление, а плюс прямо говорит,
      что сюда можно положить трансляцию. */
   function layoutWall() {
+    if (!screens.length) return;
     const { cols, rows } = wallShape();
-    const grid = $('wallGrid');
+    const grid = screens[screenAt].box;      // раскладываем видимый экран
     const need = Math.min(16, cols * rows);
 
     while (tiles.length < need) makeTile(true);
@@ -3067,6 +3215,7 @@
     });
 
     pickTile(nextSlot());        // подсветка всегда стоит на цели клика
+    paintScreens();              // на ярлыке экрана стоит число трансляций
   }
 
   // Окно меняют редко, но раскладка от его формы зависит напрямую.
@@ -3195,7 +3344,7 @@
     }
     box.querySelector('.tclose').onclick = () => dropTile(tile);
     tiles.push(tile);
-    $('wallGrid').appendChild(box);
+    screens[screenAt].box.appendChild(box);
     // Раскладку тут не трогаем: layoutWall сам достраивает недостающие ячейки
     // и вызвал бы себя по кругу.
     return tile;
@@ -3248,7 +3397,10 @@
     // Свободная ячейка с плюсом уже ждёт — занимаем её, а не плодим новую.
     let tile = tiles.find(item => !item.user);
     if (!tile) {
-      if (tiles.length >= 16) return say('Больше шестнадцати ячеек — перебор.', 'err');
+      if (tiles.length >= 16) {
+        return say('На экране шестнадцать ячеек — больше не влезет. ' +
+                   'Заведите новый экран кнопкой ＋ рядом со «Стеной».', 'err');
+      }
       tile = makeTile();
     }
     if (user) tilePlay(tile, user, known.get(String(user).toLowerCase()) || edge);
@@ -3259,14 +3411,16 @@
     return tile;
   }
 
-  function buildWall(want) {
-    if (tiles.length === want) return;
-    wallQuiet = true;                 // пересборка сетки — не повод стирать состав
-    for (const tile of tiles) tileStop(tile);
+  function clearScreens() {
+    wallQuiet = true;                 // пересборка — не повод стирать состав
+    for (const screen of screens) {
+      for (const tile of screen.tiles) tileStop(tile);
+      screen.box.remove();
+    }
     wallQuiet = false;
-    tiles.length = 0;
-    $('wallGrid').textContent = '';
-    for (let i = 0; i < want; i++) makeTile();
+    screens.length = 0;
+    screenAt = 0;
+    tiles = [];
   }
 
   /* Ячеек ровно столько, сколько комнат: жёсткой четвёрки больше нет, стена
@@ -3276,52 +3430,72 @@
   let barTimer = 0;                // секундные часы на панелях ячеек
 
   function wallOn(opts = {}) {
-    // Всё нужное забираем до пересборки и остановки потока: buildWall очищает
-    // ячейки, а stopStream стирает поля ника и сервера.
+    // Всё нужное забираем до пересборки и остановки потока: clearScreens
+    // очищает ячейки, а stopStream стирает поля ника и сервера.
     /* Прошлый состав поднимаем только по кнопке «Стена». Если комнату принесли
        на полосу при выключенной стене, человек просил добавить одну — а не
        воскресить вчерашнюю раскладку: именно так и получалось сразу четыре
        ячейки вместо двух, да ещё с пустыми от комнат, ушедших из эфира. */
-    const saved = opts.extra ? [] : loadWall();
+    const saved = opts.extra ? { screens: [[]], at: 0 } : loadWall();
     const now = playingFrom === 'live'
       ? { u: $('user').value.trim(), e: $('edge').value.trim() } : null;
 
-    // Порядок: сперва то, что смотрели, иначе нажатие «Стены» теряло бы
-    // текущую комнату; затем прошлый состав; затем принесённая. Повторов не
-    // допускаем — одна комната в двух ячейках это двойной трафик без пользы.
-    const plan = [];
+    /* План по экранам. Повторов не допускаем — одна комната в двух ячейках это
+       двойной трафик без пользы, и проверка сквозная: соседний экран такой же
+       трафик, только невидимый. Из прошлого состава берём только тех, кто
+       сейчас в эфире: ушедшие дали бы чёрные ячейки, и стена открывалась бы
+       дырявой. */
     const seen = new Set();
-    const add = (user, edge) => {
-      const key = String(user || '').toLowerCase();
-      if (!key || seen.has(key) || plan.length >= 16) return;
-      seen.add(key);
-      plan.push({ u: user, e: String(edge || '') });
-    };
-    // Из прошлого состава берём только тех, кто сейчас в эфире: ушедшие дали
-    // бы чёрные ячейки с надписью «пусто», и стена открывалась бы дырявой.
     const live = new Set((liveList || []).map(row => String(row[0]).toLowerCase()));
-    if (now && now.u) add(now.u, now.e);
-    for (const item of saved) {
-      if (!item) continue;
-      if (live.size && !live.has(String(item.u).toLowerCase())) continue;
-      add(item.u, item.e);
-    }
-    if (opts.extra) add(opts.extra.user, opts.extra.edge);
+    const plans = saved.screens.map(rows => {
+      const out = [];
+      for (const item of rows || []) {
+        const key = String(item && item.u || '').toLowerCase();
+        if (!key || seen.has(key) || out.length >= 16) continue;
+        if (live.size && !live.has(key)) continue;
+        seen.add(key);
+        out.push({ u: item.u, e: String(item.e || '') });
+      }
+      return out;
+    });
+    if (!plans.length) plans.push([]);
 
-    buildWall(Math.max(1, plan.length));     // пустая стена — одна ячейка
+    // Сперва то, что смотрели: иначе нажатие «Стены» теряло бы текущую комнату.
+    if (now && now.u && !seen.has(now.u.toLowerCase())) {
+      seen.add(now.u.toLowerCase());
+      plans[0].unshift({ u: now.u, e: now.e });
+    }
+    if (opts.extra && !seen.has(String(opts.extra.user).toLowerCase())) {
+      plans[0].push({ u: opts.extra.user, e: String(opts.extra.edge || '') });
+    }
+
     stopStream();                 // главный поток гасим: ресурсы нужны ячейкам
     $('wallGrid').hidden = false;
     $('wall').classList.add('on');
 
+    clearScreens();
     wallQuiet = true;                       // раскладываем — пишем один раз в конце
-    tiles.forEach((tile, i) => {
-      const item = plan[i];
-      if (item) tilePlay(tile, item.u, known.get(item.u.toLowerCase()) || item.e);
+    plans.forEach((plan, i) => {
+      const screen = makeScreen();
+      screenAt = i;                         // makeTile кладёт ячейку в активный
+      tiles = screen.tiles;
+      for (let k = 0; k < Math.max(1, plan.length); k++) makeTile();
+      plan.forEach((item, k) =>
+        tilePlay(tiles[k], item.u, known.get(item.u.toLowerCase()) || item.e));
     });
     wallQuiet = false;
+
+    screenAt = Math.min(Math.max(0, saved.at), screens.length - 1);
+    tiles = screens[screenAt].tiles;
+    screens.forEach((screen, i) => {
+      screen.box.hidden = i !== screenAt;
+      if (i !== screenAt) sleepScreen(screen);   // остальные не жгут канал
+    });
     saveWall();
     layoutWall();                 // достроит свободные ячейки до прямоугольника
+    paintScreens();
 
+    const plan = plans[screenAt];
     if (tiles[0]) tileLoud(tiles[0]);   // подсветку цели уже поставил layoutWall
     // Часы и отставание на панелях: раз в секунду на всю стену. Шестнадцать
     // перерисовок текста в секунду — цена, которой можно пренебречь.
@@ -3339,10 +3513,13 @@
     clearInterval(barTimer);
     barTimer = 0;
     wallQuiet = true;              // выключение — не повод забывать состав
-    for (const tile of tiles) tileStop(tile);
+    for (const screen of screens) {
+      for (const tile of screen.tiles) tileStop(tile);   // и спящие тоже
+    }
     wallQuiet = false;
     $('wallGrid').hidden = true;
     $('wall').classList.remove('on');
+    paintScreens();                // переключатель без стены не нужен
   }
 
   $('wall').onclick = () => ($('wallGrid').hidden ? wallOn() : wallOff());
