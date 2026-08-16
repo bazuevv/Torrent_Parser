@@ -289,15 +289,39 @@ def load_settings():
         if not isinstance(data, dict):
             return {}
         return {k: v for k, v in data.items()
-                if k in SETTINGS_RANGE or k in ('recDir', 'libDir')}
+                if k in SETTINGS_RANGE or k in ('recDir', 'libDir', 'lang')}
     except (OSError, ValueError):
         return {}
+
+
+LANG_DIR = os.path.join(ROOT, 'lang')
+LANG_RE = re.compile(r'^[a-z]{2}(-[a-z]{2})?$')
+
+
+def known_langs():
+    """Коды словарей из папки lang/ — по именам файлов вида ru.json.
+
+    Список именно с диска: добавить язык должно быть достаточно одним файлом,
+    без правки ни сервера, ни страницы."""
+    try:
+        return sorted(name[:-5] for name in os.listdir(LANG_DIR)
+                      if name.endswith('.json') and LANG_RE.match(name[:-5]))
+    except OSError:
+        return []
 
 
 def save_settings(patch):
     with SETTINGS_LOCK:
         merged = load_settings()
         for key, value in patch.items():
+            # Язык интерфейса: 'auto' либо код словаря из папки lang/. Проверяем
+            # по списку файлов, а не по перечислению в коде: новый язык должен
+            # добавляться одним файлом, без правки сервера.
+            if key == 'lang':
+                code = str(value or '').strip().lower()
+                if code == 'auto' or code in known_langs():
+                    merged[key] = code or 'auto'
+                continue
             if key in ('recDir', 'libDir'):
                 if isinstance(value, str) and not value.strip():
                     merged.pop(key, None)           # пусто — вернуться к умолчанию
@@ -1058,6 +1082,22 @@ class Handler(SimpleHTTPRequestHandler):
 
         if path == '/api/settings':
             return self._json(load_settings())
+
+        # Словари интерфейса: список кодов и сам словарь по коду. Русский лежит
+        # в самой странице — она обязана открыться и без сети; остальные языки
+        # подгружаются отсюда.
+        if path == '/api/langs':
+            return self._json({'langs': known_langs()})
+
+        if path.startswith('/api/lang/'):
+            code = path[len('/api/lang/'):].lower()
+            if not LANG_RE.match(code) or code not in known_langs():
+                return self._json({'error': 'нет такого словаря'}, 404)
+            try:
+                with open(os.path.join(LANG_DIR, f'{code}.json'), encoding='utf-8') as f:
+                    return self._json({'lang': code, 'words': json.load(f)})
+            except (OSError, ValueError) as exc:
+                return self._json({'error': f'словарь не читается: {exc}'}, 500)
 
         if path == '/api/orphans':
             return self._json({'orphans': orphan_dirs()})

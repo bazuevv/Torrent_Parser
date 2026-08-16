@@ -840,11 +840,11 @@
     </select>
   </span>
 
-  <button id="rec" title="Состояние записи. Нажатие останавливает запись текущей трансляции">Запись ждёт потока</button>
-  <button id="fromRec" title="Переключиться на запись — перемотка глубже, чем помещается в памяти">Из записи</button>
-  <button id="lib" title="Файлы из папки, указанной в настройках">Видео</button>
-  <button id="live" title="Вернуться к прямому эфиру">В эфир</button>
-  <button id="pip" title="Картинка в картинке: выбор вида окна">PiP</button>
+  <button id="rec" data-i18n="панель.запись" data-i18n-title="панель.запись.подсказка">Запись ждёт потока</button>
+  <button id="fromRec" data-i18n="панель.изЗаписи" data-i18n-title="панель.изЗаписи.подсказка">Из записи</button>
+  <button id="lib" data-i18n="панель.видео" data-i18n-title="панель.видео.подсказка">Видео</button>
+  <button id="live" data-i18n="панель.вЭфир" data-i18n-title="панель.вЭфир.подсказка">В эфир</button>
+  <button id="pip" data-i18n="панель.pip" data-i18n-title="панель.pip.подсказка">PiP</button>
 
   <div id="pipMenu" hidden>
     <div data-pip="native">Стандартное
@@ -855,8 +855,8 @@
   <!-- Значок «окна внахлёст». Следом U+FE0E — селектор текстового начертания:
        без него часть шрифтов рисует символ цветным эмодзи, и он выбивается
        из одноцветной панели. -->
-  <button id="scrAll" aria-label="Экраны"
-          title="Экраны: обзор всех экранов с превью трансляций">&#x1F5D7;&#xFE0E;</button>
+  <button id="scrAll" data-i18n-aria="панель.экраны"
+          data-i18n-title="панель.экраны.подсказка">&#x1F5D7;&#xFE0E;</button>
 
   <div id="settings" hidden>
     <button id="settingsClose" title="Закрыть настройки">×</button>
@@ -877,6 +877,20 @@
 
     <details class="sect" open data-sect="view">
       <summary>Просмотр</summary>
+
+    <div class="row">
+      <label for="lang">Язык интерфейса</label>
+      <select id="lang">
+        <option value="auto">как в браузере</option>
+        <option value="ru">Русский</option>
+      </select>
+      <i class="tip" data-hint="lang" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+    </div>
+    <p class="hint" hidden>«Как в браузере» берёт язык из его настроек, если для
+      него есть словарь, иначе оставляет русский. Выбранный руками язык сильнее:
+      смена системной локали его не перебьёт. Список пополняется сам — словари
+      лежат файлами в папке lang рядом с сервером, добавление языка не требует
+      правок ни в странице, ни в сервере.</p>
 
     <div class="row">
       <label for="maxRate">Максимальный битрейт</label>
@@ -1269,11 +1283,11 @@
 
   </div>
 
-  <div id="status">Стена поднимается сама. Комнату можно взять из правой колонки.</div>
+  <div id="status" data-i18n="статус.начало">Стена поднимается сама. Комнату можно взять из правой колонки.</div>
   <!-- Настройки последними: правый угол, подальше от кнопок, которые жмут
        постоянно. Отступом этого не добиться — строка статуса растягивается
        и всё равно встала бы правее. -->
-  <button id="gear" title="Настройки">⚙</button>
+  <button id="gear" data-i18n-title="панель.настройки">⚙</button>
 
   <div id="statusDetails" hidden>
     <pre id="statusText"></pre>
@@ -1347,22 +1361,22 @@
 <div id="main">
   <aside id="history">
     <div class="panel-head">
-      <span>История</span>
+      <span data-i18n="история.заголовок">История</span>
       <span id="histProgress"></span>
-      <button id="histClear" title="Очистить историю">Очистить</button>
+      <button id="histClear" data-i18n="история.очистить" data-i18n-title="история.очистить.подсказка">Очистить</button>
       <!-- Значок отдельным узлом: анимация на самой кнопке крутила её
            целиком, вместе с рамкой и фоном. -->
-      <button id="histCheck" title="Проверить серые ники на всех серверах"><span class="rot">↻</span></button>
+      <button id="histCheck" data-i18n-title="история.проверить"><span class="rot">↻</span></button>
     </div>
     <div class="panel-body" id="histBody"></div>
   </aside>
 
-  <div class="grip" id="gripLeft"><span title="Свернуть/развернуть историю"></span></div>
+  <div class="grip" id="gripLeft"><span data-i18n-title="ручка.история"></span></div>
 
   <div id="stage">
     <video id="v" controls autoplay playsinline></video>
     <div id="wallGrid" hidden></div>
-    <div id="wallAdd" hidden><span>＋ новая ячейка</span></div>
+    <div id="wallAdd" hidden><span data-i18n="стена.новаяЯчейка">＋ новая ячейка</span></div>
 
     <div id="scrPanel" hidden>
       <div id="scrWin">
@@ -1433,17 +1447,17 @@
     <div class="hint">Shift + правая кнопка — меню браузера</div>
   </div>
 
-  <div class="grip" id="gripRight"><span title="Свернуть/развернуть список эфира"></span></div>
+  <div class="grip" id="gripRight"><span data-i18n-title="ручка.эфир"></span></div>
 
   <aside id="online">
     <div class="panel-head">
-      <span id="onlineCount">Доступные</span>
-      <button id="onlineRefresh" title="Проверить, кто в эфире">↻</button>
+      <span id="onlineCount" data-i18n="эфир.заголовок">Доступные</span>
+      <button id="onlineRefresh" data-i18n-title="эфир.обновить">↻</button>
     </div>
     <div class="panel-find">
-      <input id="onlineFind" spellcheck="false" placeholder="Поиск по нику"
+      <input id="onlineFind" spellcheck="false" data-i18n-ph="эфир.поиск"
              autocomplete="off">
-      <button id="findClear" title="Очистить поиск" hidden>×</button>
+      <button id="findClear" data-i18n-title="эфир.поиск.очистить" hidden>×</button>
       <div id="findTips" hidden></div>
     </div>
     <div class="panel-body" id="onlineBody"></div>
@@ -1578,10 +1592,136 @@
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
                      catalog: 60, act: 15, ladder: 43200, warm: 5,
-                     wallQ: 480, wallCols: 0, msgs: 1 };
+                     wallQ: 480, wallCols: 0, msgs: 1, lang: 'auto' };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];
+
+  /* --- язык интерфейса ------------------------------------------------------
+     Русский лежит прямо здесь: страница обязана открыться и без сети, а
+     мигание английскими ключами перед подгрузкой словаря — худшее из решений.
+     Остальные языки — файлы lang/<код>.json на сервере, они подтягиваются
+     по запросу. Добавить язык значит положить туда файл: ни код страницы, ни
+     код сервера при этом не трогаются.
+
+     Ключи именуются по месту: «панель.запись», «настройки.битрейт.подпись».
+     Так видно, откуда строка, и перевод можно сверять по разделам. */
+  const RU = {
+    'история.заголовок': 'История',
+    'история.очистить': 'Очистить',
+    'история.очистить.подсказка': 'Очистить историю',
+    'история.проверить': 'Проверить серые ники на всех серверах',
+    'панель.pip': 'PiP',
+    'панель.pip.подсказка': 'Картинка в картинке: выбор вида окна',
+    'панель.вЭфир': 'В эфир',
+    'панель.вЭфир.подсказка': 'Вернуться к прямому эфиру',
+    'панель.видео': 'Видео',
+    'панель.видео.подсказка': 'Файлы из папки, указанной в настройках',
+    'панель.запись': 'Запись ждёт потока',
+    'панель.запись.подсказка': 'Состояние записи. Нажатие останавливает запись текущей трансляции',
+    'панель.изЗаписи': 'Из записи',
+    'панель.изЗаписи.подсказка': 'Переключиться на запись — перемотка глубже, чем помещается в памяти',
+    'панель.настройки': 'Настройки',
+    'панель.экраны': 'Экраны',
+    'панель.экраны.подсказка': 'Экраны: обзор всех экранов с превью трансляций',
+    'ручка.история': 'Свернуть/развернуть историю',
+    'ручка.эфир': 'Свернуть/развернуть список эфира',
+    'статус.начало': 'Стена поднимается сама. Комнату можно взять из правой колонки.',
+    'стена.новаяЯчейка': '＋ новая ячейка',
+    'эфир.заголовок': 'Доступные',
+    'эфир.обновить': 'Проверить, кто в эфире',
+    'эфир.поиск': 'Поиск по нику',
+    'эфир.поиск.очистить': 'Очистить поиск',
+  };
+  let words = RU;                    // словарь текущего языка
+  let langNow = 'ru';
+
+  /* Подстановки — по именам: t('стена.ушли', { кто: 'Аня' }). Позиционные
+     номера в переводе путаются местами, имена переживают перестановку. */
+  function t(key, vars) {
+    let line = words[key];
+    if (line === undefined) line = RU[key];
+    if (line === undefined) return key;          // ключ без перевода виден сразу
+    return vars
+      ? line.replace(/\{(\w+)\}/g, (whole, name) =>
+          (vars[name] === undefined ? whole : vars[name]))
+      : line;
+  }
+
+  /* Разметка размечается атрибутами: data-i18n — текст узла, data-i18n-title —
+     подсказка, data-i18n-ph — placeholder, data-i18n-aria — подпись для
+     чтения с экрана. Один узел может нести несколько. */
+  function applyLang(root = document) {
+    for (const el of root.querySelectorAll('[data-i18n]')) {
+      el.textContent = t(el.dataset.i18n);
+    }
+    for (const el of root.querySelectorAll('[data-i18n-title]')) {
+      el.title = t(el.dataset.i18nTitle);
+    }
+    for (const el of root.querySelectorAll('[data-i18n-ph]')) {
+      el.placeholder = t(el.dataset.i18nPh);
+    }
+    for (const el of root.querySelectorAll('[data-i18n-aria]')) {
+      el.setAttribute('aria-label', t(el.dataset.i18nAria));
+    }
+    document.documentElement.lang = langNow;
+  }
+
+  /* Какой язык показывать. «Авто» — язык браузера, если для него есть словарь;
+     иначе русский. Настройка сильнее браузера: человек, выбравший язык руками,
+     не должен получать другой при смене системной локали. */
+  async function pickLang() {
+    const want = String(cfg('lang') || 'auto');
+    let code = want;
+    if (want === 'auto') {
+      const list = (navigator.languages || [navigator.language || 'ru'])
+        .map(item => String(item).toLowerCase().split('-')[0]);
+      let have = [];
+      try {
+        const res = await fetch('api/langs', { cache: 'no-store' });
+        have = (await res.json()).langs || [];
+      } catch { /* сервер молчит — остаёмся на русском */ }
+      code = list.find(item => item === 'ru' || have.includes(item)) || 'ru';
+    }
+    await useLang(code);
+  }
+
+  /* Список языков берём с сервера: он смотрит, какие файлы реально лежат в
+     папке словарей. Перечисление в коде пришлось бы править при каждом
+     добавлении — ровно то, чего мы избегаем. */
+  async function fillLangs() {
+    const list = $('lang');
+    if (!list) return;
+    let have = [];
+    try {
+      const res = await fetch('api/langs', { cache: 'no-store' });
+      have = (await res.json()).langs || [];
+    } catch { /* сервер молчит — остаются встроенные пункты */ }
+    const names = { ru: 'Русский', en: 'English', de: 'Deutsch', es: 'Español',
+                    fr: 'Français', pl: 'Polski', uk: 'Українська' };
+    for (const code of have) {
+      if ([...list.options].some(opt => opt.value === code)) continue;
+      list.add(new Option(names[code] || code, code));
+    }
+    list.value = String(cfg('lang') || 'auto');
+  }
+
+  async function useLang(code) {
+    if (code === 'ru') { words = RU; langNow = 'ru'; return applyLang(); }
+    try {
+      const res = await fetch(`api/lang/${encodeURIComponent(code)}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!data.words) throw new Error('пусто');
+      // Недостающие ключи берутся из русского: перевод может отставать от
+      // страницы, и лучше смешанный язык, чем дыры в интерфейсе.
+      words = { ...RU, ...data.words };
+      langNow = data.lang || code;
+    } catch {
+      words = RU;
+      langNow = 'ru';
+    }
+    applyLang();
+  }
 
   async function pullSettings() {
     try {
@@ -1937,6 +2077,18 @@
       }
       if (el) el.onchange = () => { pushSettings({ [key]: Number(el.value) }); armTimers(); };
     }
+    /* Язык — строка, а общий разбор шлёт на сервер число: без своей ветки
+       уходило бы NaN. Заодно наполняем список тем, что реально лежит в папке
+       словарей, а не перечислением в коде. */
+    $('lang').value = String(cfg('lang') || 'auto');
+    $('lang').onchange = () => {
+      pushSettings({ lang: $('lang').value });
+      useLang($('lang').value === 'auto' ? '' : $('lang').value).then(() => {
+        if ($('lang').value === 'auto') pickLang();
+      });
+    };
+    fillLangs();
+
     $('recDir').value = settings.recDir || '';
     $('libDir').value = settings.libDir || '';
     armTimers();
@@ -6499,6 +6651,7 @@
   // обход пошёл бы по неполному списку и с чужими параметрами.
   (async () => {
     await pullSettings();
+    await pickLang();            // язык до первой отрисовки: иначе мигнёт русским
     applySettingsToUI();
     loadNotes();               // заметки лежат на сервере, забираем при запуске
 
