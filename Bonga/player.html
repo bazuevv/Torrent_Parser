@@ -1491,7 +1491,7 @@
   const loadExtra = () => { try { return JSON.parse(localStorage.getItem('extra')) || {}; } catch { return {}; } };
   const saveExtra = obj => {
     try { localStorage.setItem('extra', JSON.stringify(obj)); return true; }
-    catch (e) { say(`База не поместилась в хранилище браузера: ${e.name}.`, 'err'); return false; }
+    catch (e) { say(t('статус.1', { name: e.name }), 'err'); return false; }
   };
 
   let catalog = [];
@@ -1607,6 +1607,34 @@
      Ключи именуются по месту: «панель.запись», «настройки.битрейт.подпись».
      Так видно, откуда строка, и перевод можно сверять по разделам. */
   const RU = {
+    'журнал.1': 'новый источник: {url}',
+    'журнал.10': 'прыжок к живому краю',
+    'журнал.11': '{id}: {знач1} — короче порога, удаляю',
+    'журнал.12': '{id}: оставлена по решению пользователя',
+    'журнал.13': '{id}: удалена',
+    'журнал.14': 'файл: {name}',
+    'журнал.15': '{user}: приём остановлен',
+    'журнал.16': '{user}: сервер {edge} молчит, перехожу на {fresh}',
+    'журнал.17': '{id}: сервер её не знает, начинаю заново',
+    'журнал.18': '{id}: фаза {was} -> {phase}',
+    'журнал.19': 'сессии нет, хотя запись включена — поднимаю заново',
+    'журнал.2': '{знач1}: заявлено было ',
+    'журнал.20': 'глубокая проверка: {length} ников, нашлось {found}',
+    'журнал.21': 'автопереключение на {user} (edge {edge})',
+    'журнал.22': 'кадры не рисуются — перевставляю элемент в документ',
+    'журнал.23': 'не помогло — переподключаю медиапоток',
+    'журнал.24': 'открыт · источник {playingFrom} · {знач1}',
+    'журнал.25': 'вернулась',
+    'журнал.26': 'пропала',
+    'журнал.27': 'остановлено пользователем',
+    'журнал.28': 'авто: начинаю с дорожки {seed}, ',
+    'журнал.3': 'с сервера взято замеров: {taken}',
+    'журнал.4': 'дорожка {level}',
+    'журнал.5': 'авто: возвращаю дорожку {autoSeedLevel} — ',
+    'журнал.6': 'авто: канала {знач1} (пик {знач2}) ',
+    'журнал.7': 'авто: отпускаю подбор, спорить бесполезно',
+    'журнал.8': 'авто: возвращаю дорожку {autoSeedLevel} — ',
+    'журнал.9': '8 секунд без движения на {знач1}',
     'история.заголовок': 'История',
     'история.очистить': 'Очистить',
     'история.очистить.подсказка': 'Очистить историю',
@@ -1775,6 +1803,23 @@
     'настройки.раздел.sweep': 'Проверка эфира',
     'настройки.раздел.upd': 'Как часто обновлять',
     'настройки.раздел.view': 'Просмотр',
+    'отчёт.hls': 'hls.js:     ',
+    'отчёт.адрес': 'адрес:      ',
+    'отчёт.безHls': 'не используется (нативное воспроизведение)',
+    'отчёт.браузер': 'браузер:    ',
+    'отчёт.буфер': 'буфер:      ',
+    'отчёт.вЭфире': 'прямой эфир',
+    'отчёт.видео': 'видео:      ',
+    'отчёт.время': 'время:      ',
+    'отчёт.дорожки': 'дорожек {сколько}, выбрана {какая}',
+    'отчёт.запись': 'запись:     ',
+    'отчёт.идёт': '{id}, фаза {фаза}',
+    'отчёт.источник': 'источник:   ',
+    'отчёт.нет': 'не ведётся',
+    'отчёт.ник': 'ник:        ',
+    'отчёт.ошибка': 'ошибка hls: ',
+    'отчёт.пусто': 'пусто',
+    'отчёт.сДиска': 'запись на диске',
     'панель.pip': 'PiP',
     'панель.pip.подсказка': 'Картинка в картинке: выбор вида окна',
     'панель.вЭфир': 'В эфир',
@@ -1792,6 +1837,99 @@
     'подсказка.пояснение': 'Пояснение',
     'ручка.история': 'Свернуть/развернуть историю',
     'ручка.эфир': 'Свернуть/развернуть список эфира',
+    'статистика.авто': ' (авто)',
+    'статистика.адрес': 'адрес      ',
+    'статистика.битрейт': 'битрейт    ',
+    'статистика.буфер': 'буфер      ',
+    'статистика.буферСтрока': 'вперёд {вперёд} с · назад {назад} с',
+    'статистика.вЗаписи': 'запись, не применимо',
+    'статистика.вСекунду': '{сколько} к/с',
+    'статистика.дорожка': ' · дорожка {высота}p',
+    'статистика.источник': 'источник   ',
+    'статистика.кадры': 'кадры      ',
+    'статистика.кадрыВсего': 'всего {всего} · пропущено ',
+    'статистика.канал': '{дорожка} · канал {канал}',
+    'статистика.картинка': 'картинка   ',
+    'статистика.нарисовано': ' · нарисовано {сколько}',
+    'статистика.нетПодвисаний': 'нет',
+    'статистика.отЖивого': '{сколько} с от живого края',
+    'статистика.отставание': 'отставание ',
+    'статистика.ошибки': 'ошибки     ',
+    'статистика.ошибкиСтрока': ' · сеть {сеть}, медиа {медиа}, прочие {прочие}',
+    'статистика.пишется': ' · пишется',
+    'статистика.подвисало': '{сколько} {раз}, суммарно {всего} с',
+    'статистика.подвисания': 'подвисания ',
+    'статистика.последнее': ', последнее в {когда}',
+    'статистика.последние': 'последние  ',
+    'статистика.раз1': 'раз',
+    'статистика.раз2': 'раза',
+    'статистика.раз5': 'раз',
+    'статистика.сегмент': 'сегмент    ',
+    'статистика.сегментСтрока': '#{номер} · {мс} мс (ответ {ответ} мс) · {мб} МБ',
+    'статистика.сеть': 'сеть       ',
+    'статистика.частота': 'частота    ',
+    'статус.1': 'База не поместилась в хранилище браузера: {name}.',
+    'статус.10': 'Сервер отдал пустой плейлист — эфира на этом edge нет.',
+    'статус.11': 'Поток оборвался: ',
+    'статус.12': 'Играет (нативный HLS).',
+    'статус.13': 'Не указана комната.',
+    'статус.14': 'Поток «{user}» не найден ни на одном сервере: модель офлайн, ',
+    'статус.15': 'Сеть недоступна или CORS заблокирован: ',
+    'статус.16': 'Глубина перемотки назад: {знач1}.',
+    'статус.17': 'Пауза оказалась длиннее, чем сервер хранит эфир (8 секунд), — вернулся к живому краю. ',
+    'статус.18': 'Запись {user} сохранена: {знач1} в /mnt/DATA/Bonga_rec.',
+    'статус.19': 'Запускаю запись на диск…',
+    'статус.2': 'Настройка не сохранилась: сервер не ответил.',
+    'статус.20': 'Пишу на диск. Эфир играет напрямую, без пауз; в памяти ',
+    'статус.21': 'Запись не пошла ({message}) — играю прямой эфир.',
+    'статус.22': 'Запись не идёт — включите «На диск».',
+    'статус.23': 'Первый сегмент записи ещё не закрыт — подождите минуту.',
+    'статус.24': 'Играю из записи — перемотка на всю её длину. «В эфир» вернёт прямой поток.',
+    'статус.25': 'Прямой эфир.',
+    'статус.26': 'Играю файл {name}. «В эфир» вернёт трансляцию.',
+    'статус.27': 'В этом браузере окно PiP открывается кнопкой на самом видео.',
+    'статус.28': 'Окно не открылось: ',
+    'статус.29': '{user} уже на стене — экран {знач1}, ячейка {at}.',
+    'статус.3': 'Сервер не ответил — путь не сохранён.',
+    'статус.30': 'Полный экран не открылся: ',
+    'статус.31': 'Ник скопирован: {user}',
+    'статус.32': 'Буфер обмена недоступен — скопируйте ник вручную.',
+    'статус.33': 'На экране шестнадцать ячеек — больше не влезет. ',
+    'статус.34': 'Ушли из эфира: {знач1}.',
+    'статус.35': 'Сначала запустите трансляцию.',
+    'статус.36': 'Запись и так не идёт.',
+    'статус.37': 'Останавливаю запись…',
+    'статус.38': 'Запись оборвалась (сервер перезапускался) — начинаю новую.',
+    'статус.39': 'Эфир записан ({знач1}), склеиваю сегменты в один файл…',
+    'статус.4': 'Сервер не ответил — путь не сохранён.',
+    'статус.40': 'Готово: {знач1}, {знач2} — ',
+    'статус.41': 'Склейка не удалась — сегменты остались на диске, ничего не потеряно.',
+    'статус.42': 'Сервер не ответил — заметка не сохранена.',
+    'статус.43': 'Нашлись на других серверах: {found} из {length}.',
+    'статус.44': 'История очищена: {count} {знач1}.',
+    'статус.45': 'Переключать не на что: список эфира пуст.',
+    'статус.46': 'В общей базе теперь {total} ников — они видны во всех браузерах.',
+    'статус.47': 'База пополнилась: {знач1} новых, всего {length}.',
+    'статус.48': 'Это не список ников — соберите его закладкой ещё раз.',
+    'статус.49': 'Разобрано ников: {total}, новых: {added}, с номером сервера: {edged}. ',
+    'статус.5': 'Не вышло ({message}) — файлы на месте.',
+    'статус.50': 'Firefox перестал рисовать кадры — пересобрал слой видео.',
+    'статус.51': 'Кадры не пошли и после пересборки слоя — переподключил поток.',
+    'статус.52': 'Полный экран не дался.',
+    'статус.53': 'Адрес потока скопирован.',
+    'статус.54': 'Скопируйте адрес из шапки вручную.',
+    'статус.55': 'Сеть пропала — поток встанет.',
+    'статус.56': 'Сеть вернулась.',
+    'статус.57': 'Трансляция остановлена.',
+    'статус.58': 'Браузер не разрешает «картинку в картинке».',
+    'статус.59': 'Окно не открылось: ',
+    'статус.6': 'Играет без звука — включите его в плеере (автозапуск со звуком запрещён браузером).',
+    'статус.60': 'Окно с панелью доступно только по localhost или https — открываю обычное.',
+    'статус.61': 'Сначала откройте комнату.',
+    'статус.62': 'Отправил в общую базу {added} ников из этого браузера. Всего: {total}.',
+    'статус.7': 'Нажмите ▶ в плеере.',
+    'статус.8': '12 секунд без данных — похоже, эфир закончился.',
+    'статус.9': '12 секунд без данных — похоже, эфир закончился.',
     'статус.начало': 'Стена поднимается сама. Комнату можно взять из правой колонки.',
     'стена.новаяЯчейка': '＋ новая ячейка',
     'эфир.заголовок': 'Доступные',
@@ -1909,7 +2047,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
-    }).catch(() => say('Настройка не сохранилась: сервер не ответил.', 'err'));
+    }).catch(() => say(t('статус.2'), 'err'));
   }
 
   // Периодические задачи заводятся заново при каждой смене интервала.
@@ -2074,7 +2212,7 @@
              : 'Путь отклонён: он вне разрешённых корней или недоступен на запись.',
           ok ? 'ok' : 'err');
     } catch {
-      say('Сервер не ответил — путь не сохранён.', 'err');
+      say(t('статус.3'), 'err');
     }
   };
 
@@ -2098,7 +2236,7 @@
           ok ? 'ok' : 'err');
       if (ok && !$('libPanel').hidden) showLibrary();
     } catch {
-      say('Сервер не ответил — путь не сохранён.', 'err');
+      say(t('статус.4'), 'err');
     }
   };
 
@@ -2151,7 +2289,7 @@
       if (data.error) throw new Error(data.error);
       say(what === 'keep' ? `Сохранено: ${data.merged}` : `Удалено: ${id}`, 'ok');
     } catch (err) {
-      say(`Не вышло (${err.message}) — файлы на месте.`, 'err');
+      say(t('статус.5', { message: err.message }), 'err');
     }
     checkOrphans();
   }
@@ -2409,8 +2547,8 @@
     video.play().catch(() => {
       video.muted = true;
       video.play()
-        .then(() => say('Играет без звука — включите его в плеере (автозапуск со звуком запрещён браузером).'))
-        .catch(() => say('Нажмите ▶ в плеере.'));
+        .then(() => say(t('статус.6')))
+        .catch(() => say(t('статус.7')));
     });
   }
 
@@ -2422,19 +2560,27 @@
     for (let i = 0; i < video.buffered.length; i++) {
       buf.push(`${video.buffered.start(i).toFixed(1)}–${video.buffered.end(i).toFixed(1)}`);
     }
+    /* Подписи отчёта тоже переводятся: его читает человек, а не программа.
+       Ширина колонки держится пробелами в самом переводе — так каждый язык
+       выравнивает по своей длине слов. */
+    const line = (key, value) => `${t('отчёт.' + key)}${value}`;
     return [
-      `время:      ${new Date().toLocaleString('ru-RU')}`,
-      `ник:        ${current.user || '—'} · edge ${current.edge || '—'}`,
-      `источник:   ${playingFrom === 'disk' ? 'запись на диске' : 'прямой эфир'}`,
-      `адрес:      ${streamUrl || '—'}`,
-      `видео:      readyState=${video.readyState} networkState=${video.networkState} ` +
-        `currentTime=${video.currentTime.toFixed(1)} paused=${video.paused}`,
-      `буфер:      ${buf.join(', ') || 'пусто'}`,
-      `hls.js:     ${hls ? `дорожек ${hls.levels ? hls.levels.length : 0}, выбрана ${hls.currentLevel}`
-                         : 'не используется (нативное воспроизведение)'}`,
-      lastHlsError ? `ошибка hls: ${lastHlsError}` : '',
-      `запись:     ${session ? `${session.id}, фаза ${session.phase}` : 'не ведётся'}`,
-      `браузер:    ${navigator.userAgent}`,
+      line('время', new Date().toLocaleString()),
+      line('ник', `${current.user || '—'} · edge ${current.edge || '—'}`),
+      line('источник', playingFrom === 'disk' ? t('отчёт.сДиска') : t('отчёт.вЭфире')),
+      line('адрес', streamUrl || '—'),
+      line('видео', `readyState=${video.readyState} networkState=${video.networkState} `
+        + `currentTime=${video.currentTime.toFixed(1)} paused=${video.paused}`),
+      line('буфер', buf.join(', ') || t('отчёт.пусто')),
+      line('hls', hls
+        ? t('отчёт.дорожки', { сколько: hls.levels ? hls.levels.length : 0,
+                               какая: hls.currentLevel })
+        : t('отчёт.безHls')),
+      lastHlsError ? line('ошибка', lastHlsError) : '',
+      line('запись', session
+        ? t('отчёт.идёт', { id: session.id, фаза: session.phase })
+        : t('отчёт.нет')),
+      line('браузер', navigator.userAgent),
     ].filter(Boolean).join('\n');
   }
 
@@ -2457,7 +2603,7 @@
   }
 
   function attach(url) {
-    logEvent('плеер', `новый источник: ${url}`, 'act');
+    logEvent('плеер', t('журнал.1', { url: url }), 'act');
     streamStartedAt = Date.now();      // от него отсчитывается окно разгона
     if (hls) { hls.destroy(); hls = null; }
     // Счётчики статистики — на каждый поток свои.
@@ -2474,10 +2620,10 @@
     stallTimer = setTimeout(async () => {
       if (video.readyState >= 3 || video.currentTime) return;
       const report = playbackReport();
-      say('12 секунд без данных — похоже, эфир закончился.', 'err',
+      say(t('статус.8'), 'err',
           `${report}\nплейлист:   проверяю…`);
       const probe = await probeCurrent();
-      say('12 секунд без данных — похоже, эфир закончился.', 'err',
+      say(t('статус.9'), 'err',
           `${report}\nплейлист:   ${probe}`);
     }, 12000);
     streamUrl = url;
@@ -2554,7 +2700,7 @@
               level.measuredBitrate = Math.round(bits);
               fresh[`${level.width}x${level.height}`] = Math.round(bits);
               if (Math.abs(claimed * 1e6 - bits) / Math.max(bits, 1) > 0.05) {
-                logEvent('качество', `${nameOf(lvl, real)}: заявлено было ` +
+                logEvent('качество', t('журнал.2', { знач1: nameOf(lvl, real) }) +
                                      `${claimed.toFixed(2)} Мбит/с — подставлено измеренное`);
               }
             }
@@ -2588,7 +2734,7 @@
         ladderRun++;                          // прошлый замер больше не актуален
         if (!data.levels.length) {           // пустышка вместо плейлиста
           hls.destroy(); hls = null;
-          return say('Сервер отдал пустой плейлист — эфира на этом edge нет.', 'err',
+          return say(t('статус.10'), 'err',
                      playbackReport());
         }
         // Дорожки названы суффиксом: …_240 / …_480 / …_720, а верхняя идёт
@@ -2638,7 +2784,7 @@
             const bits = ladderRates[`${lvl.width}x${lvl.height}`];
             if (bits > 0) { lvl.measuredBitrate = bits; taken++; }
           }
-          if (taken) logEvent('качество', `с сервера взято замеров: ${taken}`);
+          if (taken) logEvent('качество', t('журнал.3', { taken: taken }));
         }
         data.levels.forEach((lvl, i) => {
           const opt = document.createElement('option');
@@ -2725,7 +2871,7 @@
            внезапные провалы приходится вслепую. */
         const buf = bufferRange();
         logEvent('качество',
-          `дорожка ${data.level}` +
+          t('журнал.4', { level: data.level }) +
           (lvl ? ` · ${lvl.tierLabel} · ${mbit(lvl.bitrate || 0)}` : '') +
           ` · ${hls.autoLevelEnabled ? 'подбор' : 'вручную'}` +
           ` · канал ${mbit(hls.bandwidthEstimate || 0)}` +
@@ -2766,7 +2912,7 @@
         const warmMs = cfg('warm') * 1000;
         if (warmMs && Date.now() - streamStartedAt < warmMs) {
           hls.nextAutoLevel = autoSeedLevel;
-          logEvent('качество', `авто: возвращаю дорожку ${autoSeedLevel} — ` +
+          logEvent('качество', t('журнал.5', { autoSeedLevel: autoSeedLevel }) +
                                `идёт разгон канала (${mbit(now)}, прошло ` +
                                `${((Date.now() - streamStartedAt) / 1000).toFixed(1)} с)`);
           return;
@@ -2779,18 +2925,18 @@
            разгоняется, а действительно умер, и держать качество вредно. */
         const have = Math.max(now, autoPeakBw * 0.85);
         if (now < need * 0.6 || have < need * 1.15) {
-          logEvent('качество', `авто: канала ${mbit(now)} (пик ${mbit(autoPeakBw)}) ` +
+          logEvent('качество', t('журнал.6', { знач1: mbit(now), знач2: mbit(autoPeakBw) }) +
                                `против ${mbit(need)} — понижение оправдано, не мешаю`, 'err');
           return;
         }
         // Спорить бесконечно не будем: если подбор упорствует, значит видит
         // что-то, чего не видим мы.
         if (++autoRescues > 6) {
-          if (autoRescues === 7) logEvent('качество', 'авто: отпускаю подбор, спорить бесполезно', 'err');
+          if (autoRescues === 7) logEvent('качество', t('журнал.7'), 'err');
           return;
         }
         hls.nextAutoLevel = autoSeedLevel;
-        logEvent('качество', `авто: возвращаю дорожку ${autoSeedLevel} — ` +
+        logEvent('качество', t('журнал.8', { autoSeedLevel: autoSeedLevel }) +
                              `канала ${mbit(have)} хватает с запасом`);
       });
 
@@ -2816,13 +2962,13 @@
         else if (err.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
         else {
           hls.destroy(); hls = null;
-          say('Поток оборвался: ' + err.details, 'err', playbackReport());
+          say(t('статус.11') + err.details, 'err', playbackReport());
         }
       });
     } else {
       video.src = url;                       // Safari умеет HLS сам
       tryPlay();
-      say('Играет (нативный HLS).', 'ok');
+      say(t('статус.12'), 'ok');
     }
   }
 
@@ -2831,7 +2977,7 @@
      всё равно была хуже явного параметра. */
   async function start(want, wantEdge) {
     let user = String(want || current.user || '').trim();
-    if (!user) return say('Не указана комната.', 'err');
+    if (!user) return say(t('статус.13'), 'err');
 
     // Пути на CDN регистрозависимы: bambitwo != BambiTwo. Если ник знаком по
     // снимку — молча приводим к правильному написанию.
@@ -2847,7 +2993,7 @@
         say(edge ? `edge ${edge} не отвечает, ищу нужный…` : 'Ищу edge-сервер…');
         edge = await findEdge(user);
         if (!edge) {
-          return say(`Поток «${user}» не найден ни на одном сервере: модель офлайн, ` +
+          return say(t('статус.14', { user: user }) +
                      'идёт приватное шоу или ошибка в регистре ника (BambiTwo ≠ bambitwo).', 'err');
         }
       }
@@ -2879,7 +3025,7 @@
       updateMediaSession(user, edge);
       markCurrent();
     } catch (e) {
-      say('Сеть недоступна или CORS заблокирован: ' + e.message +
+      say(t('статус.15') + e.message +
           ' — откройте страницу через ./serve.sh, а не двойным кликом.', 'err');
     }
   }
@@ -2891,7 +3037,7 @@
 
   $('buffer').addEventListener('change', () => {
     if (hls) hls.config.backBufferLength = Number($('buffer').value);
-    say(`Глубина перемотки назад: ${$('buffer').selectedOptions[0].textContent}.`, 'ok');
+    say(t('статус.16', { знач1: $('buffer').selectedOptions[0].textContent }), 'ok');
   });
 
   const liveEdge = () => {
@@ -2912,7 +3058,7 @@
       stallWatch = 0;
       if (playingFrom !== 'live' || video.paused) return;
       if (video.currentTime - stallFrom > 0.5) return;      // всё-таки поехало
-      logEvent('плеер', `8 секунд без движения на ${stallFrom.toFixed(1)}`, 'err');
+      logEvent('плеер', t('журнал.9', { знач1: stallFrom.toFixed(1) }), 'err');
       jumpToLive();
     }, 8000);
   });
@@ -2932,8 +3078,8 @@
     if (seek.length) video.currentTime = seek.end(seek.length - 1);
     video.play().catch(() => {});
 
-    logEvent('плеер', 'прыжок к живому краю', 'act');
-    say('Пауза оказалась длиннее, чем сервер хранит эфир (8 секунд), — вернулся к живому краю. ' +
+    logEvent('плеер', t('журнал.10'), 'act');
+    say(t('статус.17') +
         'Чтобы можно было ставить на паузу надолго, включите «На диск».', 'err');
   }
 
@@ -3044,7 +3190,7 @@
     const threshold = cfg('keepMin');
 
     if (threshold >= 86400 || seconds < threshold) {
-      logEvent('запись', `${prev.id}: ${fmtTime(seconds)} — короче порога, удаляю`, 'act');
+      logEvent('запись', t('журнал.11', { id: prev.id, знач1: fmtTime(seconds) }), 'act');
       recDelete(prev.id);
       return;
     }
@@ -3085,11 +3231,11 @@
     keepTimer = 0;
     if (item) {
       if (keep) {
-        say(`Запись ${item.user} сохранена: ${fmtSize(item.bytes)} в /mnt/DATA/Bonga_rec.`, 'ok');
-        logEvent('запись', `${item.id}: оставлена по решению пользователя`, 'act');
+        say(t('статус.18', { user: item.user, знач1: fmtSize(item.bytes) }), 'ok');
+        logEvent('запись', t('журнал.12', { id: item.id }), 'act');
       } else {
         recDelete(item.id);
-        logEvent('запись', `${item.id}: удалена`, 'act');
+        logEvent('запись', t('журнал.13', { id: item.id }), 'act');
       }
     }
     $('keepAsk').hidden = true;
@@ -3127,7 +3273,7 @@
       paintRec();
       finishSession(prev, await recStop(prev.id));
     }
-    say('Запускаю запись на диск…');
+    say(t('статус.19'));
 
     try {
       const res = await recPost('api/record',
@@ -3136,10 +3282,10 @@
       if (!res.ok || !res.data.url) throw new Error(res.data.error || 'сервер отказал');
       session = res.data;
       paintRec();
-      say(`Пишу на диск. Эфир играет напрямую, без пауз; в памяти ` +
+      say(t('статус.20') +
           `${$('buffer').selectedOptions[0].textContent} перемотки, глубже — кнопка «Из записи».`, 'ok');
     } catch (err) {
-      say(`Запись не пошла (${err.message}) — играю прямой эфир.`, 'err');
+      say(t('статус.21', { message: err.message }), 'err');
     }
   }
 
@@ -3165,13 +3311,13 @@
   }
 
   async function switchToRecording() {
-    if (!session) return say('Запись не идёт — включите «На диск».', 'err');
+    if (!session) return say(t('статус.22'), 'err');
     if (playingFrom === 'disk') return;
     if (!$('wallGrid').hidden) wallOff();      // запись играет главный плеер
 
     const target = (Date.now() / 1000 - session.started) - lagSeconds();
     if (!await waitPlaylist(session.url, 3)) {
-      return say('Первый сегмент записи ещё не закрыт — подождите минуту.', 'err');
+      return say(t('статус.23'), 'err');
     }
 
     playingFrom = 'disk';
@@ -3182,7 +3328,7 @@
       video.currentTime = Math.min(Math.max(target, 0), end);
     }, { once: true });
     paintSource();
-    say('Играю из записи — перемотка на всю её длину. «В эфир» вернёт прямой поток.', 'ok');
+    say(t('статус.24'), 'ok');
   }
 
   function backToLive() {
@@ -3191,7 +3337,7 @@
     playingFrom = 'live';
     attach(playlistUrl(user, edge));
     paintSource();
-    say('Прямой эфир.', 'ok');
+    say(t('статус.25'), 'ok');
   }
 
   function paintSource() {
@@ -3274,8 +3420,8 @@
     paintSource();
     streamUrl = name;
     $('libPanel').hidden = true;
-    logEvent('плеер', `файл: ${name}`, 'act');
-    say(`Играю файл ${name}. «В эфир» вернёт трансляцию.`, 'ok');
+    logEvent('плеер', t('журнал.14', { name: name }), 'act');
+    say(t('статус.26', { name: name }), 'ok');
   }
 
   /* --- стена: четыре потока разом ------------------------------------------
@@ -3688,7 +3834,7 @@
     const shot = tile.box.querySelector('.tshot');
     if (shot.blobUrl) { URL.revokeObjectURL(shot.blobUrl); shot.blobUrl = null; }
     if (frame) shot.src = frame; else shot.removeAttribute('src');
-    logEvent('стена', `${tile.user}: приём остановлен`, 'act');
+    logEvent('стена', t('журнал.15', { user: tile.user }), 'act');
     paintBar(tile);
   }
 
@@ -3810,7 +3956,7 @@
       // Ни каталог, ни полный обход не нашли живого сервера — значит ушла.
       if (!fresh || fresh === String(edge)) return tileGone(tile);
 
-      logEvent('стена', `${user}: сервер ${edge} молчит, перехожу на ${fresh}`);
+      logEvent('стена', t('журнал.16', { user: user, edge: edge, fresh: fresh }));
       learn(user, fresh);
       tilePlay(tile, user, fresh);
       tile.retried = true;      // ставим ПОСЛЕ: tilePlay сбрасывает признак
@@ -3937,12 +4083,12 @@
     // В Firefox этого API нет вовсе — там у видео своя кнопка PiP по наведению,
     // поэтому кнопку в панели прячем, а не показываем неработающей.
     if (!document.pictureInPictureEnabled || !tile.video.requestPictureInPicture) {
-      return say('В этом браузере окно PiP открывается кнопкой на самом видео.', 'err');
+      return say(t('статус.27'), 'err');
     }
     try {
       if (document.pictureInPictureElement === tile.video) await document.exitPictureInPicture();
       else await tile.video.requestPictureInPicture();
-    } catch (e) { say('Окно не открылось: ' + e.message, 'err'); }
+    } catch (e) { say(t('статус.28') + e.message, 'err'); }
   }
 
   // Звук — только у одной ячейки: четыре сразу дают кашу, да и браузер не даст.
@@ -4141,7 +4287,7 @@
     const at = screens[found.at].tiles.indexOf(tile) + 1;
     if (tile.goneAt) tilePlay(tile, tile.user, bestEdge(tile.user, edge || tile.edge));
     flashTile(tile);
-    say(`${tile.user} уже на стене — экран ${found.at + 1}, ячейка ${at}.`, 'ok');
+    say(t('статус.29', { user: tile.user, знач1: found.at + 1, at: at }), 'ok');
   }
 
   function wallAssign(user, edge) {
@@ -4374,7 +4520,7 @@
     bar.querySelector('.tpip').onclick = () => tilePip(tile);
     bar.querySelector('.tfull').onclick = () => {
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-      else box.requestFullscreen().catch(e => say('Полный экран не открылся: ' + e.message, 'err'));
+      else box.requestFullscreen().catch(e => say(t('статус.30') + e.message, 'err'));
     };
     bar.querySelector('.tzoom').onclick = () =>
       (zoom.tile === tile ? zoomShut() : zoomOpen(tile));
@@ -4397,8 +4543,8 @@
       e.stopPropagation();                 // рядом ник — он открывает профиль
       if (!tile.user) return;
       navigator.clipboard.writeText(tile.user)
-        .then(() => say(`Ник скопирован: ${tile.user}`, 'ok'))
-        .catch(() => say('Буфер обмена недоступен — скопируйте ник вручную.', 'err'));
+        .then(() => say(t('статус.31', { user: tile.user }), 'ok'))
+        .catch(() => say(t('статус.32'), 'err'));
     };
     tiles.push(tile);
     screens[screenAt].box.appendChild(box);
@@ -4458,7 +4604,7 @@
     let tile = tiles.find(item => !item.user);
     if (!tile) {
       if (tiles.length >= 16) {
-        return say('На экране шестнадцать ячеек — больше не влезет. ' +
+        return say(t('статус.33') +
                    'Заведите новый экран кнопкой ＋ рядом со «Стеной».', 'err');
       }
       tile = makeTile();
@@ -4619,7 +4765,7 @@
         tileGone(tile);
       }
     }
-    if (gone.length) say(`Ушли из эфира: ${gone.join(', ')}.`, 'ok');
+    if (gone.length) say(t('статус.34', { знач1: gone.join(', ') }), 'ok');
   }
 
   function wallOff() {
@@ -4675,15 +4821,15 @@
     // В ручном режиме кнопка ещё и запускает запись, если её нет.
     if (!session && !cfg('recMode')) {
       const { user, edge } = current;
-      if (!user || video.paused) return say('Сначала запустите трансляцию.', 'err');
+      if (!user || video.paused) return say(t('статус.35'), 'err');
       recStopped = false;
       return armRecording(user, edge);
     }
 
     recStopped = true;
-    if (!session) { paintRec(); return say('Запись и так не идёт.', 'ok'); }
+    if (!session) { paintRec(); return say(t('статус.36'), 'ok'); }
 
-    say('Останавливаю запись…');
+    say(t('статус.37'));
     await recStop(session.id);
     session.phase = 'merging';             // дальше следит опрос: склейка -> готовый файл
     paintRec();
@@ -4700,31 +4846,31 @@
       // вместе с ним. Держаться за неё нельзя: счётчик замрёт, а новая запись
       // не начнётся, потому что сессия формально есть.
       if (!mine) {
-        logEvent('запись', `${session.id}: сервер её не знает, начинаю заново`, 'err');
-        say('Запись оборвалась (сервер перезапускался) — начинаю новую.', 'err');
+        logEvent('запись', t('журнал.17', { id: session.id }), 'err');
+        say(t('статус.38'), 'err');
         session = null;
         paintRec();
         return;
       }
 
       const was = session.phase;
-      if (mine.phase !== was) logEvent('запись', `${session.id}: фаза ${was} -> ${mine.phase}`, 'act');
+      if (mine.phase !== was) logEvent('запись', t('журнал.18', { id: session.id, was: was, phase: mine.phase }), 'act');
       session = Object.assign(session, mine);
       paintRec();
 
       if (mine.phase === 'merging' && was !== 'merging') {
-        say(`Эфир записан (${fmtTime(mine.seconds)}), склеиваю сегменты в один файл…`);
+        say(t('статус.39', { знач1: fmtTime(mine.seconds) }));
       } else if (mine.phase === 'ready') {
         // Сегменты уже удалены — переходим на готовый mp4 с того же места.
         playingFrom = 'disk';
         playFile(mine.url, video.currentTime);
         paintSource();
-        say(`Готово: ${mine.url.replace('rec/', '')}, ${fmtSize(mine.bytes)} — ` +
+        say(t('статус.40', { знач1: mine.url.replace('rec/', ''), знач2: fmtSize(mine.bytes) }) +
             'перемотка по всей длине.', 'ok');
         session = null;
         paintRec();
       } else if (mine.phase === 'failed') {
-        say('Склейка не удалась — сегменты остались на диске, ничего не потеряно.', 'err');
+        say(t('статус.41'), 'err');
         session = null;
         paintRec();
       }
@@ -4739,7 +4885,7 @@
     const { user, edge } = current;
     if (!cfg('recMode') || recStopped || session || !user || video.paused || video.readyState < 3) return;
     if (Date.now() - lastRecTry < 15000) return;
-    logEvent('запись', 'сессии нет, хотя запись включена — поднимаю заново', 'err');
+    logEvent('запись', t('журнал.19'), 'err');
     armRecording(user, edge);
   }, 5000);
 
@@ -4887,7 +5033,7 @@
       paintNotes();
       say(data.text ? `Заметка о ${user} сохранена.` : `Заметка о ${user} удалена.`, 'ok');
     } catch {
-      say('Сервер не ответил — заметка не сохранена.', 'err');
+      say(t('статус.42'), 'err');
     }
   }
 
@@ -5110,8 +5256,8 @@
     $('histCheck').classList.remove('busy');
     deepBusy = false;
     setTimeout(() => { if (!deepBusy) $('histProgress').textContent = ''; }, 5000);
-    if (found) say(`Нашлись на других серверах: ${found} из ${targets.length}.`, 'ok');
-    logEvent('история', `глубокая проверка: ${targets.length} ников, нашлось ${found}`, 'act');
+    if (found) say(t('статус.43', { found: found, length: targets.length }), 'ok');
+    logEvent('история', t('журнал.20', { length: targets.length, found: found }), 'act');
   }
 
   $('histCheck').onclick = () => deepCheckHistory(true);
@@ -5152,7 +5298,7 @@
     const count = loadHist().length;
     localStorage.removeItem('history');
     renderHist();
-    say(`История очищена: ${count} ${plural(count, 'запись', 'записи', 'записей')}.`, 'ok');
+    say(t('статус.44', { count: count, знач1: plural(count, 'запись', 'записи', 'записей') }), 'ok');
   };
 
   // --- правая панель: кто в эфире прямо сейчас ------------------------------
@@ -5696,12 +5842,12 @@
     const list = liveList.length
       ? liveList.map(m => [m[0], m[1]])
       : loadHist().map(r => [r.u, r.e]);          // пока эфир не проверен — идём по истории
-    if (!list.length) return say('Переключать не на что: список эфира пуст.', 'err');
+    if (!list.length) return say(t('статус.45'), 'err');
 
     const now = currentRoom().user.toLowerCase();
     const at = list.findIndex(m => String(m[0]).toLowerCase() === now);
     const [user, edge] = list[at < 0 ? 0 : (at + dir + list.length) % list.length];
-    logEvent('плеер', `автопереключение на ${user} (edge ${edge})`, 'act');
+    logEvent('плеер', t('журнал.21', { user: user, edge: edge }), 'act');
     openStream(user, edge);
     armCarousel();                                // ручное переключение отодвигает автосмену
   }
@@ -5839,7 +5985,7 @@
     saveExtra(extra);
     rebuildCatalog();
     pushAccounts(arr).then(res => {                 // отдаём список в общую базу
-      if (res) say(`В общей базе теперь ${res.total} ников — они видны во всех браузерах.`, 'ok');
+      if (res) say(t('статус.46', { total: res.total }), 'ok');
       pullAccounts();
     });
     return { total, added, edged };
@@ -5874,7 +6020,7 @@
     nextPull = Date.now() + cfg('pull') * 1000;
     paintAccounts();
     if (ok && catalog.length > before) {
-      say(`База пополнилась: ${catalog.length - before} новых, всего ${catalog.length}.`, 'ok');
+      say(t('статус.47', { знач1: catalog.length - before, length: catalog.length }), 'ok');
       refreshOnline();
     }
   }
@@ -5886,10 +6032,10 @@
 
   $('importOk').onclick = () => {
     const res = importList($('importText').value);
-    if (!res) return say('Это не список ников — соберите его закладкой ещё раз.', 'err');
+    if (!res) return say(t('статус.48'), 'err');
     $('baseDlg').close();
     $('importText').value = '';
-    say(`Разобрано ников: ${res.total}, новых: ${res.added}, с номером сервера: ${res.edged}. ` +
+    say(t('статус.49', { total: res.total, added: res.added, edged: res.edged }) +
         `Всего в базе: ${catalog.length}.`, 'ok');
     refreshOnline();
   };
@@ -5966,17 +6112,17 @@
     const wasPlaying = !video.paused;
 
     if (!soon) {
-      logEvent('картинка', 'кадры не рисуются — перевставляю элемент в документ', 'err');
+      logEvent('картинка', t('журнал.22'), 'err');
       const parent = video.parentNode, next = video.nextSibling;
       parent.removeChild(video);             // вне документа слой уничтожается
       void document.body.offsetHeight;
       parent.insertBefore(video, next);
       if (wasPlaying) video.play().catch(() => {});
-      say('Firefox перестал рисовать кадры — пересобрал слой видео.', 'err');
+      say(t('статус.50'), 'err');
       return;
     }
 
-    logEvent('картинка', 'не помогло — переподключаю медиапоток', 'err');
+    logEvent('картинка', t('журнал.23'), 'err');
     if (hls) {
       hls.detachMedia();
       hls.attachMedia(video);
@@ -5991,7 +6137,7 @@
       video.currentTime = at;
       if (wasPlaying) video.play().catch(() => {});
     }
-    say('Кадры не пошли и после пересборки слоя — переподключил поток.', 'err');
+    say(t('статус.51'), 'err');
   }
 
   setInterval(() => {
@@ -6079,7 +6225,7 @@
   function toggleLog(on) {
     $('logPanel').hidden = !on;
     if (!on) return;
-    logEvent('журнал', `открыт · источник ${playingFrom} · ${streamUrl || '—'}`, 'act');
+    logEvent('журнал', t('журнал.24', { playingFrom: playingFrom, знач1: streamUrl || '—' }), 'act');
     paintLog();          // показываем и то, что накопилось до открытия
   }
 
@@ -6104,8 +6250,8 @@
     });
   }
 
-  window.addEventListener('online', () => logEvent('сеть', 'вернулась', 'act'));
-  window.addEventListener('offline', () => logEvent('сеть', 'пропала', 'err'));
+  window.addEventListener('online', () => logEvent('сеть', t('журнал.25'), 'act'));
+  window.addEventListener('offline', () => logEvent('сеть', t('журнал.26'), 'err'));
   document.addEventListener('visibilitychange',
     () => logEvent('вкладка', document.hidden ? 'скрыта' : 'видима'));
 
@@ -6151,13 +6297,13 @@
     else if (act === 'pip') $('pip').click();
     else if (act === 'full') {
       if (document.fullscreenElement) document.exitFullscreen();
-      else video.requestFullscreen().catch(() => say('Полный экран не дался.', 'err'));
+      else video.requestFullscreen().catch(() => say(t('статус.52'), 'err'));
     } else if (act === 'mute') video.muted = !video.muted;
     else if (act === 'profile') openProfile(currentRoom().user);
     else if (act === 'copy') {
       navigator.clipboard.writeText(streamUrl)
-        .then(() => say('Адрес потока скопирован.', 'ok'))
-        .catch(() => say('Скопируйте адрес из шапки вручную.', 'err'));
+        .then(() => say(t('статус.53'), 'ok'))
+        .catch(() => say(t('статус.54'), 'err'));
     } else if (act === 'reload') startByUser();
     /* Останавливаем только видимый экран, а не все разом: соседние и так спят,
        а «остановить всё» на них означало бы потерять их готовность к
@@ -6206,8 +6352,8 @@
   video.addEventListener('playing', () => { hasPlayed = true; endStall(); });
   video.addEventListener('seeked', () => { stallStart = 0; });
 
-  window.addEventListener('offline', () => say('Сеть пропала — поток встанет.', 'err', playbackReport()));
-  window.addEventListener('online', () => say('Сеть вернулась.', 'ok'));
+  window.addEventListener('offline', () => say(t('статус.55'), 'err', playbackReport()));
+  window.addEventListener('online', () => say(t('статус.56'), 'ok'));
 
   /* ── Подсказки под значком «i» ───────────────────────────────────────
      Штатный title не подошёл: он появляется через секунду и переносит
@@ -6486,34 +6632,49 @@
     const buf = bufferRange();
     const lag = playingFrom === 'live' ? liveEdge() - video.currentTime : 0;
 
+    /* Подписи статистики переводятся вместе со всем остальным: панель читает
+       человек. Ширина колонки живёт в самом переводе — каждый язык выравнивает
+       по длине своих слов, и подгонять пробелы в коде не приходится. */
+    const row = (key, value) => `${t('статистика.' + key)}${value}`;
+
     $('statsBody').innerHTML = [
-      `источник   ${playingFrom === 'disk' ? 'запись на диске' : 'прямой эфир'}` +
-        `${session ? ' · пишется' : ''}`,
-      `картинка   ${video.videoWidth}×${video.videoHeight}` +
-        (lvl ? ` · дорожка ${lvl.height}p` : '') +
-        (hls && hls.currentLevel < 0 ? ' (авто)' : ''),
-      `кадры      всего ${num(q.totalVideoFrames)} · пропущено ` +
-        `${lost > 1 ? '<i>' : '<b>'}${num(q.droppedVideoFrames)} (${lost.toFixed(2)}%)` +
-        `${lost > 1 ? '</i>' : '</b>'}`,
-      `частота    ${fps ? fps.toFixed(1) : '—'} к/с` +
-        (video.mozPaintedFrames !== undefined ? ` · нарисовано ${num(video.mozPaintedFrames)}` : ''),
-      `битрейт    ${lvl ? mbit(lvl.bitrate) : '—'} · канал ${hls ? mbit(hls.bandwidthEstimate || 0) : '—'}`,
-      `буфер      вперёд ${buf.ahead.toFixed(1)} с · назад ${buf.behind.toFixed(0)} с`,
-      `отставание ${playingFrom === 'live' ? `${lag.toFixed(1)} с от живого края` : 'запись, не применимо'}`,
-      `сегмент    ${lastFrag
-        ? `#${lastFrag.sn} · ${lastFrag.ms} мс (ответ ${lastFrag.ttfb} мс) · ` +
-          `${(lastFrag.size / 1048576).toFixed(2)} МБ` +
-          (lastFrag.ms > 0 ? ` · ${mbit(lastFrag.size * 8 / (lastFrag.ms / 1000))}` : '')
-        : '—'}`,
-      `сеть       ${netLine()}`,
-      `подвисания ${stallCount
-        ? `<i>${stallCount} ${plural(stallCount, "раз", "раза", "раз")}, суммарно ${stallTotal.toFixed(1)} с` +
-          `${lastStallAt ? `, последнее в ${new Date(lastStallAt).toLocaleTimeString('ru-RU')}` : ''}</i>`
-        : '<b>нет</b>'}`,
-      `ошибки     ${errorCount ? `<i>${errorCount}</i> · сеть ${netErrors}, медиа ${mediaErrors}, ` +
-                                 `прочие ${errorCount - netErrors - mediaErrors}` : '<b>0</b>'}`,
-      errorLog.length ? `последние  ${errorLog.join('\n           ')}` : '',
-      `адрес      ${streamUrl || '—'}`,
+      row('источник', (playingFrom === 'disk' ? t('отчёт.сДиска') : t('отчёт.вЭфире'))
+        + (session ? t('статистика.пишется') : '')),
+      row('картинка', `${video.videoWidth}×${video.videoHeight}`
+        + (lvl ? t('статистика.дорожка', { высота: lvl.height }) : '')
+        + (hls && hls.currentLevel < 0 ? t('статистика.авто') : '')),
+      row('кадры', t('статистика.кадрыВсего', { всего: num(q.totalVideoFrames) })
+        + `${lost > 1 ? '<i>' : '<b>'}${num(q.droppedVideoFrames)} (${lost.toFixed(2)}%)`
+        + `${lost > 1 ? '</i>' : '</b>'}`),
+      row('частота', t('статистика.вСекунду', { сколько: fps ? fps.toFixed(1) : '—' })
+        + (video.mozPaintedFrames !== undefined
+          ? t('статистика.нарисовано', { сколько: num(video.mozPaintedFrames) }) : '')),
+      row('битрейт', t('статистика.канал', { дорожка: lvl ? mbit(lvl.bitrate) : '—',
+                                             канал: hls ? mbit(hls.bandwidthEstimate || 0) : '—' })),
+      row('буфер', t('статистика.буферСтрока', { вперёд: buf.ahead.toFixed(1),
+                                           назад: buf.behind.toFixed(0) })),
+      row('отставание', playingFrom === 'live'
+        ? t('статистика.отЖивого', { сколько: lag.toFixed(1) })
+        : t('статистика.вЗаписи')),
+      row('сегмент', lastFrag
+        ? t('статистика.сегментСтрока', { номер: lastFrag.sn, мс: lastFrag.ms, ответ: lastFrag.ttfb,
+                                    мб: (lastFrag.size / 1048576).toFixed(2) })
+          + (lastFrag.ms > 0 ? ` · ${mbit(lastFrag.size * 8 / (lastFrag.ms / 1000))}` : '')
+        : '—'),
+      row('сеть', netLine()),
+      row('подвисания', stallCount
+        ? `<i>` + t('статистика.подвисало', { сколько: stallCount,
+              раз: plural(stallCount, t('статистика.раз1'), t('статистика.раз2'), t('статистика.раз5')),
+              всего: stallTotal.toFixed(1) })
+          + (lastStallAt ? t('статистика.последнее',
+              { когда: new Date(lastStallAt).toLocaleTimeString() }) : '') + '</i>'
+        : `<b>${t('статистика.нетПодвисаний')}</b>`),
+      row('ошибки', errorCount
+        ? `<i>${errorCount}</i>` + t('статистика.ошибкиСтрока', { сеть: netErrors, медиа: mediaErrors,
+              прочие: errorCount - netErrors - mediaErrors })
+        : '<b>0</b>'),
+      errorLog.length ? row('последние', errorLog.join('\n           ')) : '',
+      row('адрес', streamUrl || '—'),
     ].filter(Boolean).join('\n');
   }
 
@@ -6545,8 +6706,8 @@
       paintRec();
     }
 
-    logEvent('плеер', 'остановлено пользователем', 'act');
-    say('Трансляция остановлена.', 'ok');
+    logEvent('плеер', t('журнал.27'), 'act');
+    say(t('статус.57'), 'ok');
   }
 
   /* Кнопок «Смотреть», «Найти edge» и «Стоп» на панели больше нет: комнату
@@ -6574,7 +6735,7 @@
     autoSeedLevel = seed;
     autoRescues = 0;
     autoPeakBw = 0;
-    logEvent('качество', `авто: начинаю с дорожки ${seed}, ` +
+    logEvent('качество', t('журнал.28', { seed: seed }) +
                          `${((hls.levels[seed].bitrate || 0) / 1e6).toFixed(2)} Мбит/с`);
   }
 
@@ -6599,12 +6760,12 @@
   // наших кнопок там быть не может, туда попадает только видеодорожка.
   async function openNativePip() {
     if (!document.pictureInPictureEnabled) {
-      return say('Браузер не разрешает «картинку в картинке».', 'err');
+      return say(t('статус.58'), 'err');
     }
     try {
       if (document.pictureInPictureElement) await document.exitPictureInPicture();
       else await video.requestPictureInPicture();
-    } catch (e) { say('Окно не открылось: ' + e.message, 'err'); }
+    } catch (e) { say(t('статус.59') + e.message, 'err'); }
   }
 
   // Наше окно: туда переезжает сам элемент video вместе с панелью управления,
@@ -6614,7 +6775,7 @@
 
   async function openDocPip() {
     if (!docPipReady()) {
-      say('Окно с панелью доступно только по localhost или https — открываю обычное.', 'err');
+      say(t('статус.60'), 'err');
       return openNativePip();
     }
 
@@ -6799,7 +6960,7 @@
   // Профиль на сайте. Регистр в пути важен, поэтому берём правильное написание
   // из базы, если ник там есть, — иначе сайт отдаст 404.
   function openProfile(room) {
-    if (!room) return say('Сначала откройте комнату.', 'err');
+    if (!room) return say(t('статус.61'), 'err');
     const user = canon.get(String(room).toLowerCase()) || room;
     window.open(`https://ru17.bongacams.com/profile/${encodeURIComponent(user)}`,
                 '_blank', 'noopener,noreferrer');
@@ -6839,7 +7000,7 @@
       const mine = Object.values(loadExtra()).filter(m => !onServer.has(String(m[0]).toLowerCase()));
       if (mine.length) {
         const res = await pushAccounts(mine);
-        if (res) say(`Отправил в общую базу ${res.added} ников из этого браузера. Всего: ${res.total}.`, 'ok');
+        if (res) say(t('статус.62', { added: res.added, total: res.total }), 'ok');
         await pullAccounts();
       }
     }
