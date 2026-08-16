@@ -31,20 +31,23 @@
   /* Обзор экранов: каждый экран своей мозаикой превью, в том же порядке, в
      каком трансляции стоят в сетке. Нужен, когда экранов больше двух и по
      номеру уже не вспомнить, что где. */
-  /* Затемнение на всю сцену: оно же служит местом, куда можно щёлкнуть, чтобы
-     закрыть обзор. Само окно — по центру и ровно по содержимому. */
+  /* Прозрачная подложка на всю сцену: затемнять трансляции незачем — обзор
+     открывают на секунду, а гасить ради него девять картинок это перебор.
+     Подложка остаётся только как место, куда можно щёлкнуть для закрытия. */
   #scrPanel {
     position: absolute; inset: 0; z-index: 50;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(8, 10, 14, .82);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 10px; background: none;
   }
   #scrPanel[hidden] { display: none; }     /* display:flex перебил бы hidden */
+  /* Окно прижато к верху: там его и ищут взглядом после нажатия кнопки в
+     шапке, да и трансляции внизу остаются видны. */
   #scrWin {
     display: flex; flex-direction: column; gap: 10px;
-    max-width: calc(100% - 40px); max-height: calc(100% - 40px);
+    max-width: 100%; max-height: 100%;
     padding: 12px 14px; background: #14171d;
     border: 1px solid #39404d; border-radius: 12px;
-    box-shadow: 0 18px 48px rgba(0, 0, 0, .6);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .7);
   }
   #scrHead { display: flex; align-items: center; gap: 10px; color: #e6e8ec; font-size: 14px; }
   #scrHead .gap { flex: 1 1 auto; }
