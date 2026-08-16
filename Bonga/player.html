@@ -207,34 +207,35 @@
      Подпись с ником и кнопкой ⤡ ложится вплотную над панелью. Внутрь неё
      кнопку не вставить — панель живёт в теневом DOM браузера и чужих детей
      не принимает; а положить поверх значит закрыть собой полноэкранную. */
-  .tile.zoomed .tcap {
-    top: auto; bottom: 46px; background: none;
-    opacity: 0; transition: opacity .15s;
-  }
-  .tile.zoomed .tsnd, .tile.zoomed .tmain { display: none; }
+  /* Подпись приподнимается, когда всплывает панель, — иначе та её накрыла бы. */
+  .tcap { transition: bottom .15s; }
+  .tile.busy.ctl .tcap { bottom: 46px; }
   .tile.zoomed .tcap b { text-shadow: 0 1px 3px #000; }
 
-  /* Своя панель управления. Штатная выключена по двум причинам: добавить в неё
-     кнопку нельзя — она живёт в теневом DOM браузера, — и половина её к живому
-     эфиру отношения не имеет. Шкала там показывает не длительность трансляции,
-     а размер буфера: перематывать в прямом эфире некуда. */
+  /* Своя панель управления — у каждой занятой ячейки, не только у развёрнутой.
+     Штатная выключена по двум причинам: добавить в неё кнопку нельзя — она
+     живёт в теневом DOM браузера, — и половина её к живому эфиру отношения не
+     имеет. Шкала там показывает не длительность трансляции, а размер буфера:
+     перематывать в прямом эфире некуда. */
   .tbar { display: none; }
-  .tile.zoomed .tbar {
+  .tile.busy .tbar {
     display: flex; align-items: center; gap: 8px; z-index: 2;
     position: absolute; left: 0; right: 0; bottom: 0; padding: 9px 12px;
     background: linear-gradient(transparent, rgba(0, 0, 0, .8) 45%);
     color: #e6e8ec; font-size: 13px;
     opacity: 0; transition: opacity .15s;
   }
-  /* Панель и подпись появляются на движение курсора и гаснут через пару
-     секунд покоя — то же правило, по которому живёт штатная. */
-  .tile.zoomed.ctl .tbar, .tile.zoomed .tbar:hover,
-  .tile.zoomed.ctl .tcap, .tile.zoomed .tcap:hover { opacity: 1; }
+  /* Панель появляется на движение курсора и гаснет через пару секунд покоя —
+     то же правило, по которому живёт штатная. */
+  .tile.busy.ctl .tbar, .tile.busy .tbar:hover { opacity: 1; }
   .tbar .tb { cursor: pointer; padding: 3px 8px; border-radius: 5px;
               background: rgba(28, 31, 38, .78); user-select: none; }
   .tbar .tb:hover { background: #2f6fd0; }
   .tbar .tb[hidden] { display: none; }
-  .tbar .tvol { width: 96px; height: 14px; accent-color: #6ea8fe; cursor: pointer; }
+  /* Ползунку разрешено ужиматься: в сетке из шестнадцати ячейка узкая, а
+     панель одна и та же — пусть лучше сожмётся, чем вылезет за край. */
+  .tbar .tvol { flex: 0 1 96px; min-width: 44px; height: 14px;
+                accent-color: #6ea8fe; cursor: pointer; }
   .tbar .ttime { color: #98a1b0; font-variant-numeric: tabular-nums; }
   .tbar .gap { flex: 1 1 auto; }         /* всё, что правее, — к правому краю */
   .tbar .tlive { background: #7a2f2f; }
@@ -2690,7 +2691,7 @@
     tile.user = '';
     tile.box.querySelector('b').textContent = '';
     tile.box.querySelector('.empty').hidden = false;
-    tile.box.classList.remove('loud');
+    tile.box.classList.remove('loud', 'busy');   // пустой ячейке панель ни к чему
     saveWall();
     if (!wallQuiet) layoutWall();     // форма сетки зависит от числа занятых
   }
@@ -2710,6 +2711,8 @@
     tile.since = Date.now();           // с этого мига считаем время просмотра
     tile.box.querySelector('b').textContent = user;
     tile.box.querySelector('.empty').hidden = true;
+    tile.box.classList.add('busy');    // занятой ячейке полагается панель
+    paintBar(tile);
     saveWall();
     if (!wallQuiet) layoutWall();
 
@@ -2739,11 +2742,6 @@
     const saved = Number(raw);
     if (raw && saved >= 0 && saved <= 1) wallVolume = saved;
   } catch { /* приватный режим */ }
-
-  function paintSnd(tile) {
-    const icon = tile.box.querySelector('.tsnd');
-    if (icon) icon.textContent = tile.video.muted || !tile.video.volume ? '🔇' : '🔊';
-  }
 
   const clock = sec => {
     const s = Math.max(0, Math.round(sec));
@@ -2791,7 +2789,14 @@
 
     const full = bar.querySelector('.tfull');
     full.title = document.fullscreenElement ? 'Выйти из полного экрана (F)' : 'На весь экран (F)';
+
+    const big = zoom.tile === tile;
+    const zoomBtn = bar.querySelector('.tzoom');
+    zoomBtn.textContent = big ? '⤡' : '⤢';
+    zoomBtn.title = big ? 'Свернуть в сетку (Esc)' : 'Развернуть поверх остальных';
   }
+
+  const paintBars = () => { for (const tile of tiles) if (tile.user) paintBar(tile); };
 
   function tilePlayPause(tile) {
     const video = tile.video;
@@ -2819,8 +2824,8 @@
       other.video.muted = !on;
       if (on) other.video.volume = wallVolume;
       other.box.classList.toggle('loud', on && Boolean(other.user));
-      paintSnd(other);
     }
+    paintBars();
     if (tile.user) tile.video.play().catch(() => {});
   }
 
@@ -2862,8 +2867,6 @@
     return pick < 0 ? light : pick;    // не влезла ни одна — берём самую лёгкую
   }
 
-  let barTimer = 0;                    // секундные часы панели развёрнутой
-
   function zoomOpen(tile) {
     if (!tile.user) return;
     const was = zoom.tile;
@@ -2872,10 +2875,7 @@
     tile.box.classList.add('zoomed');
     layoutWall();                      // выдаёт развёрнутой всю площадь сетки
     tileLoud(tile);                    // смотрим крупно — значит и слушаем её
-
-    clearInterval(barTimer);
-    barTimer = setInterval(() => { if (zoom.tile) paintBar(zoom.tile); }, 1000);
-    paintBar(tile);
+    paintBars();                       // ⤢ у этой стал ⤡, у прежней — обратно
 
     /* Канал общий на всех. Соседние ячейки сейчас полностью закрыты, но полосу
        занимали бы прежнюю: шесть по 480p — это около 8 Мбит/с, а развёрнутой
@@ -2905,8 +2905,6 @@
     const tile = zoom.tile;
     if (!tile) return;
     zoom.tile = null;
-    clearInterval(barTimer);
-    barTimer = 0;
     // Сворачивать ячейку, оставив её же на весь экран, — бессмыслица.
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     tile.box.classList.remove('zoomed');
@@ -2921,6 +2919,7 @@
     if (tile.user && tile.video.paused) { toLive(tile); tile.video.play().catch(() => {}); }
     // Обратно в размер ячейки — там и 480p за глаза.
     if (tile.hls && tile.hls.levels) tile.hls.nextLevel = wallLevel(tile.hls.levels);
+    paintBars();                       // ⤡ снова стал ⤢
   }
 
   /* Клавиши развёрнутой ячейки. У штатной панели они работали сами, у своей
@@ -3061,12 +3060,11 @@
     box.innerHTML = '<video muted playsinline></video>' +
                     '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
                     'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
-                    '<div class="tcap"><b></b><span class="tsnd">🔇</span>' +
-                    '<span class="tmain" title="Развернуть поверх остальных">⤢</span>' +
+                    '<div class="tcap"><b></b>' +
                     '<span class="tclose" title="Убрать ячейку">×</span></div>' +
                     '<div class="tbar">' +
                       '<span class="tb tplay" title="Пауза (пробел)">⏸</span>' +
-                      '<span class="tb tmute" title="Звук (M)">🔊</span>' +
+                      '<span class="tb tmute" title="Звук (M)">🔇</span>' +
                       '<input class="tvol" type="range" min="0" max="1" step="0.02" ' +
                         'aria-label="Громкость">' +
                       '<span class="ttime">0:00</span>' +
@@ -3074,7 +3072,7 @@
                       '<span class="gap"></span>' +
                       '<span class="tb tpip" title="Картинка в картинке">🖼</span>' +
                       '<span class="tb tfull" title="На весь экран (F)">⛶</span>' +
-                      '<span class="tb tshrink" title="Свернуть в сетку (Esc)">⤡</span>' +
+                      '<span class="tb tzoom" title="Развернуть поверх остальных">⤢</span>' +
                     '</div>';
     const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
 
@@ -3096,7 +3094,11 @@
     box.onmousemove = () => {
       box.classList.add('ctl');
       clearTimeout(ctlTimer);
-      ctlTimer = setTimeout(() => box.classList.remove('ctl'), 2500);
+      // Под курсором панель не прячем: уйти с неё можно только движением,
+      // а оно и так заведёт таймер заново.
+      ctlTimer = setTimeout(() => {
+        if (!box.querySelector('.tbar').matches(':hover')) box.classList.remove('ctl');
+      }, 2500);
     };
     box.onmouseleave = () => { clearTimeout(ctlTimer); box.classList.remove('ctl'); };
     box.ondrop = e => {
@@ -3108,13 +3110,6 @@
       // её место определяет layoutWall, и это всегда последняя ячейка.
       tilePlay(tile, room.user, known.get(room.user.toLowerCase()) || room.edge);
     };
-    /* Значок работает в двух смыслах, и оба нужны: у молчащей ячейки он
-       забирает звук себе, у звучащей — глушит её. */
-    box.querySelector('.tsnd').onclick = () => {
-      if (tile.video.muted) return tileLoud(tile);
-      tile.video.muted = true;
-      paintSnd(tile);
-    };
     /* Уровень громкости запоминаем. Глушение уровень не меняет, поэтому такие
        события пропускаем: иначе tileLoud, глуша соседей, обнулял бы
        запомненное. */
@@ -3123,20 +3118,21 @@
         wallVolume = tile.video.volume;
         try { localStorage.setItem('wallVolume', String(wallVolume)); } catch { /* приватный */ }
       }
-      paintSnd(tile);
       paintBar(tile);
     };
     tile.video.onplay = tile.video.onpause = () => paintBar(tile);
 
-    // --- своя панель управления развёрнутой ячейки ---
+    // --- своя панель управления ---
     const bar = box.querySelector('.tbar');
     const vol = bar.querySelector('.tvol');
     vol.value = String(wallVolume);
 
     bar.querySelector('.tplay').onclick = () => tilePlayPause(tile);
+    /* Кнопка звука работает в двух смыслах, и оба нужны: у молчащей ячейки
+       забирает звук себе (на стене он один на всех), у звучащей — глушит. */
     bar.querySelector('.tmute').onclick = () => {
-      if (tile.video.muted) return tileLoud(tile);   // молчала — отдаём звук ей
-      tile.video.muted = true;                       // звучала — глушим
+      if (tile.video.muted) return tileLoud(tile);
+      tile.video.muted = true;
     };
     vol.oninput = () => {
       tile.video.volume = Number(vol.value);
@@ -3149,14 +3145,13 @@
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       else box.requestFullscreen().catch(e => say('Полный экран не открылся: ' + e.message, 'err'));
     };
-    bar.querySelector('.tshrink').onclick = () => zoomShut();
+    bar.querySelector('.tzoom').onclick = () =>
+      (zoom.tile === tile ? zoomShut() : zoomOpen(tile));
     // Кнопка PiP есть не везде: в Firefox этого API нет, там у видео своя.
     if (!document.pictureInPictureEnabled || !tile.video.requestPictureInPicture) {
       bar.querySelector('.tpip').hidden = true;
     }
     box.querySelector('.tclose').onclick = () => dropTile(tile);
-    box.querySelector('.tmain').onclick = () =>
-      (zoom.tile === tile ? zoomShut() : zoomOpen(tile));
     tiles.push(tile);
     $('wallGrid').appendChild(box);
     // Раскладку тут не трогаем: layoutWall сам достраивает недостающие ячейки
@@ -3216,6 +3211,8 @@
      растёт перетаскиванием и сжимается крестиком. opts.extra — комната,
      принесённая на полосу-приёмник; она встаёт последней, чтобы текущая
      трансляция осталась в первой ячейке. */
+  let barTimer = 0;                // секундные часы на панелях ячеек
+
   function wallOn(opts = {}) {
     // Всё нужное забираем до пересборки и остановки потока: buildWall очищает
     // ячейки, а stopStream стирает поля ника и сервера.
@@ -3264,6 +3261,10 @@
     layoutWall();                 // достроит свободные ячейки до прямоугольника
 
     if (tiles[0]) tileLoud(tiles[0]);   // подсветку цели уже поставил layoutWall
+    // Часы и отставание на панелях: раз в секунду на всю стену. Шестнадцать
+    // перерисовок текста в секунду — цена, которой можно пренебречь.
+    clearInterval(barTimer);
+    barTimer = setInterval(paintBars, 1000);
     say(plan.length
       ? `Стена: ${plan.length} трансляций. Клик по карточке кладёт её ` +
         'в последнюю ячейку, перетаскивание — в любую, а полоса у края ' +
@@ -3273,6 +3274,8 @@
 
   function wallOff() {
     zoomShut();                    // разворот без стены под ним не живёт
+    clearInterval(barTimer);
+    barTimer = 0;
     wallQuiet = true;              // выключение — не повод забывать состав
     for (const tile of tiles) tileStop(tile);
     wallQuiet = false;
