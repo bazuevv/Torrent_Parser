@@ -1527,6 +1527,7 @@
      хоть как-то понятен почти всем, кто сюда дойдёт. Образцом для сверки
      ru.json при этом быть не перестал — там пишется исходный текст. */
   const FALLBACK = 'en';
+  const RTL = new Set(['ar', 'he', 'fa', 'ur']);   // письмо справа налево
   let base = {};                     // английский: он же запасной для всех прочих
   let words = base;                  // словарь текущего языка
   let langNow = FALLBACK;
@@ -1568,6 +1569,11 @@
       el.dataset.tip = t(el.dataset.i18nTip);
     }
     document.documentElement.lang = langNow;
+    /* Направление письма. Без него арабский текст остаётся в левой раскладке:
+       строки читаются справа налево, а панели, отступы и знаки препинания в
+       конце фразы — по-прежнему слева. Браузер разворачивает всю раскладку
+       сам, стоит лишь сказать ему dir. */
+    document.documentElement.dir = RTL.has(langNow) ? 'rtl' : 'ltr';
   }
 
   /* Кэш словарей в браузере. Без него каждая загрузка ждала бы сеть, а в
@@ -1669,7 +1675,7 @@
     const names = { ru: 'Русский', en: 'English', de: 'Deutsch', es: 'Español',
                     fr: 'Français', pl: 'Polski', uk: 'Українська', it: 'Italiano',
                     pt: 'Português', tr: 'Türkçe', nl: 'Nederlands', cs: 'Čeština',
-                    zh: '中文', hi: 'हिन्दी' };
+                    zh: '中文', hi: 'हिन्दी', ar: 'العربية' };
     for (const code of have) {
       if ([...list.options].some(opt => opt.value === code)) continue;
       list.add(new Option(names[code] || code, code));
