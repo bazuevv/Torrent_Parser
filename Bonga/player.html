@@ -1471,136 +1471,10 @@
 <script src="models.js"></script>
 <script src="hls.min.js"></script>
 <script>
-(() => {
-  const $ = id => document.getElementById(id);
 
-  // Русские числительные: 1 минуту, 2 минуты, 5 минут.
-  const plural = (n, one, few, many) => {
-    const ten = n % 10, hundred = n % 100;
-    if (ten === 1 && hundred !== 11) return one;
-    if (ten >= 2 && ten <= 4 && (hundred < 12 || hundred > 14)) return few;
-    return many;
-  };
-  const video = $('v');
-  let hls = null, stallTimer = 0;
-  let ladderRun = 0;         // поколение замера дорожек: смена комнаты обесценивает прошлый
-  let libFile = '';          // играющий файл из папки просмотра, если это он
-  let userInitiated = false;      // переключение сделано человеком -> звук разрешён
-  let liveList = [];              // кто сейчас в эфире: порядок перелистывания комнат
-
-  // --- база ников ------------------------------------------------------------
-  // models.js — снимок сохранённой страницы, в нём только те, кто попал в первую
-  // порцию листинга. Дополняем его двумя источниками в localStorage: ники,
-  // которые открывали вручную, и импорт полного списка с сайта.
-  const loadExtra = () => { try { return JSON.parse(localStorage.getItem('extra')) || {}; } catch { return {}; } };
-  const saveExtra = obj => {
-    try { localStorage.setItem('extra', JSON.stringify(obj)); return true; }
-    catch (e) { say(t('статус.1', { name: e.name }), 'err'); return false; }
-  };
-
-  let catalog = [];
-  let serverBase = [];                   // общая база: одна на все браузеры и устройства
-  const known = new Map();
-  const canon = new Map();               // ник в нижнем регистре -> правильное написание
-
-  /* Текущая комната. Раньше её роль играли поля ввода в шапке: код читал
-     значение поля ника как источник правды — удобно, пока поле есть. Его
-     больше нет, поэтому держим состояние явно. Пишут сюда запуск потока, запись,
-     восстановление из адреса и открытие комнаты в ячейке. */
-  const current = { user: '', edge: '' };
-  const setCurrent = (user, edge) => {
-    current.user = String(user || '').trim();
-    current.edge = String(edge || '').trim();
-  };
-
-  /* Комната, к которой относятся действия «на текущую»: профиль, PiP, запись.
-     Разворот главнее звука — если ячейку развернули, смотрят именно её. */
-  function currentRoom() {
-    const pick = zoom.tile
-      || tiles.find(tile => tile.user && !tile.video.muted)
-      || tiles.find(tile => tile.user);
-    return pick && pick.user ? { user: pick.user, edge: pick.edge } : { ...current };
-  }
-
-  function rebuildCatalog() {
-    const byName = new Map();
-    const put = m => {
-      const key = String(m[0]).toLowerCase();
-      const prev = byName.get(key);
-      if (prev && prev[1] && !m[1]) return;      // известный сервер не затираем пустым
-      byName.set(key, m);
-    };
-
-    for (const m of (window.BONGA_MODELS || [])) put(m);   // снимок страницы
-    for (const m of serverBase) put(m);                    // общая база с сервера
-    for (const m of Object.values(loadExtra())) put(m);    // что выучено в этом браузере
-
-    catalog = [...byName.values()];
-    known.clear();
-    canon.clear();
-    for (const [name, vsid] of catalog) {
-      known.set(name.toLowerCase(), String(vsid));
-      canon.set(name.toLowerCase(), name);
-    }
-  }
-  // Подсказки к полю ника раньше жили здесь. Поля нет, а подсказки есть —
-  // они переехали в поиск правой колонки, там же история запросов.
-
-  // --- обмен с сервером ------------------------------------------------------
-  // accounts.json на сервере — источник правды, localStorage остаётся локальным
-  // кэшем: если сервер старой версии или недоступен, плеер работает как раньше.
-  async function pullAccounts() {
-    try {
-      const res = await fetch('api/accounts', { cache: 'no-store' });
-      const data = await res.json();
-      if (!Array.isArray(data.accounts)) return false;
-      serverBase = data.accounts;
-      rebuildCatalog();
-      return true;
-    } catch { return false; }
-  }
-
-  async function pushAccounts(rows) {
-    if (!rows.length) return null;
-    try {
-      const res = await fetch('api/accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rows),
-      });
-      return await res.json();
-    } catch { return null; }
-  }
-
-  // Успешно открытый ник запоминаем навсегда — со второго раза он уже в списке.
-  function learn(user, edge) {
-    const extra = loadExtra(), key = user.toLowerCase();
-    extra[key] = [user, String(edge), extra[key] ? extra[key][2] : 0];
-    saveExtra(extra);
-    rebuildCatalog();
-    pushAccounts([[user, String(edge), 0]]);       // и в общую базу, без ожидания
-  }
-
-  rebuildCatalog();
-
-  // Третий аргумент — подробности для панели под статусом: строка в шапке
-  // короткая и обрезается многоточием, а разбираться в проблеме нужно по
-  // полному тексту, который к тому же должен выделяться и копироваться.
-  let details = '';
-
-  // --- настройки, которые раньше были константами в коде --------------------
-  // Настройки общие для всех устройств, поэтому лежат на сервере рядом с базой
-  // ников. В памяти держим копию: читать их приходится часто и синхронно.
-  const DEFAULTS = { segment: 60, thumbs: 10, hist: 30,
-                     pull: 60, ttl: 60, gap: 10, pool: 24,
-                     buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
-                     keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
-                     catalog: 60, act: 15, ladder: 43200, warm: 5,
-                     wallQ: 480, wallCols: 0, msgs: 1, lang: 'auto' };
-  let settings = { ...DEFAULTS };
-
-  const cfg = key => settings[key];
-
+  /* Словарь стоит первым в скрипте нарочно: к нему обращается всё
+     остальное, и объявление посреди файла означало бы, что порядок строк
+     влияет на работу. Русский встроен, прочие языки подгружаются. */
   /* --- язык интерфейса ------------------------------------------------------
      Русский лежит прямо здесь: страница обязана открыться и без сети, а
      мигание английскими ключами перед подгрузкой словаря — худшее из решений.
@@ -1615,6 +1489,8 @@
     'pip.обычное.описание': 'рисует браузер: только видео, наших кнопок нет',
     'pip.сПанелью': 'С панелью',
     'pip.сПанелью.описание': 'стрелки комнат и автопереключение; рамка и адрес',
+    'видео.нетПапки': 'Укажите папку в настройках: «Просмотр» → «Папка видео».',
+    'видео.пусто': 'В папке нет видеофайлов.',
     'диалог.база.заголовок': 'База ников',
     'диалог.заметка.заголовок': 'Заметка',
     'диалог.осколки.заголовок': 'Незавершённые записи',
@@ -1653,6 +1529,12 @@
     'история.очистить': 'Очистить',
     'история.очистить.подсказка': 'Очистить историю',
     'история.проверить': 'Проверить серые ники на всех серверах',
+    'качество.вручную': 'вручную',
+    'качество.подбор': 'подбор',
+    'кусок.1': 'папку по умолчанию',
+    'кусок.2': ' по замеру сервера',
+    'кусок.3': 'худш',
+    'кусок.4': ' · роутер {gateway}',
     'меню.1': 'Собрать ники BongaCams',
     'меню.10': 'каждые 30 секунд',
     'меню.11': 'каждую минуту',
@@ -1920,6 +1802,29 @@
     'подсказка.пояснение': 'Пояснение',
     'ручка.история': 'Свернуть/развернуть историю',
     'ручка.эфир': 'Свернуть/развернуть список эфира',
+    'связь.куда': 'куда',
+    'связь.лучш': 'лучш',
+    'связь.медиана': 'медиана',
+    'связь.молчит': 'не отвечает',
+    'связь.мс': ' мс',
+    'склонение.1.два': 'куска',
+    'склонение.1.много': 'кусков',
+    'склонение.1.один': 'кусок',
+    'склонение.2.два': 'трансляции',
+    'склонение.2.много': 'трансляций',
+    'склонение.2.один': 'трансляция',
+    'склонение.3.два': 'минуты',
+    'склонение.3.много': 'минут',
+    'склонение.3.один': 'минуту',
+    'склонение.4.два': 'часа',
+    'склонение.4.много': 'часов',
+    'склонение.4.один': 'час',
+    'склонение.5.два': 'трансляции',
+    'склонение.5.много': 'трансляций',
+    'склонение.5.один': 'трансляция',
+    'склонение.6.два': 'трансляции',
+    'склонение.6.много': 'трансляций',
+    'склонение.6.один': 'трансляция',
     'статистика.авто': ' (авто)',
     'статистика.адрес': 'адрес      ',
     'статистика.битрейт': 'битрейт    ',
@@ -2015,15 +1920,233 @@
     'статус.9': '12 секунд без данных — похоже, эфир закончился.',
     'статус.начало': 'Стена поднимается сама. Комнату можно взять из правой колонки.',
     'стена.новаяЯчейка': '＋ новая ячейка',
-    'текст.1': 'авто',
-    'текст.2': 'Сервер перезапускался во время записи, и эти куски остались без хозяина. «Сохранить» склеит их в один mp4, «Удалить» — сотрёт.',
-    'текст.3': 'Пустая заметка удаляется. Видна со всех устройств — хранится на сервере.',
-    'текст.4': 'Если сервер был недоступен — вставить список вручную',
-    'текст.5': 'Сохранить',
-    'текст.6': 'Удалить',
-    'текст.7': 'Журнал воспроизведения · пишется в /mnt/DATA/Bonga_rec/playback.log',
-    'текст.8': 'Видео',
-    'текст.9': 'Shift + правая кнопка — меню браузера',
+    'текст.1': 'Записи теперь пишутся в {знач1}.',
+    'текст.10': 'Выберите корень',
+    'текст.100': 'На весь экран (F)',
+    'текст.101': 'Свернуть в сетку (Esc)',
+    'текст.102': 'Развернуть поверх остальных',
+    'текст.103': '<img class="tshot" alt="" data-i18n-title="ячейка.ушла">',
+    'текст.104': '<div class="offBox"><span class="off" data-i18n="ячейка.нет">нет</span>',
+    'текст.105': '<div class="empty" data-i18n-title="ячейка.свободна">＋</div>',
+    'текст.106': '<span class="tcopy" data-i18n-title="ячейка.копировать">⧉</span>',
+    'текст.107': '<span class="tclose" data-i18n-title="ячейка.убрать">×</span></div>',
+    'текст.108': '<span class="tb tplay" data-i18n-title="ячейка.пауза">⏸</span>',
+    'текст.109': '<span class="tb tstop" data-i18n-title="ячейка.стоп">⏹</span>',
+    'текст.11': '<div class="empty">Вложенных папок нет</div>',
+    'текст.110': '<span class="tb tmute" data-i18n-title="ячейка.звук">🔇</span>',
+    'текст.111': 'data-i18n-aria="ячейка.громкость">',
+    'текст.112': '<span class="tb tlive" data-i18n-title="ячейка.догнать" hidden></span>',
+    'текст.113': '<span class="tb tpip" data-i18n-title="ячейка.pip">🖼</span>',
+    'текст.114': '<span class="tb tfull" data-i18n-title="ячейка.экран">⛶</span>',
+    'текст.115': '<span class="tb tzoom" data-i18n-title="ячейка.развернуть">⤢</span>',
+    'текст.116': 'Заведите новый экран кнопкой ＋ рядом со «Стеной».',
+    'текст.117': 'Стена: {shown} трансляций. Клик по карточке кладёт её ',
+    'текст.118': 'в последнюю ячейку, перетаскивание — в любую, а полоса у края ',
+    'текст.119': 'добавляет ещё одну.',
+    'текст.12': '<div class="empty">Сервер не ответил</div>',
+    'текст.120': 'Стена пуста. Перетащите сюда карточку из правой колонки.',
+    'текст.121': 'запись',
+    'текст.122': 'запись',
+    'текст.123': 'перемотка по всей длине.',
+    'текст.124': 'запись',
+    'текст.125': 'Назад доступно {знач1} с — это весь буфер памяти. ',
+    'текст.126': 'Глубже — кнопка «Из записи».',
+    'текст.127': 'Больше: увеличьте «Буфер».',
+    'текст.128': 'Это уже прямой эфир, дальше вперёд ничего нет.',
+    'текст.129': '<div class="empty">Пусто. Открытые потоки появятся здесь.</div>',
+    'текст.13': 'Куда писать записи',
+    'текст.130': 'Заметка о {user} сохранена.',
+    'текст.131': 'Заметка о {user} удалена.',
+    'текст.132': 'Заметка: {text}',
+    'текст.133': 'Добавить заметку',
+    'текст.134': 'Пустая заметка удаляется. Видна со всех устройств — ',
+    'текст.135': 'хранится на сервере.',
+    'текст.136': 'правьте как удобно. ',
+    'текст.137': 'статус проверяется',
+    'текст.138': 'в эфире',
+    'текст.139': 'офлайн или сменила сервер',
+    'текст.14': 'Откуда смотреть видео',
+    'текст.140': 'от собственной нормы, сейчас {знач1}% ',
+    'текст.141': '(по {count} кускам, медиана {median} Мбит/с)',
+    'текст.142': 'история',
+    'текст.143': 'запись',
+    'текст.144': 'записи',
+    'текст.145': 'записей',
+    'текст.146': ' назад',
+    'текст.147': 'только что',
+    'текст.148': 'только что',
+    'текст.149': 'Ещё {знач1} в базе без сервера — они есть в подсказках поля «Ник».',
+    'текст.15': 'Наведите курсор — подробности',
+    'текст.150': 'кнопкой ↻ или сам, если данным больше часа.',
+    'текст.151': '<div class="empty">Никого не нашлось. Список — снимок сохранённой страницы.</div>',
+    'текст.152': 'из истории',
+    'текст.153': 'в эфире',
+    'текст.154': 'не в эфире',
+    'текст.155': 'плеер',
+    'текст.156': 'выкл',
+    'текст.157': '30 с',
+    'текст.158': '1 мин',
+    'текст.159': '3 мин',
+    'текст.16': 'время',
+    'текст.160': '{seconds} с',
+    'текст.161': 'страницы и {extra} добавленных. С известным сервером — {знач1}.',
+    'текст.162': 'Всего в базе: {length}.',
+    'текст.163': 'картинка',
+    'текст.164': 'картинка',
+    'текст.165': '{знач1} | t={знач2} буф={знач3} ',
+    'текст.166': 'живой={live} сегментов={знач1} ',
+    'текст.167': 'первый={startSN} последний={endSN} длительность={знач1} с',
+    'текст.168': 'играем #{sn}',
+    'текст.169': 'дорожка {level}',
+    'текст.17': 'ник',
+    'текст.170': 'дорожек {знач1}',
+    'текст.171': 'Событий пока нет — они появятся при загрузке сегментов, паузе, ошибках и переключениях.',
+    'текст.172': 'журнал',
+    'текст.173': 'сеть',
+    'текст.174': 'сеть',
+    'текст.175': 'вкладка',
+    'текст.176': 'скрыта',
+    'текст.177': 'видима',
+    'текст.178': 'Автопереключение комнат раз в {seconds} с.',
+    'текст.179': 'Автопереключение выключено.',
+    'текст.18': 'источник',
+    'текст.180': 'Приём остановлен: {length} {знач1}.',
+    'текст.181': 'Останавливать нечего.',
+    'текст.182': 'Возобновляю: {length} {знач1}.',
+    'текст.183': 'Возобновлять нечего.',
+    'текст.184': 'Меряю канал, это занимает несколько секунд…',
+    'текст.185': '<s>Проверка канала · {знач1}</s>',
+    'текст.186': 'ЭТА СТРАНИЦА → превью с CDN',
+    'текст.187': '  загрузилось {ok} из {tries} · лучшее {best} мс · ',
+    'текст.188': 'медиана {median} мс · худшее {worst} мс',
+    'текст.189': '  <i>ни одно превью из {tries} не дошло</i>',
+    'текст.19': 'адрес',
+    'текст.190': '  с потерей пакетов {знач1}',
+    'текст.191': ' · <i>оборвалось {failed}</i>',
+    'текст.192': '<i>Сервер плеера не ответил на запрос проверки.</i>',
+    'текст.193': 'СЕРВЕР ПЛЕЕРА → замеры TCP',
+    'текст.194': '{знач1}потери</s>',
+    'текст.195': '  {знач1}<i>не отвечает</i>',
+    'текст.196': '{знач1} · замер занял {took} с',
+    'текст.197': '<i>Проверка сорвалась: {знач1}</i>',
+    'текст.198': '{знач1} Мбит/с',
+    'текст.199': '<b>онлайн</b>',
+    'текст.2': 'Путь отклонён: он вне разрешённых корней или недоступен на запись.',
+    'текст.20': 'видео',
+    'текст.200': '<i>ОФФЛАЙН</i>',
+    'текст.201': 'канал {downlink} Мбит/с',
+    'текст.202': 'пинг {rtt} мс',
+    'текст.203': 'экономия трафика',
+    'текст.204': 'источник',
+    'текст.205': 'картинка',
+    'текст.206': 'кадры',
+    'текст.207': 'частота',
+    'текст.208': 'битрейт',
+    'текст.209': 'буфер',
+    'текст.21': 'буфер',
+    'текст.210': 'отставание',
+    'текст.211': 'сегмент',
+    'текст.212': 'сеть',
+    'текст.213': 'подвисания',
+    'текст.214': 'ошибки',
+    'текст.215': 'последние',
+    'текст.216': 'адрес',
+    'текст.217': 'плеер',
+    'текст.218': 'качество',
+    'текст.219': '{знач1} Мбит/с',
+    'текст.22': 'ошибка',
+    'текст.220': '<button data-p="prev" title="Предыдущая комната">⏮</button>',
+    'текст.221': '<button data-p="next" title="Следующая комната">⏭</button>',
+    'текст.222': '<label>Авто</label>',
+    'текст.223': '<button id="autoBtn" title="Интервал автопереключения"></button>',
+    'текст.224': '<div data-v="0">выкл</div><div data-v="30">30 с</div>',
+    'текст.225': '<div data-v="60">1 мин</div><div data-v="180">3 мин</div>',
+    'текст.226': '<button data-p="stop" title="Остановить автопереключение">⏹</button>',
+    'текст.227': 'Недоступно: страница открыта не по localhost и не по https',
+    'текст.23': 'запись',
+    'текст.24': 'браузер',
+    'текст.25': 'адрес не задан',
+    'текст.26': 'HTTP {status}, дорожек {tracks}, сегментов {parts}, тело {length} байт',
+    'текст.27': ' — плейлист пуст',
+    'текст.28': 'запрос не прошёл: {name} {message}',
+    'текст.29': 'плеер',
+    'текст.3': 'Видео берётся из {libDir}.',
+    'текст.30': '{report}\\nплейлист:   проверяю…',
+    'текст.31': '{report}\\nплейлист:   {probe}',
+    'текст.32': '<option value="-1">авто</option>',
+    'текст.33': 'качество',
+    'текст.34': '{знач1} Мбит/с — подставлено измеренное',
+    'текст.35': '{знач1}p · {знач2} Мбит/с',
+    'текст.36': ' · оригинал',
+    'текст.37': 'качество',
+    'текст.38': 'Играет {знач1}p, {знач2} Мбит/с — оригинал от модели.',
+    'текст.39': 'Играет {знач1}p, {знач2} Мбит/с — пережато сервером; ',
+    'текст.4': 'Папка видео очищена.',
+    'текст.40': 'оригинал {знач1}p идёт на {знач2} и не влезает в потолок.',
+    'текст.41': 'авто ({tierLabel})',
+    'текст.42': 'авто',
+    'текст.43': 'качество',
+    'текст.44': ' · канал {знач1}',
+    'текст.45': ' · буфер {знач1} с',
+    'текст.46': 'качество',
+    'текст.47': 'идёт разгон канала ({знач1}, прошло ',
+    'текст.48': '{знач1} с)',
+    'текст.49': 'качество',
+    'текст.5': 'Путь отклонён: он вне разрешённых корней или не существует.',
+    'текст.50': 'против {знач1} — понижение оправдано, не мешаю',
+    'текст.51': 'качество',
+    'текст.52': 'качество',
+    'текст.53': 'канала {знач1} хватает с запасом',
+    'текст.54': ' (фатальная)',
+    'текст.55': ', фрагмент {sn}',
+    'текст.56': 'edge {edge} не отвечает, ищу нужный…',
+    'текст.57': 'Ищу edge-сервер…',
+    'текст.58': 'идёт приватное шоу или ошибка в регистре ника (BambiTwo ≠ bambitwo).',
+    'текст.59': ' — откройте страницу через ./serve.sh, а не двойным кликом.',
+    'текст.6': 'Склеиваю…',
+    'текст.60': 'плеер',
+    'текст.61': 'плеер',
+    'текст.62': 'Чтобы можно было ставить на паузу надолго, включите «На диск».',
+    'текст.63': ' ГБ',
+    'текст.64': ' МБ',
+    'текст.65': ' КБ',
+    'текст.66': '<option value="-1">файл</option>',
+    'текст.67': 'запись',
+    'текст.68': 'Запись <b>{user}</b> — {знач1}, {знач2}.<br>',
+    'текст.69': 'Оставить файл на диске? <i>Через {left} с удалю сама.</i>',
+    'текст.7': 'Удаляю…',
+    'текст.70': '<br><i>В очереди ещё {знач1}.</i>',
+    'текст.71': 'запись',
+    'текст.72': 'запись',
+    'текст.73': 'сервер отказал',
+    'текст.74': '{знач1} перемотки, глубже — кнопка «Из записи».',
+    'текст.75': 'Смотрю запись',
+    'текст.76': 'Из записи',
+    'текст.77': 'Играет {libFile} · нажмите, чтобы выбрать другой файл',
+    'текст.78': 'Файлы из папки, указанной в настройках',
+    'текст.79': '{знач1} ГБ',
+    'текст.8': 'Сохранено: {merged}',
+    'текст.80': '{знач1} МБ',
+    'текст.81': '{знач1} ч {знач2} мин',
+    'текст.82': '{знач1} мин',
+    'текст.83': '{secs} с',
+    'текст.84': '<div class="empty">Читаю папку…</div>',
+    'текст.85': '<div class="empty">Сервер не ответил</div>',
+    'текст.86': 'папка не задана',
+    'текст.87': '<option value="-1">авто</option>',
+    'текст.88': 'плеер',
+    'текст.89': 'пусто',
+    'текст.9': 'Удалено: {id}',
+    'текст.90': '<span>Новый экран</span><i>ещё шестнадцать ячеек</i>',
+    'текст.91': 'стена',
+    'текст.92': 'стена',
+    'текст.93': 'стена',
+    'текст.94': ', {знач1} Мбит/с{знач2}',
+    'текст.95': ', заявлено {знач1} Мбит/с — замера ещё нет',
+    'текст.96': 'Возобновить приём (пробел)',
+    'текст.97': 'Смотреть (пробел)',
+    'текст.98': 'Пауза (пробел)',
+    'текст.99': 'Выйти из полного экрана (F)',
     'узел.1': 'Сохранить',
     'узел.10': 'Записи нет!',
     'узел.11': 'Перейти на этот экран',
@@ -2086,6 +2209,136 @@
     'ячейка.ушла': 'Комната ушла из эфира. Нажмите, чтобы попробовать снова',
     'ячейка.экран': 'На весь экран (F)',
   };
+(() => {
+  const $ = id => document.getElementById(id);
+
+  // Русские числительные: 1 минуту, 2 минуты, 5 минут.
+  const plural = (n, one, few, many) => {
+    const ten = n % 10, hundred = n % 100;
+    if (ten === 1 && hundred !== 11) return one;
+    if (ten >= 2 && ten <= 4 && (hundred < 12 || hundred > 14)) return few;
+    return many;
+  };
+  const video = $('v');
+  let hls = null, stallTimer = 0;
+  let ladderRun = 0;         // поколение замера дорожек: смена комнаты обесценивает прошлый
+  let libFile = '';          // играющий файл из папки просмотра, если это он
+  let userInitiated = false;      // переключение сделано человеком -> звук разрешён
+  let liveList = [];              // кто сейчас в эфире: порядок перелистывания комнат
+
+  // --- база ников ------------------------------------------------------------
+  // models.js — снимок сохранённой страницы, в нём только те, кто попал в первую
+  // порцию листинга. Дополняем его двумя источниками в localStorage: ники,
+  // которые открывали вручную, и импорт полного списка с сайта.
+  const loadExtra = () => { try { return JSON.parse(localStorage.getItem('extra')) || {}; } catch { return {}; } };
+  const saveExtra = obj => {
+    try { localStorage.setItem('extra', JSON.stringify(obj)); return true; }
+    catch (e) { say(t('статус.1', { name: e.name }), 'err'); return false; }
+  };
+
+  let catalog = [];
+  let serverBase = [];                   // общая база: одна на все браузеры и устройства
+  const known = new Map();
+  const canon = new Map();               // ник в нижнем регистре -> правильное написание
+
+  /* Текущая комната. Раньше её роль играли поля ввода в шапке: код читал
+     значение поля ника как источник правды — удобно, пока поле есть. Его
+     больше нет, поэтому держим состояние явно. Пишут сюда запуск потока, запись,
+     восстановление из адреса и открытие комнаты в ячейке. */
+  const current = { user: '', edge: '' };
+  const setCurrent = (user, edge) => {
+    current.user = String(user || '').trim();
+    current.edge = String(edge || '').trim();
+  };
+
+  /* Комната, к которой относятся действия «на текущую»: профиль, PiP, запись.
+     Разворот главнее звука — если ячейку развернули, смотрят именно её. */
+  function currentRoom() {
+    const pick = zoom.tile
+      || tiles.find(tile => tile.user && !tile.video.muted)
+      || tiles.find(tile => tile.user);
+    return pick && pick.user ? { user: pick.user, edge: pick.edge } : { ...current };
+  }
+
+  function rebuildCatalog() {
+    const byName = new Map();
+    const put = m => {
+      const key = String(m[0]).toLowerCase();
+      const prev = byName.get(key);
+      if (prev && prev[1] && !m[1]) return;      // известный сервер не затираем пустым
+      byName.set(key, m);
+    };
+
+    for (const m of (window.BONGA_MODELS || [])) put(m);   // снимок страницы
+    for (const m of serverBase) put(m);                    // общая база с сервера
+    for (const m of Object.values(loadExtra())) put(m);    // что выучено в этом браузере
+
+    catalog = [...byName.values()];
+    known.clear();
+    canon.clear();
+    for (const [name, vsid] of catalog) {
+      known.set(name.toLowerCase(), String(vsid));
+      canon.set(name.toLowerCase(), name);
+    }
+  }
+  // Подсказки к полю ника раньше жили здесь. Поля нет, а подсказки есть —
+  // они переехали в поиск правой колонки, там же история запросов.
+
+  // --- обмен с сервером ------------------------------------------------------
+  // accounts.json на сервере — источник правды, localStorage остаётся локальным
+  // кэшем: если сервер старой версии или недоступен, плеер работает как раньше.
+  async function pullAccounts() {
+    try {
+      const res = await fetch('api/accounts', { cache: 'no-store' });
+      const data = await res.json();
+      if (!Array.isArray(data.accounts)) return false;
+      serverBase = data.accounts;
+      rebuildCatalog();
+      return true;
+    } catch { return false; }
+  }
+
+  async function pushAccounts(rows) {
+    if (!rows.length) return null;
+    try {
+      const res = await fetch('api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rows),
+      });
+      return await res.json();
+    } catch { return null; }
+  }
+
+  // Успешно открытый ник запоминаем навсегда — со второго раза он уже в списке.
+  function learn(user, edge) {
+    const extra = loadExtra(), key = user.toLowerCase();
+    extra[key] = [user, String(edge), extra[key] ? extra[key][2] : 0];
+    saveExtra(extra);
+    rebuildCatalog();
+    pushAccounts([[user, String(edge), 0]]);       // и в общую базу, без ожидания
+  }
+
+  rebuildCatalog();
+
+  // Третий аргумент — подробности для панели под статусом: строка в шапке
+  // короткая и обрезается многоточием, а разбираться в проблеме нужно по
+  // полному тексту, который к тому же должен выделяться и копироваться.
+  let details = '';
+
+  // --- настройки, которые раньше были константами в коде --------------------
+  // Настройки общие для всех устройств, поэтому лежат на сервере рядом с базой
+  // ников. В памяти держим копию: читать их приходится часто и синхронно.
+  const DEFAULTS = { segment: 60, thumbs: 10, hist: 30,
+                     pull: 60, ttl: 60, gap: 10, pool: 24,
+                     buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
+                     keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
+                     catalog: 60, act: 15, ladder: 43200, warm: 5,
+                     wallQ: 480, wallCols: 0, msgs: 1, lang: 'auto' };
+  let settings = { ...DEFAULTS };
+
+  const cfg = key => settings[key];
+
   let words = RU;                    // словарь текущего языка
   let langNow = 'ru';
 
@@ -2357,8 +2610,8 @@
       $('recDir').value = data.recDir || '';
       const ok = !wanted || data.recDir === wanted;
       $('recDirHint').classList.toggle('err', !ok);
-      say(ok ? `Записи теперь пишутся в ${data.recDir || 'папку по умолчанию'}.`
-             : 'Путь отклонён: он вне разрешённых корней или недоступен на запись.',
+      say(ok ? t('текст.1', { знач1: data.recDir || t('кусок.1') })
+             : t('текст.2'),
           ok ? 'ok' : 'err');
     } catch {
       say(t('статус.3'), 'err');
@@ -2380,8 +2633,8 @@
       $('libDir').value = data.libDir || '';
       const ok = !wanted || data.libDir === wanted;
       $('libDir').classList.toggle('err', !ok);
-      say(ok ? (data.libDir ? `Видео берётся из ${data.libDir}.` : 'Папка видео очищена.')
-             : 'Путь отклонён: он вне разрешённых корней или не существует.',
+      say(ok ? (data.libDir ? t('текст.3', { libDir: data.libDir }) : t('текст.4'))
+             : t('текст.5'),
           ok ? 'ok' : 'err');
       if (ok && !$('libPanel').hidden) showLibrary();
     } catch {
@@ -2407,14 +2660,19 @@
       const name = document.createElement('b');
       name.textContent = item.user;
       const info = document.createElement('i');
-      info.textContent = `${item.segments} ${plural(item.segments, 'кусок', 'куска', 'кусков')} · ` +
+      info.textContent = `${item.segments} ${plural(item.segments, t('склонение.1.один'), t('склонение.1.два'), t('склонение.1.много'))} · ` +
                          `${fmtSize(item.bytes)} · ${when(item.at * 1000)}`;
 
+      /* Действие помечено атрибутом, а не текстом кнопки: «Сохранить все» и
+         «Удалить все» искали кнопки сравнением подписи, и первый же перевод
+         сломал бы поиск — подпись меняется, атрибут нет. */
       const keep = document.createElement('button');
+      keep.dataset.act = 'keep';
       keep.textContent = t('узел.1');
       keep.onclick = () => orphanAct('keep', item.id, keep);
 
       const drop = document.createElement('button');
+      drop.dataset.act = 'drop';
       drop.textContent = t('узел.2');
       drop.onclick = () => orphanAct('drop', item.id, drop);
 
@@ -2427,7 +2685,7 @@
   async function orphanAct(what, id, button) {
     const row = button.closest('.orphan');
     row.querySelectorAll('button').forEach(b => { b.disabled = true; });
-    button.textContent = what === 'keep' ? 'Склеиваю…' : 'Удаляю…';
+    button.textContent = what === 'keep' ? t('текст.6') : t('текст.7');
     try {
       const res = await fetch(`api/orphans/${what}`, {
         method: 'POST',
@@ -2436,7 +2694,7 @@
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      say(what === 'keep' ? `Сохранено: ${data.merged}` : `Удалено: ${id}`, 'ok');
+      say(what === 'keep' ? t('текст.8', { merged: data.merged }) : t('текст.9', { id: id }), 'ok');
     } catch (err) {
       say(t('статус.5', { message: err.message }), 'err');
     }
@@ -2445,10 +2703,10 @@
 
   $('orphanClose').onclick = () => $('orphanDlg').close();
   $('orphanKeepAll').onclick = async () => {
-    for (const b of [...$('orphanList').querySelectorAll('button')].filter(b => b.textContent === 'Сохранить')) b.click();
+    for (const b of $('orphanList').querySelectorAll('button[data-act="keep"]')) b.click();
   };
   $('orphanDropAll').onclick = async () => {
-    for (const b of [...$('orphanList').querySelectorAll('button')].filter(b => b.textContent === 'Удалить')) b.click();
+    for (const b of $('orphanList').querySelectorAll('button[data-act="drop"]')) b.click();
   };
 
   // Обозреватель папок: системный диалог выбора каталога не отдаёт странице
@@ -2461,7 +2719,7 @@
       const res = await fetch('api/browse?path=' + encodeURIComponent(path || ''), { cache: 'no-store' });
       const data = await res.json();
       dirAt = data.path || '';
-      $('dirPath').textContent = dirAt || 'Выберите корень';
+      $('dirPath').textContent = dirAt || t('текст.10');
       $('dirUp').disabled = data.parent === null;
       $('dirPick').disabled = !dirAt;
       $('dirUp').dataset.to = data.parent === null ? '' : data.parent;
@@ -2472,7 +2730,7 @@
         return;
       }
       if (!data.dirs.length) {
-        $('dirList').innerHTML = '<div class="empty">Вложенных папок нет</div>';
+        $('dirList').innerHTML = t('текст.11');
         return;
       }
       for (const item of data.dirs) {
@@ -2482,7 +2740,7 @@
         $('dirList').appendChild(row);
       }
     } catch {
-      $('dirList').innerHTML = '<div class="empty">Сервер не ответил</div>';
+      $('dirList').innerHTML = t('текст.12');
     }
   }
 
@@ -2492,7 +2750,7 @@
   const openDirPicker = field => {
     dirTarget = field;
     $('dirNew').value = '';
-    $('dirTitle').textContent = field === 'recDir' ? 'Куда писать записи' : 'Откуда смотреть видео';
+    $('dirTitle').textContent = field === 'recDir' ? t('текст.13') : t('текст.14');
     // Новую подпапку заводим только для записей: в чужую папку с видео нам
     // писать нечем, да и незачем.
     $('dirNew').hidden = field !== 'recDir';
@@ -2569,7 +2827,7 @@
     details = extra;
     $('status').className = cls + (extra ? ' hasDetails' : '');
     $('status').textContent = text;
-    $('status').title = extra ? 'Наведите курсор — подробности' : text;
+    $('status').title = extra ? t('текст.15') : text;
     $('statusText').textContent = extra ? `${text}\n\n${extra}` : text;
     if (!extra) $('statusDetails').hidden = true;
   };
@@ -2714,22 +2972,22 @@
        выравнивает по своей длине слов. */
     const line = (key, value) => `${t('отчёт.' + key)}${value}`;
     return [
-      line('время', new Date().toLocaleString()),
-      line('ник', `${current.user || '—'} · edge ${current.edge || '—'}`),
-      line('источник', playingFrom === 'disk' ? t('отчёт.сДиска') : t('отчёт.вЭфире')),
-      line('адрес', streamUrl || '—'),
-      line('видео', `readyState=${video.readyState} networkState=${video.networkState} `
+      line(t('текст.16'), new Date().toLocaleString()),
+      line(t('текст.17'), `${current.user || '—'} · edge ${current.edge || '—'}`),
+      line(t('текст.18'), playingFrom === 'disk' ? t('отчёт.сДиска') : t('отчёт.вЭфире')),
+      line(t('текст.19'), streamUrl || '—'),
+      line(t('текст.20'), `readyState=${video.readyState} networkState=${video.networkState} `
         + `currentTime=${video.currentTime.toFixed(1)} paused=${video.paused}`),
-      line('буфер', buf.join(', ') || t('отчёт.пусто')),
+      line(t('текст.21'), buf.join(', ') || t('отчёт.пусто')),
       line('hls', hls
         ? t('отчёт.дорожки', { сколько: hls.levels ? hls.levels.length : 0,
                                какая: hls.currentLevel })
         : t('отчёт.безHls')),
-      lastHlsError ? line('ошибка', lastHlsError) : '',
-      line('запись', session
+      lastHlsError ? line(t('текст.22'), lastHlsError) : '',
+      line(t('текст.23'), session
         ? t('отчёт.идёт', { id: session.id, фаза: session.phase })
         : t('отчёт.нет')),
-      line('браузер', navigator.userAgent),
+      line(t('текст.24'), navigator.userAgent),
     ].filter(Boolean).join('\n');
   }
 
@@ -2737,22 +2995,22 @@
   // либо 404, либо пустышка без дорожек, либо сеть не пускает.
   async function probeCurrent() {
     const url = streamUrl;
-    if (!url) return 'адрес не задан';
+    if (!url) return t('текст.25');
     try {
       const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) return `HTTP ${res.status} ${res.statusText}`;
       const text = await res.text();
       const tracks = (text.match(/EXT-X-STREAM-INF/g) || []).length;
       const parts = (text.match(/\.ts/g) || []).length;
-      return `HTTP ${res.status}, дорожек ${tracks}, сегментов ${parts}, тело ${text.length} байт` +
-             (tracks || parts ? '' : ' — плейлист пуст');
+      return t('текст.26', { status: res.status, tracks: tracks, parts: parts, length: text.length }) +
+             (tracks || parts ? '' : t('текст.27'));
     } catch (err) {
-      return `запрос не прошёл: ${err.name} ${err.message}`;
+      return t('текст.28', { name: err.name, message: err.message });
     }
   }
 
   function attach(url) {
-    logEvent('плеер', t('журнал.1', { url: url }), 'act');
+    logEvent(t('текст.29'), t('журнал.1', { url: url }), 'act');
     streamStartedAt = Date.now();      // от него отсчитывается окно разгона
     if (hls) { hls.destroy(); hls = null; }
     // Счётчики статистики — на каждый поток свои.
@@ -2770,13 +3028,13 @@
       if (video.readyState >= 3 || video.currentTime) return;
       const report = playbackReport();
       say(t('статус.8'), 'err',
-          `${report}\nплейлист:   проверяю…`);
+          t('текст.30', { report: report }));
       const probe = await probeCurrent();
       say(t('статус.9'), 'err',
-          `${report}\nплейлист:   ${probe}`);
+          t('текст.31', { report: report, probe: probe }));
     }, 12000);
     streamUrl = url;
-    $('quality').innerHTML = '<option value="-1">авто</option>';
+    $('quality').innerHTML = t('текст.32');
 
     if (window.Hls && Hls.isSupported()) {
       // backBufferLength — сколько эфира держим в оперативной памяти.
@@ -2849,8 +3107,8 @@
               level.measuredBitrate = Math.round(bits);
               fresh[`${level.width}x${level.height}`] = Math.round(bits);
               if (Math.abs(claimed * 1e6 - bits) / Math.max(bits, 1) > 0.05) {
-                logEvent('качество', t('журнал.2', { знач1: nameOf(lvl, real) }) +
-                                     `${claimed.toFixed(2)} Мбит/с — подставлено измеренное`);
+                logEvent(t('текст.33'), t('журнал.2', { знач1: nameOf(lvl, real) }) +
+                                     t('текст.34', { знач1: claimed.toFixed(2) }));
               }
             }
 
@@ -2909,8 +3167,8 @@
         const source = lvl => !STEP.test(uriOf(lvl));
 
         const rate = lvl => (lvl.bitrate || 0) / 1e6;
-        const nameOf = (lvl, mbit) => `${tier(lvl)}p · ${mbit.toFixed(1)} Мбит/с`
-                                    + (source(lvl) ? ' · оригинал' : '');
+        const nameOf = (lvl, mbit) => t('текст.35', { знач1: tier(lvl), знач2: mbit.toFixed(1) })
+                                    + (source(lvl) ? t('текст.36') : '');
         // Запоминаем на самой дорожке: заявленное — чтобы вернуть его, если
         // замер не удастся, и подпись качества — чтобы показывать её в пункте
         // «авто», где функции tier() уже не видно.
@@ -2933,7 +3191,7 @@
             const bits = ladderRates[`${lvl.width}x${lvl.height}`];
             if (bits > 0) { lvl.measuredBitrate = bits; taken++; }
           }
-          if (taken) logEvent('качество', t('журнал.3', { taken: taken }));
+          if (taken) logEvent(t('текст.37'), t('журнал.3', { taken: taken }));
         }
         data.levels.forEach((lvl, i) => {
           const opt = document.createElement('option');
@@ -2996,9 +3254,9 @@
         const chosen = data.levels[pick];
         const best = data.levels.reduce((a, b) => (pixels(a) >= pixels(b) ? a : b));
         say(source(chosen)
-          ? `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с — оригинал от модели.`
-          : `Играет ${tier(chosen)}p, ${rate(chosen).toFixed(1)} Мбит/с — пережато сервером; ` +
-            `оригинал ${tier(best)}p идёт на ${rate(best).toFixed(1)} и не влезает в потолок.`,
+          ? t('текст.38', { знач1: tier(chosen), знач2: rate(chosen).toFixed(1) })
+          : t('текст.39', { знач1: tier(chosen), знач2: rate(chosen).toFixed(1) }) +
+            t('текст.40', { знач1: tier(best), знач2: rate(best).toFixed(1) }),
           'ok');
       });
 
@@ -3011,7 +3269,7 @@
         const lvl = hls.levels && hls.levels[data.level];
         if (opt) {
           opt.textContent = hls.autoLevelEnabled && lvl && lvl.tierLabel
-            ? `авто (${lvl.tierLabel})` : 'авто';
+            ? t('текст.41', { tierLabel: lvl.tierLabel }) : t('текст.42');
         }
 
         /* Пишем каждое переключение вместе с тем, по чему оно принято: сама
@@ -3019,12 +3277,12 @@
            раз те две величины, на которые смотрит подбор. Без них разбирать
            внезапные провалы приходится вслепую. */
         const buf = bufferRange();
-        logEvent('качество',
+        logEvent(t('текст.43'),
           t('журнал.4', { level: data.level }) +
           (lvl ? ` · ${lvl.tierLabel} · ${mbit(lvl.bitrate || 0)}` : '') +
-          ` · ${hls.autoLevelEnabled ? 'подбор' : 'вручную'}` +
-          ` · канал ${mbit(hls.bandwidthEstimate || 0)}` +
-          ` · буфер ${buf.ahead.toFixed(1)} с`,
+          ` · ${hls.autoLevelEnabled ? t('качество.подбор') : t('качество.вручную')}` +
+          t('текст.44', { знач1: mbit(hls.bandwidthEstimate || 0) }) +
+          t('текст.45', { знач1: buf.ahead.toFixed(1) }),
           'act');
 
         /* Понижать качество осмысленно лишь тогда, когда не хватает канала.
@@ -3061,9 +3319,9 @@
         const warmMs = cfg('warm') * 1000;
         if (warmMs && Date.now() - streamStartedAt < warmMs) {
           hls.nextAutoLevel = autoSeedLevel;
-          logEvent('качество', t('журнал.5', { autoSeedLevel: autoSeedLevel }) +
-                               `идёт разгон канала (${mbit(now)}, прошло ` +
-                               `${((Date.now() - streamStartedAt) / 1000).toFixed(1)} с)`);
+          logEvent(t('текст.46'), t('журнал.5', { autoSeedLevel: autoSeedLevel }) +
+                               t('текст.47', { знач1: mbit(now) }) +
+                               t('текст.48', { знач1: ((Date.now() - streamStartedAt) / 1000).toFixed(1) }));
           return;
         }
 
@@ -3074,19 +3332,19 @@
            разгоняется, а действительно умер, и держать качество вредно. */
         const have = Math.max(now, autoPeakBw * 0.85);
         if (now < need * 0.6 || have < need * 1.15) {
-          logEvent('качество', t('журнал.6', { знач1: mbit(now), знач2: mbit(autoPeakBw) }) +
-                               `против ${mbit(need)} — понижение оправдано, не мешаю`, 'err');
+          logEvent(t('текст.49'), t('журнал.6', { знач1: mbit(now), знач2: mbit(autoPeakBw) }) +
+                               t('текст.50', { знач1: mbit(need) }), 'err');
           return;
         }
         // Спорить бесконечно не будем: если подбор упорствует, значит видит
         // что-то, чего не видим мы.
         if (++autoRescues > 6) {
-          if (autoRescues === 7) logEvent('качество', t('журнал.7'), 'err');
+          if (autoRescues === 7) logEvent(t('текст.51'), t('журнал.7'), 'err');
           return;
         }
         hls.nextAutoLevel = autoSeedLevel;
-        logEvent('качество', t('журнал.8', { autoSeedLevel: autoSeedLevel }) +
-                             `канала ${mbit(have)} хватает с запасом`);
+        logEvent(t('текст.52'), t('журнал.8', { autoSeedLevel: autoSeedLevel }) +
+                             t('текст.53', { знач1: mbit(have) }));
       });
 
       hls.on(Hls.Events.ERROR, (_, err) => {
@@ -3099,12 +3357,12 @@
         const code = err.response && err.response.code ? ` HTTP ${err.response.code}` : '';
         const frag = err.frag ? ` #${err.frag.sn}` : '';
         errorLog.unshift(`${new Date().toLocaleTimeString('ru-RU')} ${err.details}${code}${frag}` +
-                         (err.fatal ? ' (фатальная)' : ''));
+                         (err.fatal ? t('текст.54') : ''));
         errorLog.length = Math.min(errorLog.length, 5);
 
         lastHlsError = `${err.details} (${err.type}${err.fatal ? ', фатальная' : ''})` +
           (err.response ? `, HTTP ${err.response.code}` : '') +
-          (err.frag ? `, фрагмент ${err.frag.sn}` : '');
+          (err.frag ? t('текст.55', { sn: err.frag.sn }) : '');
         logEvent('hls.ERROR', lastHlsError, 'err');
         if (!err.fatal) return;
         if (err.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
@@ -3139,11 +3397,11 @@
       if (edge && await alive(user, edge)) {
         // ок, edge подошёл
       } else {
-        say(edge ? `edge ${edge} не отвечает, ищу нужный…` : 'Ищу edge-сервер…');
+        say(edge ? t('текст.56', { edge: edge }) : t('текст.57'));
         edge = await findEdge(user);
         if (!edge) {
           return say(t('статус.14', { user: user }) +
-                     'идёт приватное шоу или ошибка в регистре ника (BambiTwo ≠ bambitwo).', 'err');
+                     t('текст.58'), 'err');
         }
       }
       setCurrent(user, edge);
@@ -3175,7 +3433,7 @@
       markCurrent();
     } catch (e) {
       say(t('статус.15') + e.message +
-          ' — откройте страницу через ./serve.sh, а не двойным кликом.', 'err');
+          t('текст.59'), 'err');
     }
   }
 
@@ -3207,7 +3465,7 @@
       stallWatch = 0;
       if (playingFrom !== 'live' || video.paused) return;
       if (video.currentTime - stallFrom > 0.5) return;      // всё-таки поехало
-      logEvent('плеер', t('журнал.9', { знач1: stallFrom.toFixed(1) }), 'err');
+      logEvent(t('текст.60'), t('журнал.9', { знач1: stallFrom.toFixed(1) }), 'err');
       jumpToLive();
     }, 8000);
   });
@@ -3227,9 +3485,9 @@
     if (seek.length) video.currentTime = seek.end(seek.length - 1);
     video.play().catch(() => {});
 
-    logEvent('плеер', t('журнал.10'), 'act');
+    logEvent(t('текст.61'), t('журнал.10'), 'act');
     say(t('статус.17') +
-        'Чтобы можно было ставить на паузу надолго, включите «На диск».', 'err');
+        t('текст.62'), 'err');
   }
 
   /* «В эфир» — единственный путь обратно к стене: своей кнопки у неё больше
@@ -3276,9 +3534,9 @@
 
   const fmtSize = raw => {
     const b = Math.max(0, Number(raw) || 0);
-    return b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' ГБ'
-         : b >= 1048576 ? Math.round(b / 1048576) + ' МБ'
-         : Math.round(b / 1024) + ' КБ';
+    return b >= 1073741824 ? (b / 1073741824).toFixed(1) + t('текст.63')
+         : b >= 1048576 ? Math.round(b / 1048576) + t('текст.64')
+         : Math.round(b / 1024) + t('текст.65');
   };
   // Эфиры идут часами, и «157:52» читается плохо — с часа показываем часы.
   const fmtTime = s => {
@@ -3307,7 +3565,7 @@
     if (hls) { hls.destroy(); hls = null; }
     clearTimeout(stallTimer);
     streamUrl = url;
-    $('quality').innerHTML = '<option value="-1">файл</option>';
+    $('quality').innerHTML = t('текст.66');
     if (at) video.addEventListener('loadedmetadata', () => { video.currentTime = at; }, { once: true });
     video.src = url;
     video.play().catch(() => {});
@@ -3339,7 +3597,7 @@
     const threshold = cfg('keepMin');
 
     if (threshold >= 86400 || seconds < threshold) {
-      logEvent('запись', t('журнал.11', { id: prev.id, знач1: fmtTime(seconds) }), 'act');
+      logEvent(t('текст.67'), t('журнал.11', { id: prev.id, знач1: fmtTime(seconds) }), 'act');
       recDelete(prev.id);
       return;
     }
@@ -3354,9 +3612,9 @@
     let left = 30;
     const paint = () => {
       $('keepText').innerHTML =
-        `Запись <b>${item.user}</b> — ${fmtTime(item.seconds)}, ${fmtSize(item.bytes)}.<br>` +
-        `Оставить файл на диске? <i>Через ${left} с удалю сама.</i>` +
-        (keepQueue.length > 1 ? `<br><i>В очереди ещё ${keepQueue.length - 1}.</i>` : '');
+        t('текст.68', { user: item.user, знач1: fmtTime(item.seconds), знач2: fmtSize(item.bytes) }) +
+        t('текст.69', { left: left }) +
+        (keepQueue.length > 1 ? t('текст.70', { знач1: keepQueue.length - 1 }) : '');
     };
     paint();
     // Окно PiP — отдельный документ: если смотрят там, вопрос надо перенести
@@ -3381,10 +3639,10 @@
     if (item) {
       if (keep) {
         say(t('статус.18', { user: item.user, знач1: fmtSize(item.bytes) }), 'ok');
-        logEvent('запись', t('журнал.12', { id: item.id }), 'act');
+        logEvent(t('текст.71'), t('журнал.12', { id: item.id }), 'act');
       } else {
         recDelete(item.id);
-        logEvent('запись', t('журнал.13', { id: item.id }), 'act');
+        logEvent(t('текст.72'), t('журнал.13', { id: item.id }), 'act');
       }
     }
     $('keepAsk').hidden = true;
@@ -3428,11 +3686,11 @@
       const res = await recPost('api/record',
         { user, edge, segment: cfg('segment'),
           maxRate: cfg('maxRate'), recRate: cfg('recRate') });
-      if (!res.ok || !res.data.url) throw new Error(res.data.error || 'сервер отказал');
+      if (!res.ok || !res.data.url) throw new Error(res.data.error || t('текст.73'));
       session = res.data;
       paintRec();
       say(t('статус.20') +
-          `${$('buffer').selectedOptions[0].textContent} перемотки, глубже — кнопка «Из записи».`, 'ok');
+          t('текст.74', { знач1: $('buffer').selectedOptions[0].textContent }), 'ok');
     } catch (err) {
       say(t('статус.21', { message: err.message }), 'err');
     }
@@ -3491,15 +3749,15 @@
 
   function paintSource() {
     $('fromRec').classList.toggle('on', playingFrom === 'disk');
-    $('fromRec').textContent = playingFrom === 'disk' ? 'Смотрю запись' : 'Из записи';
+    $('fromRec').textContent = playingFrom === 'disk' ? t('текст.75') : t('текст.76');
     // Название не меняем: кнопка открывает список файлов и во время
     // воспроизведения — переименованная в «Смотрю файл», она выглядела
     // пропавшей, и вернуться к списку было не за что. Состояние показывает
     // подсветка, а имя файла и так стоит в строке адреса.
     $('lib').classList.toggle('on', playingFrom === 'file');
     $('lib').title = playingFrom === 'file'
-      ? `Играет ${libFile} · нажмите, чтобы выбрать другой файл`
-      : 'Файлы из папки, указанной в настройках';
+      ? t('текст.77', { libFile: libFile })
+      : t('текст.78');
     if (playingFrom !== 'file') libFile = '';
   }
 
@@ -3511,27 +3769,29 @@
      обеспечивает сервер заголовком Range. Заодно это единственный источник,
      где длина известна заранее и ползунок показывает всю запись сразу. */
   const fileSize = bytes => (bytes >= 1073741824
-    ? `${(bytes / 1073741824).toFixed(1)} ГБ` : `${Math.round(bytes / 1048576)} МБ`);
+    ? t('текст.79', { знач1: (bytes / 1073741824).toFixed(1) }) : t('текст.80', { знач1: Math.round(bytes / 1048576) }));
   const fileLen = secs => (secs >= 3600
-    ? `${Math.floor(secs / 3600)} ч ${Math.floor(secs % 3600 / 60)} мин`
-    : secs >= 60 ? `${Math.round(secs / 60)} мин` : `${secs} с`);
+    ? t('текст.81', { знач1: Math.floor(secs / 3600), знач2: Math.floor(secs % 3600 / 60) })
+    : secs >= 60 ? t('текст.82', { знач1: Math.round(secs / 60) }) : t('текст.83', { secs: secs }));
 
   async function showLibrary() {
     $('libPanel').hidden = false;
-    $('libBody').innerHTML = '<div class="empty">Читаю папку…</div>';
+    $('libBody').innerHTML = t('текст.84');
     let data;
     try {
       data = await (await fetch('api/library', { cache: 'no-store' })).json();
     } catch {
-      $('libBody').innerHTML = '<div class="empty">Сервер не ответил</div>';
+      $('libBody').innerHTML = t('текст.85');
       return;
     }
 
-    $('libHead').textContent = data.dir || 'папка не задана';
+    $('libHead').textContent = data.dir || t('текст.86');
     if (data.error || !data.files.length) {
+      /* Сравнение с ответом сервера оставлено как есть: это его слово, а не
+         наш текст. Переводится только то, что видит человек. */
       $('libBody').innerHTML = `<div class="empty">${data.error === 'папка не задана'
-        ? 'Укажите папку в настройках: «Просмотр» → «Папка видео».'
-        : data.error || 'В папке нет видеофайлов.'}</div>`;
+        ? t('видео.нетПапки')
+        : data.error || t('видео.пусто')}</div>`;
       return;
     }
 
@@ -3562,14 +3822,14 @@
     libFile = name;
     playingFrom = 'file';
     ladderRun++;                     // замер дорожек прошлого потока обесценен
-    $('quality').innerHTML = '<option value="-1">авто</option>';
+    $('quality').innerHTML = t('текст.87');
     video.src = `lib/${encodeURIComponent(name)}`;
     video.load();
     video.play().catch(() => { /* автозапуск без звука мог не пройти */ });
     paintSource();
     streamUrl = name;
     $('libPanel').hidden = true;
-    logEvent('плеер', t('журнал.14', { name: name }), 'act');
+    logEvent(t('текст.88'), t('журнал.14', { name: name }), 'act');
     say(t('статус.26', { name: name }), 'ok');
   }
 
@@ -3768,8 +4028,8 @@
       name.textContent = t('узел.12', { знач1: at + 1 });
       const count = document.createElement('i');
       count.textContent = busy.length
-        ? `${busy.length} ${plural(busy.length, 'трансляция', 'трансляции', 'трансляций')}`
-        : 'пусто';
+        ? `${busy.length} ${plural(busy.length, t('склонение.2.один'), t('склонение.2.два'), t('склонение.2.много'))}`
+        : t('текст.89');
       const now = document.createElement('span');
       now.className = 'now';
       now.textContent = t('узел.13');
@@ -3828,7 +4088,7 @@
     add.title = t('узел.15');
     const cap = document.createElement('div');
     cap.className = 'scrCap';
-    cap.innerHTML = '<span>Новый экран</span><i>ещё шестнадцать ячеек</i>';
+    cap.innerHTML = t('текст.90');
     const grid = document.createElement('div');
     grid.className = 'scrGrid';
     grid.style.aspectRatio = `${wide} / ${high}`;
@@ -3984,7 +4244,7 @@
     const shot = tile.box.querySelector('.tshot');
     if (shot.blobUrl) { URL.revokeObjectURL(shot.blobUrl); shot.blobUrl = null; }
     if (frame) shot.src = frame; else shot.removeAttribute('src');
-    logEvent('стена', t('журнал.15', { user: tile.user }), 'act');
+    logEvent(t('текст.91'), t('журнал.15', { user: tile.user }), 'act');
     paintBar(tile);
   }
 
@@ -4093,7 +4353,7 @@
        его сборщик обходит сайт раз в минуту и знает верный номер. */
     hlsTile.on(Hls.Events.ERROR, async (_, err) => {
       if (!err.fatal) return;
-      logEvent('стена', `${user}: ${err.details}`, 'err');
+      logEvent(t('текст.92'), `${user}: ${err.details}`, 'err');
       if (tile.user !== user) return;
       // Вторая осечка подряд — сервер тут ни при чём, комната ушла.
       if (tile.retried) return tileGone(tile);
@@ -4106,7 +4366,7 @@
       // Ни каталог, ни полный обход не нашли живого сервера — значит ушла.
       if (!fresh || fresh === String(edge)) return tileGone(tile);
 
-      logEvent('стена', t('журнал.16', { user: user, edge: edge, fresh: fresh }));
+      logEvent(t('текст.93'), t('журнал.16', { user: user, edge: edge, fresh: fresh }));
       learn(user, fresh);
       tilePlay(tile, user, fresh);
       tile.retried = true;      // ставим ПОСЛЕ: tilePlay сбрасывает признак
@@ -4174,8 +4434,8 @@
     const saved = tile.rates && tile.rates[`${lvl.width}x${lvl.height}`];
     const rate = mine || saved || 0;
     badge.title = `${lvl.width}×${lvl.height}` + (rate
-      ? `, ${(rate / 1e6).toFixed(2)} Мбит/с${mine ? '' : ' по замеру сервера'}`
-      : lvl.bitrate ? `, заявлено ${(lvl.bitrate / 1e6).toFixed(2)} Мбит/с — замера ещё нет` : '');
+      ? t('текст.94', { знач1: (rate / 1e6).toFixed(2), знач2: mine ? '' : t('кусок.2') })
+      : lvl.bitrate ? t('текст.95', { знач1: (lvl.bitrate / 1e6).toFixed(2) }) : '');
   }
 
   function paintBar(tile) {
@@ -4189,8 +4449,8 @@
     const video = tile.video;
     const play = bar.querySelector('.tplay');
     play.textContent = video.paused ? '▶' : '⏸';
-    play.title = tile.halted ? 'Возобновить приём (пробел)'
-      : video.paused ? 'Смотреть (пробел)' : 'Пауза (пробел)';
+    play.title = tile.halted ? t('текст.96')
+      : video.paused ? t('текст.97') : t('текст.98');
     // У остановленной время просмотра замирает: считать нечего, потока нет.
     if (tile.halted) {
       bar.querySelector('.tlive').hidden = true;
@@ -4210,12 +4470,12 @@
     if (!live.hidden) live.textContent = t('узел.18', { знач1: clock(lag) });
 
     const full = bar.querySelector('.tfull');
-    full.title = document.fullscreenElement ? 'Выйти из полного экрана (F)' : 'На весь экран (F)';
+    full.title = document.fullscreenElement ? t('текст.99') : t('текст.100');
 
     const big = zoom.tile === tile;
     const zoomBtn = bar.querySelector('.tzoom');
     zoomBtn.textContent = big ? '⤡' : '⤢';
-    zoomBtn.title = big ? 'Свернуть в сетку (Esc)' : 'Развернуть поверх остальных';
+    zoomBtn.title = big ? t('текст.101') : t('текст.102');
   }
 
   const paintBars = () => { for (const tile of tiles) if (tile.user) paintBar(tile); };
@@ -4548,27 +4808,27 @@
        создаётся уже после запуска страницы, поэтому язык применяется к ней
        отдельно — строкой applyLang ниже. */
     box.innerHTML = '<video muted playsinline></video>' +
-                    '<img class="tshot" alt="" data-i18n-title="ячейка.ушла">' +
-                    '<div class="offBox"><span class="off" data-i18n="ячейка.нет">нет</span>' +
+                    t('текст.103') +
+                    t('текст.104') +
                     '<span class="offAt"></span></div>' +
-                    '<div class="empty" data-i18n-title="ячейка.свободна">＋</div>' +
+                    t('текст.105') +
                     '<div class="tcap"><i class="tnum"></i>' +
                     '<span class="tname"><b></b>' +
-                    '<span class="tcopy" data-i18n-title="ячейка.копировать">⧉</span>' +
+                    t('текст.106') +
                     '<i class="tq"></i></span>' +
-                    '<span class="tclose" data-i18n-title="ячейка.убрать">×</span></div>' +
+                    t('текст.107') +
                     '<div class="tbar">' +
-                      '<span class="tb tplay" data-i18n-title="ячейка.пауза">⏸</span>' +
-                      '<span class="tb tstop" data-i18n-title="ячейка.стоп">⏹</span>' +
-                      '<span class="tb tmute" data-i18n-title="ячейка.звук">🔇</span>' +
+                      t('текст.108') +
+                      t('текст.109') +
+                      t('текст.110') +
                       '<input class="tvol" type="range" min="0" max="1" step="0.02" ' +
-                        'data-i18n-aria="ячейка.громкость">' +
+                        t('текст.111') +
                       '<span class="ttime">0:00</span>' +
-                      '<span class="tb tlive" data-i18n-title="ячейка.догнать" hidden></span>' +
+                      t('текст.112') +
                       '<span class="gap"></span>' +
-                      '<span class="tb tpip" data-i18n-title="ячейка.pip">🖼</span>' +
-                      '<span class="tb tfull" data-i18n-title="ячейка.экран">⛶</span>' +
-                      '<span class="tb tzoom" data-i18n-title="ячейка.развернуть">⤢</span>' +
+                      t('текст.113') +
+                      t('текст.114') +
+                      t('текст.115') +
                     '</div>';
     applyLang(box);           // узел создан после старта — переводим его сам
     const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
@@ -4756,7 +5016,7 @@
     if (!tile) {
       if (tiles.length >= 16) {
         return say(t('статус.33') +
-                   'Заведите новый экран кнопкой ＋ рядом со «Стеной».', 'err');
+                   t('текст.116'), 'err');
       }
       tile = makeTile();
     }
@@ -4886,10 +5146,10 @@
     clearInterval(barTimer);
     barTimer = setInterval(paintBars, 1000);
     say(shown
-      ? `Стена: ${shown} трансляций. Клик по карточке кладёт её ` +
-        'в последнюю ячейку, перетаскивание — в любую, а полоса у края ' +
-        'добавляет ещё одну.'
-      : 'Стена пуста. Перетащите сюда карточку из правой колонки.', 'ok');
+      ? t('текст.117', { shown: shown }) +
+        t('текст.118') +
+        t('текст.119')
+      : t('текст.120'), 'ok');
   }
 
   /* Стена при загрузке поднимается раньше списка эфира — ждать сеть значило бы
@@ -4997,7 +5257,7 @@
       // вместе с ним. Держаться за неё нельзя: счётчик замрёт, а новая запись
       // не начнётся, потому что сессия формально есть.
       if (!mine) {
-        logEvent('запись', t('журнал.17', { id: session.id }), 'err');
+        logEvent(t('текст.121'), t('журнал.17', { id: session.id }), 'err');
         say(t('статус.38'), 'err');
         session = null;
         paintRec();
@@ -5005,7 +5265,7 @@
       }
 
       const was = session.phase;
-      if (mine.phase !== was) logEvent('запись', t('журнал.18', { id: session.id, was: was, phase: mine.phase }), 'act');
+      if (mine.phase !== was) logEvent(t('текст.122'), t('журнал.18', { id: session.id, was: was, phase: mine.phase }), 'act');
       session = Object.assign(session, mine);
       paintRec();
 
@@ -5017,7 +5277,7 @@
         playFile(mine.url, video.currentTime);
         paintSource();
         say(t('статус.40', { знач1: mine.url.replace('rec/', ''), знач2: fmtSize(mine.bytes) }) +
-            'перемотка по всей длине.', 'ok');
+            t('текст.123'), 'ok');
         session = null;
         paintRec();
       } else if (mine.phase === 'failed') {
@@ -5036,7 +5296,7 @@
     const { user, edge } = current;
     if (!cfg('recMode') || recStopped || session || !user || video.paused || video.readyState < 3) return;
     if (Date.now() - lastRecTry < 15000) return;
-    logEvent('запись', t('журнал.19'), 'err');
+    logEvent(t('текст.124'), t('журнал.19'), 'err');
     armRecording(user, edge);
   }, 5000);
 
@@ -5062,10 +5322,10 @@
     video.currentTime = target;
     setTimeout(() => { clamping = false; }, 0);
     say(wasBefore
-      ? `Назад доступно ${Math.round(end - start)} с — это весь буфер памяти. ` +
-        (session && playingFrom === 'live' ? 'Глубже — кнопка «Из записи».'
-                                           : 'Больше: увеличьте «Буфер».')
-      : 'Это уже прямой эфир, дальше вперёд ничего нет.');
+      ? t('текст.125', { знач1: Math.round(end - start) }) +
+        (session && playingFrom === 'live' ? t('текст.126')
+                                           : t('текст.127'))
+      : t('текст.128'));
   });
 
   // --- левая панель: история просмотренных ников ---------------------------
@@ -5093,7 +5353,7 @@
     const body = $('histBody'), hist = loadHist();
     body.textContent = '';
     if (!hist.length) {
-      body.innerHTML = '<div class="empty">Пусто. Открытые потоки появятся здесь.</div>';
+      body.innerHTML = t('текст.129');
       return;
     }
     for (const rec of hist) {
@@ -5182,7 +5442,7 @@
       if (data.text) notes.set(user.toLowerCase(), data.text);
       else notes.delete(user.toLowerCase());
       paintNotes();
-      say(data.text ? `Заметка о ${user} сохранена.` : `Заметка о ${user} удалена.`, 'ok');
+      say(data.text ? t('текст.130', { user: user }) : t('текст.131', { user: user }), 'ok');
     } catch {
       say(t('статус.42'), 'err');
     }
@@ -5195,12 +5455,12 @@
       if (!mark) continue;
       const text = notes.get((el.dataset.user || '').toLowerCase()) || '';
       mark.classList.toggle('on', Boolean(text));
-      mark.title = text ? `Заметка: ${text}` : 'Добавить заметку';
+      mark.title = text ? t('текст.132', { text: text }) : t('текст.133');
     }
   }
 
-  const NOTE_HINT = 'Пустая заметка удаляется. Видна со всех устройств — ' +
-                    'хранится на сервере.';
+  const NOTE_HINT = t('текст.134') +
+                    t('текст.135');
   let noteRun = 0;
 
   // Ставим окно рядом со значком: справа, а если там не помещается — слева.
@@ -5257,7 +5517,7 @@
     if (text) {
       $('noteText').value = text;
       $('noteHint').textContent = t('узел.23') +
-                                  'правьте как удобно. ' + NOTE_HINT;
+                                  t('текст.136') + NOTE_HINT;
     } else {
       $('noteHint').textContent = t('узел.24') + NOTE_HINT;
     }
@@ -5326,7 +5586,7 @@
       const st = liveStatus.get(key);
       row.dataset.live = st ? '1' : '0';
       row.title = `${row.dataset.base} · ` +
-        (st === undefined ? 'статус проверяется' : st ? 'в эфире' : 'офлайн или сменила сервер');
+        (st === undefined ? t('текст.137') : st ? t('текст.138') : t('текст.139'));
 
       // Значок активности показываем только у вещающих: у ушедшей комнаты
       // оценка осталась бы от прошлой трансляции и вводила бы в заблуждение.
@@ -5342,8 +5602,8 @@
       act.dataset.level = String(level);
       act.dataset.now = score.level >= 1.2 ? '1' : '0';
       act.title = t('узел.25', { знач1: Math.round(score.spread * 100) }) +
-        `от собственной нормы, сейчас ${Math.round(score.level * 100)}% ` +
-        `(по ${score.count} кускам, медиана ${score.median} Мбит/с)`;
+        t('текст.140', { знач1: Math.round(score.level * 100) }) +
+        t('текст.141', { count: score.count, median: score.median });
     }
   }
 
@@ -5408,7 +5668,7 @@
     deepBusy = false;
     setTimeout(() => { if (!deepBusy) $('histProgress').textContent = ''; }, 5000);
     if (found) say(t('статус.43', { found: found, length: targets.length }), 'ok');
-    logEvent('история', t('журнал.20', { length: targets.length, found: found }), 'act');
+    logEvent(t('текст.142'), t('журнал.20', { length: targets.length, found: found }), 'act');
   }
 
   $('histCheck').onclick = () => deepCheckHistory(true);
@@ -5449,7 +5709,7 @@
     const count = loadHist().length;
     localStorage.removeItem('history');
     renderHist();
-    say(t('статус.44', { count: count, знач1: plural(count, 'запись', 'записи', 'записей') }), 'ok');
+    say(t('статус.44', { count: count, знач1: plural(count, t('текст.143'), t('текст.144'), t('текст.145')) }), 'ok');
   };
 
   // --- правая панель: кто в эфире прямо сейчас ------------------------------
@@ -5504,12 +5764,12 @@
 
   // short — без слова «назад»: на плашке карточки оно только занимает место.
   const ageText = (at, short = false) => {
-    const tail = short ? '' : ' назад';
+    const tail = short ? '' : t('текст.146');
     const min = Math.round((Date.now() - at) / 60000);
-    if (min < 1) return short ? 'только что' : 'только что';
-    if (min < 60) return `${min} ${plural(min, 'минуту', 'минуты', 'минут')}${tail}`;
+    if (min < 1) return short ? t('текст.147') : t('текст.148');
+    if (min < 60) return `${min} ${plural(min, t('склонение.3.один'), t('склонение.3.два'), t('склонение.3.много'))}${tail}`;
     const hours = Math.round(min / 60);
-    return `${hours} ${plural(hours, 'час', 'часа', 'часов')}${tail}`;
+    return `${hours} ${plural(hours, t('склонение.4.один'), t('склонение.4.два'), t('склонение.4.много'))}${tail}`;
   };
 
   async function refreshOnline(force = false) {
@@ -5544,7 +5804,7 @@
     renderOnline(live);
     $('onlineCount').textContent = t('узел.31', { length: live.length, знач1: all.length });
     $('onlineCount').title = t('узел.32', { length: all.length }) +
-      `Ещё ${catalog.length - all.length} в базе без сервера — они есть в подсказках поля «Ник».`;
+      t('текст.149', { знач1: catalog.length - all.length });
     $('onlineRefresh').disabled = false;
     probing = false;
     pruneWall();            // первый пришедший список чистит стену от ушедших
@@ -5563,7 +5823,7 @@
     renderOnline(cache.live);
     $('onlineCount').textContent = t('узел.33', { length: cache.live.length, знач1: ageText(at) });
     $('onlineCount').title = t('узел.34') +
-      'кнопкой ↻ или сам, если данным больше часа.';
+      t('текст.150');
     return true;
   }
 
@@ -5777,7 +6037,7 @@
     }
     body.textContent = '';
     if (!live.length) {
-      body.innerHTML = '<div class="empty">Никого не нашлось. Список — снимок сохранённой страницы.</div>';
+      body.innerHTML = t('текст.151');
       return;
     }
     for (const [user, edgeAtSweep, viewers, seen, shot] of live) {
@@ -5882,7 +6142,7 @@
     for (const item of loadFinds()) {
       if (query && !item.toLowerCase().includes(query)) continue;
       seen.add(item.toLowerCase());
-      rows.push({ name: item, kind: 'из истории', old: true });
+      rows.push({ name: item, kind: t('текст.152'), old: true });
     }
     for (const row of liveList || []) {
       if (rows.length >= 24) break;
@@ -5890,7 +6150,7 @@
       const low = name.toLowerCase();
       if (seen.has(low) || (query && !low.includes(query))) continue;
       seen.add(low);
-      rows.push({ name, kind: 'в эфире' });
+      rows.push({ name, kind: t('текст.153') });
     }
     if (query.length >= 2) {
       const starts = [], inside = [];
@@ -5905,7 +6165,7 @@
          база тут внутреннее слово для накопленного списка ников, а важно
          другое, что комната существует, но сейчас не вещает. */
       for (const name of [...starts, ...inside].slice(0, 12)) {
-        rows.push({ name, kind: 'не в эфире' });
+        rows.push({ name, kind: t('текст.154') });
       }
     }
 
@@ -5999,7 +6259,7 @@
     const now = currentRoom().user.toLowerCase();
     const at = list.findIndex(m => String(m[0]).toLowerCase() === now);
     const [user, edge] = list[at < 0 ? 0 : (at + dir + list.length) % list.length];
-    logEvent('плеер', t('журнал.21', { user: user, edge: edge }), 'act');
+    logEvent(t('текст.155'), t('журнал.21', { user: user, edge: edge }), 'act');
     openStream(user, edge);
     armCarousel();                                // ручное переключение отодвигает автосмену
   }
@@ -6025,7 +6285,7 @@
   }
 
   // Кнопка списка показывает интервал и зелёный отсчёт до переключения: «30 с (25)».
-  const AUTO_LABELS = { 0: 'выкл', 30: '30 с', 60: '1 мин', 180: '3 мин' };
+  const AUTO_LABELS = { 0: t('текст.156'), 30: t('текст.157'), 60: t('текст.158'), 180: t('текст.159') };
 
   function paintAuto() {
     if (!pipBar) return;
@@ -6033,7 +6293,7 @@
     if (!button) return;
 
     const seconds = cfg('auto');
-    const label = AUTO_LABELS[seconds] || `${seconds} с`;
+    const label = AUTO_LABELS[seconds] || t('текст.160', { seconds: seconds });
     const left = nextSwitch ? Math.max(0, Math.round((nextSwitch - Date.now()) / 1000)) : 0;
     button.innerHTML = nextSwitch ? `${label} (<b>${left}</b>)` : label;
 
@@ -6147,7 +6407,7 @@
     const extra = Object.keys(loadExtra()).length;
     $('baseCount').textContent =
       t('узел.39', { length: catalog.length, знач1: (window.BONGA_MODELS || []).length }) +
-      `страницы и ${extra} добавленных. С известным сервером — ${catalog.filter(m => m[1]).length}.`;
+      t('текст.161', { extra: extra, знач1: catalog.filter(m => m[1]).length });
     $('baseDlg').showModal();
   }
 
@@ -6188,7 +6448,7 @@
     $('baseDlg').close();
     $('importText').value = '';
     say(t('статус.49', { total: res.total, added: res.added, edged: res.edged }) +
-        `Всего в базе: ${catalog.length}.`, 'ok');
+        t('текст.162', { length: catalog.length }), 'ok');
     refreshOnline();
   };
 
@@ -6264,7 +6524,7 @@
     const wasPlaying = !video.paused;
 
     if (!soon) {
-      logEvent('картинка', t('журнал.22'), 'err');
+      logEvent(t('текст.163'), t('журнал.22'), 'err');
       const parent = video.parentNode, next = video.nextSibling;
       parent.removeChild(video);             // вне документа слой уничтожается
       void document.body.offsetHeight;
@@ -6274,7 +6534,7 @@
       return;
     }
 
-    logEvent('картинка', t('журнал.23'), 'err');
+    logEvent(t('текст.164'), t('журнал.23'), 'err');
     if (hls) {
       hls.detachMedia();
       hls.attachMedia(video);
@@ -6328,7 +6588,7 @@
   }
 
   function logEvent(kind, text, cls = '') {
-    const line = `${clockMs()} | t=${video.currentTime.toFixed(1)} буф=${bufEnd()} ` +
+    const line = t('текст.165', { знач1: clockMs(), знач2: video.currentTime.toFixed(1), знач3: bufEnd() }) +
                  `rs=${video.readyState} ns=${video.networkState} | ${kind}` + (text ? ` | ${text}` : '');
     logLines.push({ line, cls });
     if (logLines.length > 3000) logLines.shift();
@@ -6341,12 +6601,12 @@
     if (!data) return '';
     if (name === 'LEVEL_LOADED' && data.details) {
       const d = data.details;
-      return `живой=${d.live} сегментов=${d.fragments ? d.fragments.length : '?'} ` +
-             `первый=${d.startSN} последний=${d.endSN} длительность=${Math.round(d.totalduration || 0)} с`;
+      return t('текст.166', { live: d.live, знач1: d.fragments ? d.fragments.length : '?' }) +
+             t('текст.167', { startSN: d.startSN, endSN: d.endSN, знач1: Math.round(d.totalduration || 0) });
     }
-    if (name === 'FRAG_CHANGED' && data.frag) return `играем #${data.frag.sn}`;
-    if (name === 'LEVEL_SWITCHED') return `дорожка ${data.level}`;
-    if (name === 'MANIFEST_LOADED') return `дорожек ${(data.levels || []).length}`;
+    if (name === 'FRAG_CHANGED' && data.frag) return t('текст.168', { sn: data.frag.sn });
+    if (name === 'LEVEL_SWITCHED') return t('текст.169', { level: data.level });
+    if (name === 'MANIFEST_LOADED') return t('текст.170', { знач1: (data.levels || []).length });
     return '';
   }
 
@@ -6358,7 +6618,7 @@
       ? logLines.slice(-400)
           .map(item => item.cls ? `<span class="${item.cls}">${item.line}</span>` : item.line)
           .join('\n')
-      : 'Событий пока нет — они появятся при загрузке сегментов, паузе, ошибках и переключениях.';
+      : t('текст.171');
     if (stick) body.scrollTop = body.scrollHeight;   // прилипаем к концу, пока не листают вверх
   }
 
@@ -6377,7 +6637,7 @@
   function toggleLog(on) {
     $('logPanel').hidden = !on;
     if (!on) return;
-    logEvent('журнал', t('журнал.24', { playingFrom: playingFrom, знач1: streamUrl || '—' }), 'act');
+    logEvent(t('текст.172'), t('журнал.24', { playingFrom: playingFrom, знач1: streamUrl || '—' }), 'act');
     paintLog();          // показываем и то, что накопилось до открытия
   }
 
@@ -6402,10 +6662,10 @@
     });
   }
 
-  window.addEventListener('online', () => logEvent('сеть', t('журнал.25'), 'act'));
-  window.addEventListener('offline', () => logEvent('сеть', t('журнал.26'), 'err'));
+  window.addEventListener('online', () => logEvent(t('текст.173'), t('журнал.25'), 'act'));
+  window.addEventListener('offline', () => logEvent(t('текст.174'), t('журнал.26'), 'err'));
   document.addEventListener('visibilitychange',
-    () => logEvent('вкладка', document.hidden ? 'скрыта' : 'видима'));
+    () => logEvent(t('текст.175'), document.hidden ? t('текст.176') : t('текст.177')));
 
   // --- своё меню по правой кнопке и статистика воспроизведения --------------
   const ctx = $('ctxMenu');
@@ -6432,7 +6692,7 @@
     pushSettings({ auto: seconds });
     armCarousel();
     paintAuto();
-    say(seconds ? `Автопереключение комнат раз в ${seconds} с.` : 'Автопереключение выключено.', 'ok');
+    say(seconds ? t('текст.178', { seconds: seconds }) : t('текст.179'), 'ok');
   }
 
   const hideCtx = () => { ctx.hidden = true; };
@@ -6463,13 +6723,11 @@
     else if (act === 'haltAll') {
       const hit = tiles.filter(tile => tile.user && !tile.halted && !tile.goneAt);
       hit.forEach(tileHalt);
-      say(hit.length ? `Приём остановлен: ${hit.length} ${plural(hit.length,
-            'трансляция', 'трансляции', 'трансляций')}.` : 'Останавливать нечего.', 'ok');
+      say(hit.length ? t('текст.180', { length: hit.length, знач1: plural(hit.length, t('склонение.5.один'), t('склонение.5.два'), t('склонение.5.много')) }) : t('текст.181'), 'ok');
     } else if (act === 'goOnAll') {
       const hit = tiles.filter(tile => tile.user && tile.halted);
       hit.forEach(tileGoOn);
-      say(hit.length ? `Возобновляю: ${hit.length} ${plural(hit.length,
-            'трансляция', 'трансляции', 'трансляций')}.` : 'Возобновлять нечего.', 'ok');
+      say(hit.length ? t('текст.182', { length: hit.length, знач1: plural(hit.length, t('склонение.6.один'), t('склонение.6.два'), t('склонение.6.много')) }) : t('текст.183'), 'ok');
     }
   };
 
@@ -6675,7 +6933,7 @@
     netBusy = true;
     $('netRun').disabled = true;
     $('netPanel').hidden = false;
-    $('netBody').innerHTML = 'Меряю канал, это занимает несколько секунд…';
+    $('netBody').innerHTML = t('текст.184');
 
     try {
       const [server, mine] = await Promise.all([
@@ -6684,47 +6942,50 @@
       ]);
 
       const out = [];
-      out.push(`<s>Проверка канала · ${new Date().toLocaleTimeString('ru-RU')}</s>`, '');
+      out.push(t('текст.185', { знач1: new Date().toLocaleTimeString('ru-RU') }), '');
 
       if (mine) {
-        out.push('ЭТА СТРАНИЦА → превью с CDN');
+        out.push(t('текст.186'));
         out.push(mine.ok
-          ? `  загрузилось ${mine.ok} из ${mine.tries} · лучшее ${mine.best} мс · ` +
-            `медиана ${mine.median} мс · худшее ${mine.worst} мс`
-          : `  <i>ни одно превью из ${mine.tries} не дошло</i>`);
+          ? t('текст.187', { ok: mine.ok, tries: mine.tries, best: mine.best }) +
+            t('текст.188', { median: mine.median, worst: mine.worst })
+          : t('текст.189', { tries: mine.tries }));
         if (mine.ok) {
           const loss = Math.round((mine.slow + mine.failed) / mine.tries * 100);
-          out.push(`  с потерей пакетов ${netVerdict(loss)}` +
-                   (mine.failed ? ` · <i>оборвалось ${mine.failed}</i>` : ''));
+          out.push(t('текст.190', { знач1: netVerdict(loss) }) +
+                   (mine.failed ? t('текст.191', { failed: mine.failed }) : ''));
         }
         out.push('');
       }
 
       if (!server) {
-        out.push('<i>Сервер плеера не ответил на запрос проверки.</i>');
+        out.push(t('текст.192'));
       } else {
-        out.push('СЕРВЕР ПЛЕЕРА → замеры TCP');
-        out.push(`  <s>${netPad('куда', 20)}${netPad('лучш', 7)}${netPad('медиана', 9)}` +
-                 `${netPad('худш', 7)}потери</s>`);
+        out.push(t('текст.193'));
+        out.push(`  <s>${netPad(t('связь.куда'), 20)}${netPad(t('связь.лучш'), 7)}` +
+                 `${netPad(t('связь.медиана'), 9)}` +
+                 t('текст.194', { знач1: netPad(t('кусок.3'), 7) }));
         for (const t of server.targets) {
           if (t.verdict === 'недоступен') {
-            out.push(`  ${netPad(t.name, 20)}<i>не отвечает</i>`);
+            out.push(t('текст.195', { знач1: netPad(t.name, 20) }));
             continue;
           }
-          out.push(`  ${netPad(t.name, 20)}${netPad(t.best + ' мс', 7)}` +
-                   `${netPad(t.median + ' мс', 9)}${netPad(t.worst + ' мс', 7)}` +
+          const мс = t('связь.мс');
+          out.push(`  ${netPad(t.name, 20)}${netPad(t.best + мс, 7)}` +
+                   `${netPad(t.median + мс, 9)}${netPad(t.worst + мс, 7)}` +
                    netVerdict(t.loss));
         }
         out.push('');
-        out.push(`  DNS ${server.dns === null ? '<i>не отвечает</i>' : `<b>${server.dns} мс</b>`}` +
-                 `${server.gateway ? ` · роутер ${server.gateway}` : ''} · замер занял ${server.took} с`);
+        out.push(`  DNS ${server.dns === null
+                   ? `<i>${t('связь.молчит')}</i>` : `<b>${server.dns}${t('связь.мс')}</b>`}` +
+                 t('текст.196', { знач1: server.gateway ? t('кусок.4', { gateway: server.gateway }) : '', took: server.took }));
         out.push('');
         out.push(server.verdict.replace(/^(.)/, s => s.toUpperCase()));
       }
 
       $('netBody').innerHTML = out.join('\n');
     } catch (err) {
-      $('netBody').innerHTML = `<i>Проверка сорвалась: ${String(err).slice(0, 200)}</i>`;
+      $('netBody').innerHTML = t('текст.197', { знач1: String(err).slice(0, 200) });
     } finally {
       netBusy = false;
       $('netRun').disabled = false;
@@ -6741,7 +7002,7 @@
     statsTimer = setInterval(paintStats, 1000);
   }
 
-  const mbit = bits => `${(bits / 1e6).toFixed(2)} Мбит/с`;
+  const mbit = bits => t('текст.198', { знач1: (bits / 1e6).toFixed(2) });
   const num = n => Math.round(n).toLocaleString('ru-RU');
 
 
@@ -6749,11 +7010,11 @@
   // которые есть в Chrome и отсутствуют в Firefox — тогда строка короче.
   function netLine() {
     const c = navigator.connection || {};
-    const parts = [navigator.onLine ? '<b>онлайн</b>' : '<i>ОФФЛАЙН</i>'];
+    const parts = [navigator.onLine ? t('текст.199') : t('текст.200')];
     if (c.effectiveType) parts.push(c.effectiveType);
-    if (c.downlink) parts.push(`канал ${c.downlink} Мбит/с`);
-    if (c.rtt) parts.push(`пинг ${c.rtt} мс`);
-    if (c.saveData) parts.push('экономия трафика');
+    if (c.downlink) parts.push(t('текст.201', { downlink: c.downlink }));
+    if (c.rtt) parts.push(t('текст.202', { rtt: c.rtt }));
+    if (c.saveData) parts.push(t('текст.203'));
     return parts.join(' · ');
   }
 
@@ -6790,43 +7051,43 @@
     const row = (key, value) => `${t('статистика.' + key)}${value}`;
 
     $('statsBody').innerHTML = [
-      row('источник', (playingFrom === 'disk' ? t('отчёт.сДиска') : t('отчёт.вЭфире'))
+      row(t('текст.204'), (playingFrom === 'disk' ? t('отчёт.сДиска') : t('отчёт.вЭфире'))
         + (session ? t('статистика.пишется') : '')),
-      row('картинка', `${video.videoWidth}×${video.videoHeight}`
+      row(t('текст.205'), `${video.videoWidth}×${video.videoHeight}`
         + (lvl ? t('статистика.дорожка', { высота: lvl.height }) : '')
         + (hls && hls.currentLevel < 0 ? t('статистика.авто') : '')),
-      row('кадры', t('статистика.кадрыВсего', { всего: num(q.totalVideoFrames) })
+      row(t('текст.206'), t('статистика.кадрыВсего', { всего: num(q.totalVideoFrames) })
         + `${lost > 1 ? '<i>' : '<b>'}${num(q.droppedVideoFrames)} (${lost.toFixed(2)}%)`
         + `${lost > 1 ? '</i>' : '</b>'}`),
-      row('частота', t('статистика.вСекунду', { сколько: fps ? fps.toFixed(1) : '—' })
+      row(t('текст.207'), t('статистика.вСекунду', { сколько: fps ? fps.toFixed(1) : '—' })
         + (video.mozPaintedFrames !== undefined
           ? t('статистика.нарисовано', { сколько: num(video.mozPaintedFrames) }) : '')),
-      row('битрейт', t('статистика.канал', { дорожка: lvl ? mbit(lvl.bitrate) : '—',
+      row(t('текст.208'), t('статистика.канал', { дорожка: lvl ? mbit(lvl.bitrate) : '—',
                                              канал: hls ? mbit(hls.bandwidthEstimate || 0) : '—' })),
-      row('буфер', t('статистика.буферСтрока', { вперёд: buf.ahead.toFixed(1),
+      row(t('текст.209'), t('статистика.буферСтрока', { вперёд: buf.ahead.toFixed(1),
                                            назад: buf.behind.toFixed(0) })),
-      row('отставание', playingFrom === 'live'
+      row(t('текст.210'), playingFrom === 'live'
         ? t('статистика.отЖивого', { сколько: lag.toFixed(1) })
         : t('статистика.вЗаписи')),
-      row('сегмент', lastFrag
+      row(t('текст.211'), lastFrag
         ? t('статистика.сегментСтрока', { номер: lastFrag.sn, мс: lastFrag.ms, ответ: lastFrag.ttfb,
                                     мб: (lastFrag.size / 1048576).toFixed(2) })
           + (lastFrag.ms > 0 ? ` · ${mbit(lastFrag.size * 8 / (lastFrag.ms / 1000))}` : '')
         : '—'),
-      row('сеть', netLine()),
-      row('подвисания', stallCount
+      row(t('текст.212'), netLine()),
+      row(t('текст.213'), stallCount
         ? `<i>` + t('статистика.подвисало', { сколько: stallCount,
               раз: plural(stallCount, t('статистика.раз1'), t('статистика.раз2'), t('статистика.раз5')),
               всего: stallTotal.toFixed(1) })
           + (lastStallAt ? t('статистика.последнее',
               { когда: new Date(lastStallAt).toLocaleTimeString() }) : '') + '</i>'
         : `<b>${t('статистика.нетПодвисаний')}</b>`),
-      row('ошибки', errorCount
+      row(t('текст.214'), errorCount
         ? `<i>${errorCount}</i>` + t('статистика.ошибкиСтрока', { сеть: netErrors, медиа: mediaErrors,
               прочие: errorCount - netErrors - mediaErrors })
         : '<b>0</b>'),
-      errorLog.length ? row('последние', errorLog.join('\n           ')) : '',
-      row('адрес', streamUrl || '—'),
+      errorLog.length ? row(t('текст.215'), errorLog.join('\n           ')) : '',
+      row(t('текст.216'), streamUrl || '—'),
     ].filter(Boolean).join('\n');
   }
 
@@ -6858,7 +7119,7 @@
       paintRec();
     }
 
-    logEvent('плеер', t('журнал.27'), 'act');
+    logEvent(t('текст.217'), t('журнал.27'), 'act');
     say(t('статус.57'), 'ok');
   }
 
@@ -6887,8 +7148,8 @@
     autoSeedLevel = seed;
     autoRescues = 0;
     autoPeakBw = 0;
-    logEvent('качество', t('журнал.28', { seed: seed }) +
-                         `${((hls.levels[seed].bitrate || 0) / 1e6).toFixed(2)} Мбит/с`);
+    logEvent(t('текст.218'), t('журнал.28', { seed: seed }) +
+                         t('текст.219', { знач1: ((hls.levels[seed].bitrate || 0) / 1e6).toFixed(2) }));
   }
 
   $('quality').onchange = () => {
@@ -6950,18 +7211,18 @@
     const bar = win.document.createElement('div');
     bar.id = 'bar';
     bar.innerHTML =
-      '<button data-p="prev" title="Предыдущая комната">⏮</button>' +
-      '<button data-p="next" title="Следующая комната">⏭</button>' +
+      t('текст.220') +
+      t('текст.221') +
       '<span id="nick"></span>' +
-      '<label>Авто</label>' +
+      t('текст.222') +
       '<span id="pick">' +
-        '<button id="autoBtn" title="Интервал автопереключения"></button>' +
+        t('текст.223') +
         '<div id="autoMenu" hidden>' +
-          '<div data-v="0">выкл</div><div data-v="30">30 с</div>' +
-          '<div data-v="60">1 мин</div><div data-v="180">3 мин</div>' +
+          t('текст.224') +
+          t('текст.225') +
         '</div>' +
       '</span>' +
-      '<button data-p="stop" title="Остановить автопереключение">⏹</button>';
+      t('текст.226');
 
     win.document.body.append(holder, bar);
 
@@ -7019,7 +7280,7 @@
     doc.classList.toggle('off', !docPipReady());
     // Пояснение к доступному пункту раскрывается по наведению внутри меню,
     // и штатный title дублировал бы его вторым всплывающим окошком.
-    doc.title = docPipReady() ? '' : 'Недоступно: страница открыта не по localhost и не по https';
+    doc.title = docPipReady() ? '' : t('текст.227');
   }
 
   // Окно уже открыто — выбирать нечего, кнопка просто закрывает его.
