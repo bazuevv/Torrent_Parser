@@ -2000,7 +2000,7 @@
         return;
       }
       if (!data.dirs.length) {
-        $('dirList').innerHTML = t('текст.11');
+        $('dirList').innerHTML = `<div class="empty">${t('пусто.подпапок')}</div>`;
         return;
       }
       for (const item of data.dirs) {
@@ -2010,7 +2010,7 @@
         $('dirList').appendChild(row);
       }
     } catch {
-      $('dirList').innerHTML = t('текст.12');
+      $('dirList').innerHTML = `<div class="empty">${t('пусто.сервер')}</div>`;
     }
   }
 
@@ -2304,7 +2304,7 @@
           t('текст.31', { report: report, probe: probe }));
     }, 12000);
     streamUrl = url;
-    $('quality').innerHTML = t('текст.32');
+    $('quality').innerHTML = `<option value="-1">${t('качество.авто')}</option>`;
 
     if (window.Hls && Hls.isSupported()) {
       // backBufferLength — сколько эфира держим в оперативной памяти.
@@ -2835,7 +2835,7 @@
     if (hls) { hls.destroy(); hls = null; }
     clearTimeout(stallTimer);
     streamUrl = url;
-    $('quality').innerHTML = t('текст.66');
+    $('quality').innerHTML = `<option value="-1">${t('качество.файл')}</option>`;
     if (at) video.addEventListener('loadedmetadata', () => { video.currentTime = at; }, { once: true });
     video.src = url;
     video.play().catch(() => {});
@@ -2882,9 +2882,12 @@
     let left = 30;
     const paint = () => {
       $('keepText').innerHTML =
-        t('текст.68', { user: item.user, знач1: fmtTime(item.seconds), знач2: fmtSize(item.bytes) }) +
-        t('текст.69', { left: left }) +
-        (keepQueue.length > 1 ? t('текст.70', { знач1: keepQueue.length - 1 }) : '');
+        `${t('запись.осколок', { user: item.user, длина: fmtTime(item.seconds),
+                                 размер: fmtSize(item.bytes) })}<br>` +
+        t('запись.оставить', { left: left }) +
+        (keepQueue.length > 1
+          ? `<br><i>${t('запись.вОчереди', { сколько: keepQueue.length - 1 })}</i>`
+          : '');
     };
     paint();
     // Окно PiP — отдельный документ: если смотрят там, вопрос надо перенести
@@ -3046,12 +3049,12 @@
 
   async function showLibrary() {
     $('libPanel').hidden = false;
-    $('libBody').innerHTML = t('текст.84');
+    $('libBody').innerHTML = `<div class="empty">${t('пусто.читаю')}</div>`;
     let data;
     try {
       data = await (await fetch('api/library', { cache: 'no-store' })).json();
     } catch {
-      $('libBody').innerHTML = t('текст.85');
+      $('libBody').innerHTML = `<div class="empty">${t('пусто.сервер')}</div>`;
       return;
     }
 
@@ -3092,7 +3095,7 @@
     libFile = name;
     playingFrom = 'file';
     ladderRun++;                     // замер дорожек прошлого потока обесценен
-    $('quality').innerHTML = t('текст.87');
+    $('quality').innerHTML = `<option value="-1">${t('качество.авто')}</option>`;
     video.src = `lib/${encodeURIComponent(name)}`;
     video.load();
     video.play().catch(() => { /* автозапуск без звука мог не пройти */ });
@@ -3358,7 +3361,7 @@
     add.title = t('узел.15');
     const cap = document.createElement('div');
     cap.className = 'scrCap';
-    cap.innerHTML = t('текст.90');
+    cap.innerHTML = `<span>${t('экраны.новый')}</span><i>${t('экраны.новый.описание')}</i>`;
     const grid = document.createElement('div');
     grid.className = 'scrGrid';
     grid.style.aspectRatio = `${wide} / ${high}`;
@@ -4623,7 +4626,7 @@
     const body = $('histBody'), hist = loadHist();
     body.textContent = '';
     if (!hist.length) {
-      body.innerHTML = t('текст.129');
+      body.innerHTML = `<div class="empty">${t('пусто.история')}</div>`;
       return;
     }
     for (const rec of hist) {
@@ -5307,7 +5310,7 @@
     }
     body.textContent = '';
     if (!live.length) {
-      body.innerHTML = t('текст.151');
+      body.innerHTML = `<div class="empty">${t('пусто.эфир')}</div>`;
       return;
     }
     for (const [user, edgeAtSweep, viewers, seen, shot] of live) {
@@ -6184,7 +6187,8 @@
       best: Math.round(best),
       median: Math.round(sorted[sorted.length >> 1]),
       worst: Math.round(sorted[sorted.length - 1]),
-      slow: times.filter(t => t > best + 600).length,
+      // Имя короче одной буквы тут не нужно, а t занято переводом.
+        slow: times.filter(ms => ms > best + 600).length,
     };
   }
 
@@ -6212,38 +6216,41 @@
       ]);
 
       const out = [];
-      out.push(t('текст.185', { знач1: new Date().toLocaleTimeString(langNow) }), '');
+      out.push(`<s>${t('связь.заголовок', { знач1: new Date().toLocaleTimeString(langNow) })}</s>`, '');
 
       if (mine) {
         out.push(t('текст.186'));
         out.push(mine.ok
           ? t('текст.187', { ok: mine.ok, tries: mine.tries, best: mine.best }) +
             t('текст.188', { median: mine.median, worst: mine.worst })
-          : t('текст.189', { tries: mine.tries }));
+          : `  <i>${t('связь.ниОдного', { tries: mine.tries })}</i>`);
         if (mine.ok) {
           const loss = Math.round((mine.slow + mine.failed) / mine.tries * 100);
           out.push(t('текст.190', { знач1: netVerdict(loss) }) +
-                   (mine.failed ? t('текст.191', { failed: mine.failed }) : ''));
+                   (mine.failed ? ` · <i>${t('связь.оборвалось', { сколько: mine.failed })}</i>` : ''));
         }
         out.push('');
       }
 
       if (!server) {
-        out.push(t('текст.192'));
+        out.push(`  <i>${t('связь.молчитСервер')}</i>`);
       } else {
         out.push(t('текст.193'));
         out.push(`  <s>${netPad(t('связь.куда'), 20)}${netPad(t('связь.лучш'), 7)}` +
-                 `${netPad(t('связь.медиана'), 9)}` +
-                 t('текст.194', { знач1: netPad(t('кусок.3'), 7) }));
-        for (const t of server.targets) {
-          if (t.verdict === 'недоступен') {
-            out.push(t('текст.195', { знач1: netPad(t.name, 20) }));
+                 `${netPad(t('связь.медиана'), 9)}${netPad(t('связь.худш'), 7)}` +
+                 `${t('связь.потери')}</s>`);
+        /* Переменная цикла названа target, а не t: короткое t занято функцией
+           перевода, и внутри цикла её вызовы падали бы с «t is not a function».
+           Ошибку видно только при открытой проверке связи — тем хуже. */
+        const мс = t('связь.мс');
+        for (const target of server.targets) {
+          if (target.verdict === 'недоступен') {
+            out.push(`  ${netPad(target.name, 20)}<i>${t('связь.молчит')}</i>`);
             continue;
           }
-          const мс = t('связь.мс');
-          out.push(`  ${netPad(t.name, 20)}${netPad(t.best + мс, 7)}` +
-                   `${netPad(t.median + мс, 9)}${netPad(t.worst + мс, 7)}` +
-                   netVerdict(t.loss));
+          out.push(`  ${netPad(target.name, 20)}${netPad(target.best + мс, 7)}` +
+                   `${netPad(target.median + мс, 9)}${netPad(target.worst + мс, 7)}` +
+                   netVerdict(target.loss));
         }
         out.push('');
         out.push(`  DNS ${server.dns === null
@@ -6255,7 +6262,7 @@
 
       $('netBody').innerHTML = out.join('\n');
     } catch (err) {
-      $('netBody').innerHTML = t('текст.197', { знач1: String(err).slice(0, 200) });
+      $('netBody').innerHTML = `<i>${t('связь.сорвалась', { знач1: String(err).slice(0, 200) })}</i>`;
     } finally {
       netBusy = false;
       $('netRun').disabled = false;
@@ -6280,7 +6287,7 @@
   // которые есть в Chrome и отсутствуют в Firefox — тогда строка короче.
   function netLine() {
     const c = navigator.connection || {};
-    const parts = [navigator.onLine ? t('текст.199') : t('текст.200')];
+    const parts = [navigator.onLine ? `<b>${t('связь.онлайн')}</b>` : `<i>${t('связь.офлайн')}</i>`];
     if (c.effectiveType) parts.push(c.effectiveType);
     if (c.downlink) parts.push(t('текст.201', { downlink: c.downlink }));
     if (c.rtt) parts.push(t('текст.202', { rtt: c.rtt }));
@@ -6517,18 +6524,18 @@
     const bar = win.document.createElement('div');
     bar.id = 'bar';
     bar.innerHTML =
-      t('текст.220') +
-      t('текст.221') +
+      `<button data-p="prev" title="${t('pip.пред')}">⏮</button>` +
+      `<button data-p="next" title="${t('pip.след')}">⏭</button>` +
       '<span id="nick"></span>' +
-      t('текст.222') +
+      `<label>${t('pip.авто')}</label>` +
       '<span id="pick">' +
         '<button id="autoBtn" title="Интервал автопереключения"></button>' +
         '<div id="autoMenu" hidden>' +
-          t('текст.224') +
-          t('текст.225') +
+          `<div data-v="0">${t('pip.выкл')}</div><div data-v="30">${t('pip.30с')}</div>` +
+          `<div data-v="60">${t('pip.1мин')}</div><div data-v="180">${t('pip.3мин')}</div>` +
         '</div>' +
       '</span>' +
-      t('текст.226');
+      `<button data-p="stop" title="${t('pip.стоп')}">⏹</button>`;
 
     win.document.body.append(holder, bar);
 
