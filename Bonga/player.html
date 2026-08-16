@@ -17,12 +17,6 @@
     display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
     padding: 8px 12px; background: #1c1f26; border-bottom: 1px solid #2a2f3a;
   }
-  /* Спрятанные поля ника и сервера. display:contents — чтобы при снятии
-     hidden они снова стали прямыми элементами шапки, а не съехали в общий
-     блок: header у нас flex, и лишняя обёртка сломала бы раскладку. */
-  #roomBox { display: contents; }
-  #roomBox[hidden] { display: none; }
-
   /* Подробности к строке статуса: системная подсказка не годится — из неё
      нельзя выделить текст, а он нужен именно для копирования. */
   #statusDetails {
@@ -712,26 +706,6 @@
 <body>
 
 <header>
-  <!-- Поля ника и сервера с кнопками «Смотреть» и «Найти edge» убраны с
-       панели: искать комнату теперь удобнее в правой колонке, а номер сервера
-       ячейка подбирает сама и запоминает. Из разметки они не удалены, а
-       спрятаны — это по-прежнему то место, где остальной код держит текущую
-       комнату: их читают запись, профиль, PiP, перелистывание и журнал.
-       Настоящее удаление означало бы переписать эти семь мест разом. -->
-  <span id="roomBox" hidden>
-    <label for="user">Ник</label>
-    <input id="user" list="models" spellcheck="false" placeholder="AlyonaKatya"
-           title="Имя комнаты как на сайте. Регистр не важен, подсказки берутся из базы ников">
-    <datalist id="models"></datalist>
-
-    <label for="edge">edge</label>
-    <input id="edge" spellcheck="false" placeholder="67" title="Номер видеосервера: 67 или us14">
-
-    <button id="play" class="primary"
-            title="Открыть трансляцию. Номер сервера подберётся сам, если поле edge пустое">Смотреть</button>
-    <button id="find"
-            title="Опросить все серверы вещания и найти, на каком идёт эфир этого ника. Результат запоминается">Найти edge</button>
-  </span>
   <button id="stop" title="Остановить трансляцию и запись">Стоп</button>
 
   <label for="quality" title="Дорожка текущего потока; сбрасывается при переключении комнаты">Качество</label>
@@ -1149,7 +1123,7 @@
 
   </div>
 
-  <div id="status">Укажите ник и нажмите «Смотреть».</div>
+  <div id="status">Стена поднимается сама. Комнату можно взять из правой колонки.</div>
   <span id="url" title="Ссылка на поток">—</span>
 
   <div id="statusDetails" hidden>
@@ -1349,6 +1323,25 @@
   const known = new Map();
   const canon = new Map();               // ник в нижнем регистре -> правильное написание
 
+  /* Текущая комната. Раньше её роль играли поля ввода в шапке: код читал
+     значение поля ника как источник правды — удобно, пока поле есть. Его
+     больше нет, поэтому держим состояние явно. Пишут сюда запуск потока, запись,
+     восстановление из адреса и открытие комнаты в ячейке. */
+  const current = { user: '', edge: '' };
+  const setCurrent = (user, edge) => {
+    current.user = String(user || '').trim();
+    current.edge = String(edge || '').trim();
+  };
+
+  /* Комната, к которой относятся действия «на текущую»: профиль, PiP, запись.
+     Разворот главнее звука — если ячейку развернули, смотрят именно её. */
+  function currentRoom() {
+    const pick = zoom.tile
+      || tiles.find(tile => tile.user && !tile.video.muted)
+      || tiles.find(tile => tile.user);
+    return pick && pick.user ? { user: pick.user, edge: pick.edge } : { ...current };
+  }
+
   function rebuildCatalog() {
     const byName = new Map();
     const put = m => {
@@ -1369,29 +1362,9 @@
       known.set(name.toLowerCase(), String(vsid));
       canon.set(name.toLowerCase(), name);
     }
-    $('models').textContent = '';       // подсказки наполняются при вводе, см. ниже
   }
-
-  // В базе бывают десятки тысяч ников: держать столько <option> в datalist
-  // нельзя — ввод начинает заметно тормозить. Поэтому ищем по мере набора
-  // и показываем максимум полсотни совпадений.
-  $('user').addEventListener('input', () => {
-    const query = $('user').value.trim().toLowerCase();
-    const list = $('models');
-    list.textContent = '';
-    if (query.length < 2) return;
-
-    const starts = [], inside = [];
-    for (const [name] of catalog) {
-      const low = name.toLowerCase();
-      if (low.startsWith(query)) starts.push(name);
-      else if (low.includes(query)) inside.push(name);
-      if (starts.length >= 50) break;
-    }
-    for (const name of [...starts, ...inside].slice(0, 50)) {
-      list.appendChild(Object.assign(document.createElement('option'), { value: name }));
-    }
-  });
+  // Подсказки к полю ника раньше жили здесь. Поля нет, а подсказки есть —
+  // они переехали в поиск правой колонки, там же история запросов.
 
   // --- обмен с сервером ------------------------------------------------------
   // accounts.json на сервере — источник правды, localStorage остаётся локальным
@@ -1949,7 +1922,7 @@
     }
     return [
       `время:      ${new Date().toLocaleString('ru-RU')}`,
-      `ник:        ${$('user').value.trim() || '—'} · edge ${$('edge').value.trim() || '—'}`,
+      `ник:        ${current.user || '—'} · edge ${current.edge || '—'}`,
       `источник:   ${playingFrom === 'disk' ? 'запись на диске' : 'прямой эфир'}`,
       `адрес:      ${$('url').textContent}`,
       `видео:      readyState=${video.readyState} networkState=${video.networkState} ` +
@@ -1999,10 +1972,10 @@
     stallTimer = setTimeout(async () => {
       if (video.readyState >= 3 || video.currentTime) return;
       const report = playbackReport();
-      say('12 секунд без данных — похоже, эфир закончился. Попробуйте «Найти edge».', 'err',
+      say('12 секунд без данных — похоже, эфир закончился.', 'err',
           `${report}\nплейлист:   проверяю…`);
       const probe = await probeCurrent();
-      say('12 секунд без данных — похоже, эфир закончился. Попробуйте «Найти edge».', 'err',
+      say('12 секунд без данных — похоже, эфир закончился.', 'err',
           `${report}\nплейлист:   ${probe}`);
     }, 12000);
     $('url').textContent = url;
@@ -2103,8 +2076,7 @@
           fetch('api/ladder', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user: $('user').value.trim(),
-                                   edge: $('edge').value.trim(), rates: fresh }),
+            body: JSON.stringify({ user: current.user, edge: current.edge, rates: fresh }),
           }).catch(() => { /* не дошло — сервер перемеряет сам */ });
         }
       }
@@ -2115,8 +2087,8 @@
         ladderRun++;                          // прошлый замер больше не актуален
         if (!data.levels.length) {           // пустышка вместо плейлиста
           hls.destroy(); hls = null;
-          return say('Сервер отдал пустой плейлист — эфира на этом edge нет. ' +
-                     'Нажмите «Найти edge».', 'err', playbackReport());
+          return say('Сервер отдал пустой плейлист — эфира на этом edge нет.', 'err',
+                     playbackReport());
         }
         // Дорожки названы суффиксом: …_240 / …_480 / …_720, а верхняя идёт
         // без суффикса в родном разрешении. Ориентируемся на суффикс: у
@@ -2353,17 +2325,19 @@
     }
   }
 
-  async function start() {
-    let user = $('user').value.trim();
-    if (!user) return say('Введите ник модели.', 'err');
+  /* Комната приходит аргументом. Раньше её брали из поля ввода в шапке —
+     поля больше нет, а неявная связь «функция читает то, что где-то набрали»
+     всё равно была хуже явного параметра. */
+  async function start(want, wantEdge) {
+    let user = String(want || current.user || '').trim();
+    if (!user) return say('Не указана комната.', 'err');
 
     // Пути на CDN регистрозависимы: bambitwo != BambiTwo. Если ник знаком по
     // снимку — молча приводим к правильному написанию.
     const proper = canon.get(user.toLowerCase());
-    if (proper && proper !== user) { user = proper; $('user').value = user; }
+    if (proper && proper !== user) user = proper;
 
-    let edge = $('edge').value.trim() || known.get(user.toLowerCase()) || '';
-    $('play').disabled = true;
+    let edge = String(wantEdge || '').trim() || known.get(user.toLowerCase()) || '';
 
     try {
       if (edge && await alive(user, edge)) {
@@ -2376,7 +2350,7 @@
                      'идёт приватное шоу или ошибка в регистре ника (BambiTwo ≠ bambitwo).', 'err');
         }
       }
-      $('edge').value = edge;
+      setCurrent(user, edge);
       localStorage.setItem('edge:' + user.toLowerCase(), edge);
       location.hash = user;
 
@@ -2406,8 +2380,6 @@
     } catch (e) {
       say('Сеть недоступна или CORS заблокирован: ' + e.message +
           ' — откройте страницу через ./serve.sh, а не двойным кликом.', 'err');
-    } finally {
-      $('play').disabled = false;
     }
   }
 
@@ -2681,7 +2653,7 @@
   }
 
   function backToLive() {
-    const user = $('user').value.trim(), edge = $('edge').value.trim();
+    const { user, edge } = current;
     if (!user || !edge) return;
     playingFrom = 'live';
     attach(playlistUrl(user, edge));
@@ -3725,7 +3697,7 @@
        ячейки вместо двух, да ещё с пустыми от комнат, ушедших из эфира. */
     const saved = opts.extra ? { screens: [[]], at: 0 } : loadWall();
     const now = playingFrom === 'live'
-      ? { u: $('user').value.trim(), e: $('edge').value.trim() } : null;
+      ? { u: current.user, e: current.edge } : null;
 
     /* План по экранам. Повторов не допускаем — одна комната в двух ячейках это
        двойной трафик без пользы, и проверка сквозная: соседний экран такой же
@@ -3904,10 +3876,10 @@
   $('rec').onclick = async () => {
     // В ручном режиме кнопка ещё и запускает запись, если её нет.
     if (!session && !cfg('recMode')) {
-      const user = $('user').value.trim();
+      const { user, edge } = current;
       if (!user || video.paused) return say('Сначала запустите трансляцию.', 'err');
       recStopped = false;
-      return armRecording(user, $('edge').value.trim());
+      return armRecording(user, edge);
     }
 
     recStopped = true;
@@ -3966,11 +3938,11 @@
   // пробует поднять запись заново — иначе перемотка глубже памяти пропадает
   // молча, и о судьбе файла спросить будет некому.
   setInterval(() => {
-    const user = $('user').value.trim();
+    const { user, edge } = current;
     if (!cfg('recMode') || recStopped || session || !user || video.paused || video.readyState < 3) return;
     if (Date.now() - lastRecTry < 15000) return;
     logEvent('запись', 'сессии нет, хотя запись включена — поднимаю заново', 'err');
-    armRecording(user, $('edge').value.trim());
+    armRecording(user, edge);
   }, 5000);
 
   // Закрытая вкладка не должна оставлять ffmpeg писать часами.
@@ -4389,7 +4361,7 @@
   // Живой листинг сайта закрыт Cloudflare, поэтому статус берём с того же
   // открытого CDN: превью-кадр stream_<ник>.jpg отдаётся, только пока модель
   // в эфире на своём edge. Ник из снимка, сменивший сервер, покажется офлайн —
-  // для такого есть кнопка «Найти edge».
+  // такой случай разбирает сама ячейка: на первой же осечке ищет сервер заново.
   const thumbUrl = (user, edge) =>
     `https://${host(String(edge))}.bcvcdn.com/stream_${encodeURIComponent(user)}.jpg`;
 
@@ -4888,7 +4860,7 @@
       : loadHist().map(r => [r.u, r.e]);          // пока эфир не проверен — идём по истории
     if (!list.length) return say('Переключать не на что: список эфира пуст.', 'err');
 
-    const now = $('user').value.trim().toLowerCase();
+    const now = currentRoom().user.toLowerCase();
     const at = list.findIndex(m => String(m[0]).toLowerCase() === now);
     const [user, edge] = list[at < 0 ? 0 : (at + dir + list.length) % list.length];
     logEvent('плеер', `автопереключение на ${user} (edge ${edge})`, 'act');
@@ -4958,7 +4930,7 @@
 
   // общий вход из обеих панелей
   // единственный вход, доступный человеку: клик по панели, кнопка, Enter
-  const startByUser = () => { userInitiated = true; start(); };
+  const startByUser = (user, edge) => { userInitiated = true; start(user, edge); };
 
   function openStream(user, edge) {
     // При включённой стене комната ложится в ячейку, а не подменяет собой
@@ -4967,16 +4939,22 @@
       markCurrent();
       return;
     }
-    $('user').value = user;
-    $('edge').value = String(edge);
-    startByUser();
+    setCurrent(user, edge);
+    startByUser(user, edge);
   }
 
+  /* Пометка «открыто сейчас». Раньше открытой считалась одна комната — та,
+     что в поле ника. Теперь их столько, сколько ячеек на стене, поэтому метим
+     всё, что где-либо стоит: так по колонке сразу видно, что уже взято. */
   function markCurrent() {
     paintPipNick();
-    const now = $('user').value.trim().toLowerCase();
+    const open = new Set();
+    for (const screen of screens) {
+      for (const tile of screen.tiles) if (tile.user) open.add(tile.user.toLowerCase());
+    }
+    if (current.user) open.add(current.user.toLowerCase());
     for (const el of document.querySelectorAll('.item, .card')) {
-      el.classList.toggle('current', (el.dataset.user || '').toLowerCase() === now);
+      el.classList.toggle('current', open.has((el.dataset.user || '').toLowerCase()));
     }
   }
 
@@ -5718,20 +5696,8 @@
   }
 
   $('stop').onclick = stopStream;
-  $('play').onclick = startByUser;
-  $('user').onkeydown = e => { if (e.key === 'Enter') startByUser(); };
-  $('edge').onkeydown = e => { if (e.key === 'Enter') startByUser(); };
-
-  $('find').onclick = async () => {
-    const user = $('user').value.trim();
-    if (!user) return say('Введите ник модели.', 'err');
-    $('find').disabled = true;
-    say('Перебираю edge-серверы…');
-    const edge = await findEdge(user);
-    $('find').disabled = false;
-    if (edge) { $('edge').value = edge; say(`Нашёл: edge ${edge}.`, 'ok'); }
-    else say('Ни один edge не отдаёт этот поток — скорее всего модель офлайн.', 'err');
-  };
+  // Кнопки «Смотреть» и «Найти edge» убраны вместе с полями: комнату открывают
+  // из правой колонки, а сервер ячейка подбирает сама при первой же осечке.
 
   /* «Авто» без подсказки начинает с самого низа: стартовая оценка канала в
      библиотеке — 500 кбит/с, и первая же дорожка выбирается по ней. Поэтому
@@ -5908,7 +5874,7 @@
   function paintPipNick() {
     if (!pipBar) return;
     const nick = pipBar.querySelector('#nick');
-    if (nick) nick.textContent = $('user').value.trim();
+    if (nick) nick.textContent = currentRoom().user;
   }
 
   /* Два вида окна отличаются не мелочью: в нашем есть переключение комнат,
@@ -5977,9 +5943,9 @@
   // Профиль на сайте. Регистр в пути важен, поэтому берём правильное написание
   // из базы, если ник там есть, — иначе сайт отдаст 404.
   $('profile').onclick = () => {
-    const typed = $('user').value.trim();
-    if (!typed) return say('Сначала укажите ник.', 'err');
-    const user = canon.get(typed.toLowerCase()) || typed;
+    const room = currentRoom().user;
+    if (!room) return say('Сначала откройте комнату.', 'err');
+    const user = canon.get(room.toLowerCase()) || room;
     window.open(`https://ru17.bongacams.com/profile/${encodeURIComponent(user)}`,
                 '_blank', 'noopener,noreferrer');
   };
@@ -5988,8 +5954,7 @@
   const params = new URLSearchParams(location.search);
   if (params.get('log') === '1') toggleLog(true);      // ?log=1 — журнал сразу, для отладки
   const initial = params.get('u') || decodeURIComponent(location.hash.slice(1)) || 'AlyonaKatya';
-  $('user').value = initial;
-  $('edge').value = params.get('e') || known.get(initial.toLowerCase()) || '';
+  setCurrent(initial, params.get('e') || known.get(initial.toLowerCase()) || '');
   renderHist();
 
   // Порядок важен: сперва настройки (от них зависят интервалы, качество и
@@ -6006,7 +5971,7 @@
        ячейка делает всё то же, что главный плеер, только их может быть много.
        Комната из адреса при этом не теряется: встаёт в свободное место. */
     const asked = (params.get('u') || location.hash)
-      ? { user: initial, edge: $('edge').value.trim() } : null;
+      ? { user: initial, edge: current.edge } : null;
     wallOn(asked ? { room: asked } : {});
 
     if (await pullAccounts()) {
