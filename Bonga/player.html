@@ -359,7 +359,14 @@
      девяти ячеек курсор проходит десятки раз, и вкладки полезли бы пачками. */
   .tcap b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
             white-space: nowrap; font-weight: 500; cursor: pointer; }
-  .tile.busy .tcap b:hover { text-decoration: underline; color: #9dc1fe; }
+  .tile.busy .tcap b:hover { color: #9dc1fe; }
+  /* Значок копирования ника: появляется только под курсором. Держать его на
+     виду незачем — в сетке из шестнадцати ячеек это шестнадцать лишних
+     значков, а нужен он изредка. */
+  .tcap .tcopy { display: none; }
+  .tile.busy .tcap .tname:hover .tcopy {
+    display: inline-block; padding: 1px 5px; font-size: 11px; line-height: 1.4;
+  }
   /* Качество идущей дорожки. Пусто, пока плейлист не разобран, — и у
      остановленной ячейки: там играть нечему. */
   .tcap .tq {
@@ -3649,7 +3656,9 @@
                     '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
                     'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
                     '<div class="tcap"><i class="tnum"></i>' +
-                    '<span class="tname"><b></b><i class="tq"></i></span>' +
+                    '<span class="tname"><b></b>' +
+                    '<span class="tcopy" title="Скопировать ник">⧉</span>' +
+                    '<i class="tq"></i></span>' +
                     '<span class="tclose" title="Убрать ячейку">×</span></div>' +
                     '<div class="tbar">' +
                       '<span class="tb tplay" title="Пауза (пробел)">⏸</span>' +
@@ -3783,6 +3792,14 @@
     const nick = box.querySelector('b');
     nick.title = 'Открыть профиль на сайте';
     nick.onclick = () => { if (tile.user) openProfile(tile.user); };
+
+    box.querySelector('.tcopy').onclick = e => {
+      e.stopPropagation();                 // рядом ник — он открывает профиль
+      if (!tile.user) return;
+      navigator.clipboard.writeText(tile.user)
+        .then(() => say(`Ник скопирован: ${tile.user}`, 'ok'))
+        .catch(() => say('Буфер обмена недоступен — скопируйте ник вручную.', 'err'));
+    };
     tiles.push(tile);
     screens[screenAt].box.appendChild(box);
     // Раскладку тут не трогаем: layoutWall сам достраивает недостающие ячейки
