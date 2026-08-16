@@ -810,14 +810,6 @@
   #netClose:hover { color: #fff; background: #b5372c; border-color: #b5372c; }
   #netRun { right: 38px; }
 
-  /* URL потока — в шапке, прижат вправо; клик выделяет ссылку целиком */
-  #url {
-    flex: 0 1 auto; min-width: 60px; margin-left: auto;
-    font: 12px/1.6 ui-monospace, "Cascadia Code", Consolas, monospace; color: #7f8899;
-    background: #21262e; border: 1px solid #2a2f3a; border-radius: 6px; padding: 4px 8px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    cursor: text; user-select: all;
-  }
 </style>
 </head>
 <body>
@@ -1262,7 +1254,6 @@
   </div>
 
   <div id="status">Стена поднимается сама. Комнату можно взять из правой колонки.</div>
-  <span id="url" title="Ссылка на поток">—</span>
   <!-- Настройки последними: правый угол, подальше от кнопок, которые жмут
        постоянно. Отступом этого не добиться — строка статуса растягивается
        и всё равно встала бы правее. -->
@@ -2095,7 +2086,7 @@
       `время:      ${new Date().toLocaleString('ru-RU')}`,
       `ник:        ${current.user || '—'} · edge ${current.edge || '—'}`,
       `источник:   ${playingFrom === 'disk' ? 'запись на диске' : 'прямой эфир'}`,
-      `адрес:      ${$('url').textContent}`,
+      `адрес:      ${streamUrl || '—'}`,
       `видео:      readyState=${video.readyState} networkState=${video.networkState} ` +
         `currentTime=${video.currentTime.toFixed(1)} paused=${video.paused}`,
       `буфер:      ${buf.join(', ') || 'пусто'}`,
@@ -2110,8 +2101,8 @@
   // Спрашиваем плейлист прямо сейчас: чаще всего причина видна именно тут —
   // либо 404, либо пустышка без дорожек, либо сеть не пускает.
   async function probeCurrent() {
-    const url = $('url').textContent;
-    if (!url || url === '—') return 'адрес не задан';
+    const url = streamUrl;
+    if (!url) return 'адрес не задан';
     try {
       const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) return `HTTP ${res.status} ${res.statusText}`;
@@ -2149,8 +2140,7 @@
       say('12 секунд без данных — похоже, эфир закончился.', 'err',
           `${report}\nплейлист:   ${probe}`);
     }, 12000);
-    $('url').textContent = url;
-    $('url').title = url;              // полная ссылка в подсказке, если обрезалась многоточием
+    streamUrl = url;
     $('quality').innerHTML = '<option value="-1">авто</option>';
 
     if (window.Hls && Hls.isSupported()) {
@@ -2681,8 +2671,7 @@
   function playFile(url, at = 0) {
     if (hls) { hls.destroy(); hls = null; }
     clearTimeout(stallTimer);
-    $('url').textContent = url;
-    $('url').title = url;
+    streamUrl = url;
     $('quality').innerHTML = '<option value="-1">файл</option>';
     if (at) video.addEventListener('loadedmetadata', () => { video.currentTime = at; }, { once: true });
     video.src = url;
@@ -2815,6 +2804,13 @@
   }
 
   // --- переключение источника: прямой эфир <-> запись на диске ---------------
+  /* Адрес потока главного плеера. Раньше он лежал в поле шапки и оттуда же
+     читался — поле убрано: главный плеер сам по себе не поднимается, и в
+     шапке почти всегда стоял прочерк. Сам адрес нужен по-прежнему: его
+     копирует меню, показывает диагностика и по нему же проверяется плейлист
+     при подвисании. */
+  let streamUrl = '';
+
   let playingFrom = 'live';
   let pipBar = null;         // панель в своём окне PiP, если оно открыто
   let pipWindow = null;      // само окно: в нём заводим таймер автопереключения
@@ -2936,8 +2932,7 @@
     video.load();
     video.play().catch(() => { /* автозапуск без звука мог не пройти */ });
     paintSource();
-    $('url').textContent = name;
-    $('url').title = name;
+    streamUrl = name;
     $('libPanel').hidden = true;
     logEvent('плеер', `файл: ${name}`, 'act');
     say(`Играю файл ${name}. «В эфир» вернёт трансляцию.`, 'ok');
@@ -5744,7 +5739,7 @@
   function toggleLog(on) {
     $('logPanel').hidden = !on;
     if (!on) return;
-    logEvent('журнал', `открыт · источник ${playingFrom} · ${$('url').textContent}`, 'act');
+    logEvent('журнал', `открыт · источник ${playingFrom} · ${streamUrl || '—'}`, 'act');
     paintLog();          // показываем и то, что накопилось до открытия
   }
 
@@ -5820,7 +5815,7 @@
     } else if (act === 'mute') video.muted = !video.muted;
     else if (act === 'profile') openProfile(currentRoom().user);
     else if (act === 'copy') {
-      navigator.clipboard.writeText($('url').textContent)
+      navigator.clipboard.writeText(streamUrl)
         .then(() => say('Адрес потока скопирован.', 'ok'))
         .catch(() => say('Скопируйте адрес из шапки вручную.', 'err'));
     } else if (act === 'reload') startByUser();
@@ -6178,7 +6173,7 @@
       `ошибки     ${errorCount ? `<i>${errorCount}</i> · сеть ${netErrors}, медиа ${mediaErrors}, ` +
                                  `прочие ${errorCount - netErrors - mediaErrors}` : '<b>0</b>'}`,
       errorLog.length ? `последние  ${errorLog.join('\n           ')}` : '',
-      `адрес      ${$('url').textContent}`,
+      `адрес      ${streamUrl || '—'}`,
     ].filter(Boolean).join('\n');
   }
 
@@ -6199,8 +6194,7 @@
 
     playingFrom = 'live';
     paintSource();
-    $('url').textContent = '—';
-    $('url').title = '';
+    streamUrl = '';
 
     if (session) {
       const prev = session;
