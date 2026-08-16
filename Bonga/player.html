@@ -198,26 +198,16 @@
      деле удаляет трансляцию насовсем. Свернуть можно ⤡ или Esc, а убрать —
      вернувшись в сетку, там крестик снова на месте. */
   .tile.zoomed .tclose { display: none; }
-  /* Ползунок громкости — тоже только у развёрнутой: в ячейке размером с
-     четверть экрана он съел бы половину подписи, а звук на стене всё равно
-     один на всех. Всплывает над значком по наведению, места в подписи не
-     занимает вовсе. */
-  .tcap .tsndbox { position: relative; flex: 0 0 auto; display: flex;
-                   align-items: center; background: none; padding: 0; }
-  .tcap .tsndbox:hover { background: none; }   /* фон только у самого значка */
-  .tcap .tvol { display: none; }
-  .tile.zoomed .tcap .tvol {
-    display: block; position: absolute; right: 0; bottom: 100%;
-    width: 118px; height: 14px; margin: 0;
-    /* Отступы — часть самого ползунка, а не зазор: иначе курсор по дороге
-       к нему выходил бы из зоны наведения и панель захлопывалась. */
-    padding: 9px 11px 11px; box-sizing: content-box;
-    background: rgba(20, 23, 30, .94); border-radius: 8px;
-    accent-color: #6ea8fe; cursor: pointer;
-    opacity: 0; visibility: hidden; transition: opacity .12s;
+  /* Развёрнутой ячейке достаётся штатная панель браузера: громкость,
+     полноэкранный режим, PiP — всё уже написано и появляется по наведению.
+     Своего значка звука ей не нужно, а подпись уезжает наверх: внизу её
+     перекрыла бы та самая панель. В сетке всё наоборот — там панель заняла бы
+     половину ячейки, поэтому там подпись внизу и значок звука свой. */
+  .tile.zoomed .tcap {
+    top: 0; bottom: auto;
+    background: linear-gradient(rgba(0, 0, 0, .75), transparent);
   }
-  .tile.zoomed .tcap .tsndbox:hover .tvol,
-  .tile.zoomed .tcap .tvol:focus { opacity: 1; visibility: visible; }
+  .tile.zoomed .tsnd { display: none; }
   .card[draggable], .item[draggable] { cursor: grab; }
   .tcap {
     position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
@@ -2715,13 +2705,9 @@
     if (raw && saved >= 0 && saved <= 1) wallVolume = saved;
   } catch { /* приватный режим */ }
 
-  // Значок и ползунок показывают одно и то же состояние — рисуем их вместе.
   function paintSnd(tile) {
     const icon = tile.box.querySelector('.tsnd');
-    const vol = tile.box.querySelector('.tvol');
-    const off = tile.video.muted || !tile.video.volume;
-    if (icon) icon.textContent = off ? '🔇' : '🔊';
-    if (vol) vol.value = String(off ? 0 : tile.video.volume);
+    if (icon) icon.textContent = tile.video.muted || !tile.video.volume ? '🔇' : '🔊';
   }
 
   // Звук — только у одной ячейки: четыре сразу дают кашу, да и браузер не даст.
@@ -2791,6 +2777,10 @@
     tile.box.classList.add('zoomed');
     paintZoomBtn(tile);
     layoutWall();                      // выдаёт развёрнутой всю площадь сетки
+    // Штатная панель браузера: громкость, полный экран, PiP. В ячейке она
+    // заняла бы половину высоты, а здесь места хватает — и писать ничего не
+    // надо, панель сама прячется, пока курсор не над видео.
+    tile.video.controls = true;
     tileLoud(tile);                    // смотрим крупно — значит и слушаем её
 
     /* Канал общий на всех. Соседние ячейки сейчас полностью закрыты, но полосу
@@ -2822,6 +2812,7 @@
     if (!tile) return;
     zoom.tile = null;
     tile.box.classList.remove('zoomed');
+    tile.video.controls = false;       // в ячейке панель только мешает
     paintZoomBtn(tile);
     layoutWall();
 
@@ -2947,10 +2938,7 @@
     box.innerHTML = '<video muted playsinline></video>' +
                     '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
                     'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
-                    '<div class="tcap"><b></b>' +
-                    '<span class="tsndbox"><span class="tsnd">🔇</span>' +
-                    '<input class="tvol" type="range" min="0" max="1" step="0.02" ' +
-                    'title="Громкость" aria-label="Громкость"></span>' +
+                    '<div class="tcap"><b></b><span class="tsnd">🔇</span>' +
                     '<span class="tmain" title="Развернуть поверх остальных">⤢</span>' +
                     '<span class="tclose" title="Убрать ячейку">×</span></div>';
     const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
@@ -2980,15 +2968,14 @@
       tile.video.muted = true;
       paintSnd(tile);
     };
-    const vol = box.querySelector('.tvol');
-    vol.value = String(wallVolume);
-    vol.oninput = () => {
-      wallVolume = Number(vol.value);
+    /* Громкость крутят штатной панелью развёрнутой ячейки — запоминаем, что
+       выставили. Глушение уровень не меняет, поэтому такие события пропускаем:
+       иначе tileLoud, глуша соседей, обнулял бы запомненное. */
+    tile.video.onvolumechange = () => {
+      if (tile.video.muted) return paintSnd(tile);
+      wallVolume = tile.video.volume;
       try { localStorage.setItem('wallVolume', String(wallVolume)); } catch { /* приватный */ }
-      tile.video.volume = wallVolume;
-      // Сдвинули с нуля — значит звук нужен здесь, даже если ячейка молчала.
-      if (wallVolume > 0 && tile.video.muted) tileLoud(tile);
-      else paintSnd(tile);
+      paintSnd(tile);
     };
     box.querySelector('.tclose').onclick = () => dropTile(tile);
     box.querySelector('.tmain').onclick = () =>
