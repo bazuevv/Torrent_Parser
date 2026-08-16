@@ -2737,6 +2737,15 @@
     try { localStorage.setItem('wall', JSON.stringify(data)); } catch { /* приватный режим */ }
   }
 
+  /* Номер сервера по убыванию свежести: каталог (сборщик обходит сайт раз в
+     минуту), затем память браузера, затем то, что лежало в составе стены.
+     Сохранённый номер устаревает первым — комнаты переезжают между серверами. */
+  const bestEdge = (user, fallback) => {
+    const key = String(user).toLowerCase();
+    const row = (liveList || []).find(item => String(item[0]).toLowerCase() === key);
+    return (row && String(row[1])) || known.get(key) || String(fallback || '');
+  };
+
   function makeScreen() {
     const box = document.createElement('div');
     box.className = 'screen';
@@ -2921,6 +2930,7 @@
     tile.user = user;
     tile.edge = String(edge);
     tile.asleep = false;
+    tile.retried = false;              // попытка сменить сервер — по одной на запуск
     tile.since = Date.now();           // с этого мига считаем время просмотра
     tile.box.querySelector('b').textContent = user;
     tile.box.querySelector('.empty').hidden = true;
@@ -2942,8 +2952,26 @@
       if (zoom.tile === tile) zoomQuality(tile);
       tile.video.play().catch(() => { /* без звука автозапуск обычно проходит */ });
     });
-    hlsTile.on(Hls.Events.ERROR, (_, err) => {
-      if (err.fatal) logEvent('стена', `${user}: ${err.details}`, 'err');
+    /* Ячейка сама ищет сервер, если сохранённый больше не отвечает. Раньше
+       поиска у неё не было — в отличие от главного плеера, — и комната,
+       переехавшая на другой edge, молчала в ячейке навсегда, хотя в эфире
+       была и превью в правой колонке рисовалось. Сперва спрашиваем каталог:
+       его сборщик обходит сайт раз в минуту и знает верный номер. */
+    hlsTile.on(Hls.Events.ERROR, async (_, err) => {
+      if (!err.fatal) return;
+      logEvent('стена', `${user}: ${err.details}`, 'err');
+      if (tile.user !== user || tile.retried) return;
+
+      const row = (liveList || []).find(
+        item => String(item[0]).toLowerCase() === user.toLowerCase());
+      let fresh = row ? String(row[1]) : '';
+      if (!fresh || fresh === String(edge)) fresh = await findEdge(user);
+      if (!fresh || fresh === String(edge) || tile.user !== user) return;
+
+      logEvent('стена', `${user}: сервер ${edge} молчит, перехожу на ${fresh}`);
+      learn(user, fresh);
+      tilePlay(tile, user, fresh);
+      tile.retried = true;      // ставим ПОСЛЕ: tilePlay сбрасывает признак
     });
   }
 
@@ -3566,7 +3594,7 @@
       // и положение соседей совпадают с тем, что было до перезагрузки.
       plan.forEach((item, k) => {
         if (!item) return;
-        const edge = known.get(item.u.toLowerCase()) || item.e;
+        const edge = bestEdge(item.u, item.e);
         // Плееры поднимаем только у видимого экрана. Прочие ждут показа:
         // тридцать два манифеста разом — это и лишний трафик, и остановка
         // загрузки на полпути, от которой ячейка уже не оживает.
