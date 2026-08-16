@@ -42,31 +42,32 @@
   #scrPanel[hidden] { display: none; }     /* display:flex перебил бы hidden */
   /* Окно прижато к верху: там его и ищут взглядом после нажатия кнопки в
      шапке, да и трансляции внизу остаются видны. */
+  /* Размер задаётся ровно в две с половиной карточки: половина третьей сразу
+     говорит, что список листается вбок, — без неё край выглядит как конец.
+     Подписи и крестика в окне нет: закрывают его та же кнопка, Esc или щелчок
+     мимо, а заголовок над тремя картинками только съедал бы место. */
   #scrWin {
-    display: flex; flex-direction: column; gap: 10px;
-    /* Треть ширины сетки: окно стоит под своей кнопкой в середине шапки и не
-       закрывает собой трансляции по краям. Что не влезло — листается вбок. */
-    width: calc(100% / 3); min-width: 260px; max-width: 100%; max-height: 100%;
-    padding: 12px 14px; background: #14171d;
-    border: 1px solid #39404d; border-radius: 12px;
-    box-shadow: 0 18px 48px rgba(0, 0, 0, .7);
+    --card: 280px;
+    --gap: 12px;
+    display: flex; max-width: 100%; max-height: 100%;
+    padding: 12px; border-radius: 12px;
+    /* Полупрозрачный фон: за окном идут трансляции, и глухая плашка гасила бы
+       их без нужды. Размытие оставляет карточки читаемыми поверх движения. */
+    background: rgba(20, 23, 29, .72);
+    backdrop-filter: blur(3px);
+    border: 1px solid rgba(120, 132, 150, .35);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .55);
   }
-  #scrHead { display: flex; align-items: center; gap: 10px; color: #e6e8ec; font-size: 14px; }
-  #scrHead .gap { flex: 1 1 auto; }
-  #scrHead #scrClose {
-    cursor: pointer; padding: 3px 9px; border-radius: 5px; background: #232833;
-    font-size: 12px; color: #b8c0cc;
-  }
-  #scrHead #scrClose:hover { background: #2f6fd0; color: #fff; }
   /* Экраны идут строкой: их бывает и десяток, а окно не должно расти на всю
      ширину — листаем по горизонтали. */
   #scrBody {
-    display: flex; gap: 12px; align-items: flex-start;
+    display: flex; gap: var(--gap); align-items: flex-start;
+    width: calc(var(--card) * 2.5 + var(--gap) * 2); max-width: 100%;
     overflow-x: auto; overflow-y: hidden; padding-bottom: 6px;
     scrollbar-width: thin; scrollbar-color: #3a4250 transparent;
   }
   .scr {
-    flex: 0 0 280px; border: 1px solid #2a2f3a; border-radius: 10px; overflow: hidden;
+    flex: 0 0 var(--card); border: 1px solid #2a2f3a; border-radius: 10px; overflow: hidden;
     background: #14171d; cursor: pointer;
   }
   .scr:hover { border-color: #2f6fd0; }
@@ -1353,11 +1354,6 @@
 
     <div id="scrPanel" hidden>
       <div id="scrWin">
-        <div id="scrHead">
-          <b>Экраны</b>
-          <span class="gap"></span>
-          <span id="scrClose" title="Закрыть (Esc)">×</span>
-        </div>
         <div id="scrBody"></div>
       </div>
     </div>
@@ -2611,7 +2607,6 @@
   /* «В эфир» — единственный путь обратно к стене: своей кнопки у неё больше
      нет, а уводят от неё запись и файлы из папки. */
   $('scrAll').onclick = () => scrShow($('scrPanel').hidden);
-  $('scrClose').onclick = e => { e.stopPropagation(); scrShow(false); };
   // Щелчок мимо окна — тоже выход: так ведут себя все окна поверх.
   $('scrPanel').onclick = e => { if (e.target === $('scrPanel')) scrShow(false); };
   document.addEventListener('keydown', e => {
