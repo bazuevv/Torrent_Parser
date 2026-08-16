@@ -342,8 +342,21 @@
     gap: 6px; padding: 4px 6px; background: linear-gradient(transparent, rgba(0,0,0,.75));
     font-size: 12px; color: #e6e8ec;
   }
-  .tcap b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  /* Ник и качество — одной группой, чтобы качество стояло вплотную к нику, а
+     не улетало к правому краю: место в подписи забирает именно эта группа. */
+  .tcap .tname { flex: 1 1 auto; min-width: 0; display: flex; align-items: center;
+                 gap: 6px; padding: 0; background: none; cursor: default; }
+  .tcap .tname:hover { background: none; }
+  .tcap b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
             white-space: nowrap; font-weight: 500; }
+  /* Качество идущей дорожки. Пусто, пока плейлист не разобран, — и у
+     остановленной ячейки: там играть нечему. */
+  .tcap .tq {
+    flex: 0 0 auto; padding: 1px 5px; border-radius: 4px;
+    background: rgba(126, 231, 135, .16); color: #8fd69a;
+    font-style: normal; font-size: 11px; font-variant-numeric: tabular-nums;
+  }
+  .tcap .tq:empty { display: none; }
   /* Номер ячейки — по порядку заполнения, тому же, в котором они добавляются.
      У пустых его нет: номер нужен, чтобы следить за трансляцией, а не за
      местом. */
@@ -2981,6 +2994,7 @@
     tile.box.classList.add('offline');
     tile.box.classList.remove('loud');
     tile.box.querySelector('.off').textContent = 'нет';
+    paintQuality(tile);
 
     const shot = tile.box.querySelector('.tshot');
     // Кадр пробуем на своём сервере, а если он уже не отдаёт — на том, что
@@ -3044,6 +3058,7 @@
     tile.box.classList.add('halted');
     tile.box.classList.remove('loud');
     tile.box.querySelector('.off').textContent = 'стоп';
+    paintQuality(tile);           // играть нечему — качества нет
 
     const shot = tile.box.querySelector('.tshot');
     if (shot.blobUrl) { URL.revokeObjectURL(shot.blobUrl); shot.blobUrl = null; }
@@ -3068,6 +3083,7 @@
     tile.video.load();
     tile.user = '';
     tile.box.querySelector('b').textContent = '';
+    tile.box.querySelector('.tq').textContent = '';
     tile.box.querySelector('.empty').hidden = false;
     tile.box.classList.remove('loud', 'busy');   // пустой ячейке панель ни к чему
     saveWall();
@@ -3108,7 +3124,13 @@
       // Комната пришла прямо в развёрнутую ячейку — ей нужно качество покрупнее.
       if (zoom.tile === tile) zoomQuality(tile);
       tile.video.play().catch(() => { /* без звука автозапуск обычно проходит */ });
+      paintQuality(tile);
     });
+    /* Подпись качества снимаем с события смены дорожки, а не ставим один раз:
+       при развороте ячейка переходит на дорожку покрупнее, и подпись обязана
+       это показать. Событие приходит, когда куски новой дорожки уже играют, —
+       то есть надпись не забегает вперёд картинки. */
+    hlsTile.on(Hls.Events.LEVEL_SWITCHED, () => paintQuality(tile));
     /* Ячейка сама ищет сервер, если сохранённый больше не отвечает. Раньше
        поиска у неё не было — в отличие от главного плеера, — и комната,
        переехавшая на другой edge, молчала в ячейке навсегда, хотя в эфире
@@ -3171,6 +3193,24 @@
     return video.buffered.length
       ? video.buffered.end(video.buffered.length - 1) - video.currentTime : 0;
   };
+
+  /* Качество идущей дорожки рядом с ником. Берём именно ту, что играет
+     сейчас, а не выбранную при запуске: currentLevel меняется и сам по себе
+     (разворот поднимает качество), и подпись должна за ним успевать. */
+  function paintQuality(tile) {
+    const badge = tile.box.querySelector('.tq');
+    if (!badge) return;
+    const hls = tile.hls;
+    const lvl = hls && hls.levels && hls.levels[hls.currentLevel];
+    if (!lvl || !lvl.height || tile.halted || tile.goneAt) {
+      badge.textContent = '';
+      badge.title = '';
+      return;
+    }
+    badge.textContent = `${lvl.height}p`;
+    badge.title = `${lvl.width}×${lvl.height}` +
+      (lvl.bitrate ? `, заявлено ${(lvl.bitrate / 1e6).toFixed(2)} Мбит/с` : '');
+  }
 
   function paintBar(tile) {
     const bar = tile.box.querySelector('.tbar');
@@ -3538,7 +3578,8 @@
                     '<span class="offAt"></span></div>' +
                     '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
                     'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
-                    '<div class="tcap"><i class="tnum"></i><b></b>' +
+                    '<div class="tcap"><i class="tnum"></i>' +
+                    '<span class="tname"><b></b><i class="tq"></i></span>' +
                     '<span class="tclose" title="Убрать ячейку">×</span></div>' +
                     '<div class="tbar">' +
                       '<span class="tb tplay" title="Пауза (пробел)">⏸</span>' +
