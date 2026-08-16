@@ -12,6 +12,12 @@
     font: 14px/1.45 system-ui, "Segoe UI", Roboto, sans-serif;
     display: flex; flex-direction: column; overflow: hidden;
   }
+  /* Пока словарь не применён, страница скрыта: в разметке лежат только ключи,
+     и показать «текст.73» вместо надписи хуже, чем показать пустоту на долю
+     секунды. Со словарём в кэше эта доля секунды и не наступает — он читается
+     синхронно, до первой отрисовки. */
+  body.i18n-wait { visibility: hidden; }
+
   header {
     flex: 0 0 auto; position: relative;
     display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
@@ -824,7 +830,7 @@
 
 </style>
 </head>
-<body>
+<body class="i18n-wait">
 
 <header>
 
@@ -833,105 +839,86 @@
        поднимают его при развороте. Из разметки не удаляем — код заполняет этот
        список при разборе плейлиста записи и файла. -->
   <span id="qualityBox" hidden>
-    <label for="quality" title="Дорожка текущего потока; сбрасывается при переключении комнаты" data-i18n-title="подпись.1" data-i18n="меню.3">Качество</label>
+    <label for="quality" data-i18n-title="подпись.1" data-i18n="меню.3"></label>
     <select id="quality"
-            title="Дорожки этого эфира. По умолчанию берётся лучшая в пределах «Максимального битрейта» из настроек" data-i18n-title="подпись.2">
-      <option value="-1" data-i18n="текст.1">авто</option>
+            data-i18n-title="подпись.2">
+      <option value="-1" data-i18n="текст.1"></option>
     </select>
   </span>
 
-  <button id="rec" data-i18n="панель.запись" data-i18n-title="панель.запись.подсказка" data-i18n-title="подпись.3">Запись ждёт потока</button>
-  <button id="fromRec" data-i18n="панель.изЗаписи" data-i18n-title="панель.изЗаписи.подсказка" data-i18n-title="подпись.4">Из записи</button>
-  <button id="lib" data-i18n="панель.видео" data-i18n-title="панель.видео.подсказка" data-i18n-title="подпись.5">Видео</button>
-  <button id="live" data-i18n="панель.вЭфир" data-i18n-title="панель.вЭфир.подсказка" data-i18n-title="подпись.6">В эфир</button>
-  <button id="pip" data-i18n="панель.pip" data-i18n-title="панель.pip.подсказка" data-i18n-title="подпись.7">PiP</button>
+  <button id="rec" data-i18n="панель.запись" data-i18n-title="панель.запись.подсказка"></button>
+  <button id="fromRec" data-i18n="панель.изЗаписи" data-i18n-title="панель.изЗаписи.подсказка"></button>
+  <button id="lib" data-i18n="панель.видео" data-i18n-title="панель.видео.подсказка"></button>
+  <button id="live" data-i18n="панель.вЭфир" data-i18n-title="панель.вЭфир.подсказка"></button>
+  <button id="pip" data-i18n="панель.pip" data-i18n-title="панель.pip.подсказка"></button>
 
   <div id="pipMenu" hidden>
-    <div data-pip="native"><span data-i18n="pip.обычное">Стандартное</span>
-      <small data-i18n="pip.обычное.описание">рисует браузер: только видео, наших кнопок нет</small></div>
-    <div data-pip="doc"><span data-i18n="pip.сПанелью">С панелью</span>
-      <small data-i18n="pip.сПанелью.описание">стрелки комнат и автопереключение; рамка и адрес</small></div>
+    <div data-pip="native"><span data-i18n="pip.обычное"></span>
+      <small data-i18n="pip.обычное.описание"></small></div>
+    <div data-pip="doc"><span data-i18n="pip.сПанелью"></span>
+      <small data-i18n="pip.сПанелью.описание"></small></div>
   </div>
   <!-- Значок «окна внахлёст». Следом U+FE0E — селектор текстового начертания:
        без него часть шрифтов рисует символ цветным эмодзи, и он выбивается
        из одноцветной панели. -->
   <button id="scrAll" data-i18n-aria="панель.экраны"
-          data-i18n-title="панель.экраны.подсказка" data-i18n-title="подпись.8">&#x1F5D7;&#xFE0E;</button>
+          data-i18n-title="панель.экраны.подсказка">&#x1F5D7;&#xFE0E;</button>
 
   <div id="settings" hidden>
-    <button id="settingsClose" data-i18n-title="настройки.закрыть" data-i18n-title="подпись.9">×</button>
-    <h3 data-i18n="настройки.заголовок">Настройки</h3>
+    <button id="settingsClose" data-i18n-title="настройки.закрыть">×</button>
+    <h3 data-i18n="настройки.заголовок"></h3>
 
     <details class="sect" open data-sect="base">
-      <summary data-i18n="настройки.раздел.base">База ников</summary>
+      <summary data-i18n="настройки.раздел.base"></summary>
     <div class="row">
-      <label data-i18n="настройки.подпись1">Пополнение</label>
-      <button id="accounts"  data-i18n="настройки.accounts.кнопка" data-i18n-title="настройки.accounts.кнопка.подсказка" data-i18n-title="подпись.10">Обновить аккаунты</button>
+      <label data-i18n="настройки.подпись1"></label>
+      <button id="accounts"  data-i18n="настройки.accounts.кнопка" data-i18n-title="настройки.accounts.кнопка.подсказка"></button>
       <i class="tip" data-hint="accounts" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.accounts.пояснение" hidden>База ников общая для всех браузеров — она живёт на
-      сервере, а не в памяти страницы. Пополняет её закладка-сборщик,
-      запускаемая на самом сайте: оттуда доступен каталог, закрытый для нас
-      защитой Cloudflare.</p>
+    <p class="hint" data-i18n="настройки.accounts.пояснение" hidden></p>
     </details>
 
     <details class="sect" open data-sect="view">
-      <summary data-i18n="настройки.раздел.view">Просмотр</summary>
+      <summary data-i18n="настройки.раздел.view"></summary>
 
     <div class="row">
-      <label for="lang" data-i18n="настройки.lang.подпись">Язык интерфейса</label>
+      <label for="lang" data-i18n="настройки.lang.подпись"></label>
       <select id="lang">
-        <option value="auto" data-i18n="настройки.lang.вариант.auto">как в браузере</option>
-        <option value="ru" data-i18n="настройки.lang.вариант.ru">Русский</option>
+        <option value="auto" data-i18n="настройки.lang.вариант.auto"></option>
+        <option value="ru" data-i18n="настройки.lang.вариант.ru"></option>
       </select>
       <i class="tip" data-hint="lang" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.lang.пояснение" hidden>«Как в браузере» берёт язык из его настроек, если для
-      него есть словарь, иначе оставляет русский. Выбранный руками язык сильнее:
-      смена системной локали его не перебьёт. Список пополняется сам — словари
-      лежат файлами в папке lang рядом с сервером, добавление языка не требует
-      правок ни в странице, ни в сервере.</p>
+    <p class="hint" data-i18n="настройки.lang.пояснение" hidden></p>
 
     <div class="row">
-      <label for="maxRate" data-i18n="настройки.maxRate.подпись">Максимальный битрейт</label>
+      <label for="maxRate" data-i18n="настройки.maxRate.подпись"></label>
       <select id="maxRate">
-        <option value="1000" data-i18n="настройки.maxRate.вариант.1000">1 Мбит/с</option>
-        <option value="2000" data-i18n="настройки.maxRate.вариант.2000">2 Мбит/с</option>
-        <option value="3000" data-i18n="настройки.maxRate.вариант.3000">3 Мбит/с</option>
-        <option value="5000" data-i18n="настройки.maxRate.вариант.5000">5 Мбит/с</option>
-        <option value="8000" data-i18n="настройки.maxRate.вариант.8000">8 Мбит/с</option>
-        <option value="10000" data-i18n="настройки.maxRate.вариант.10000">10 Мбит/с</option>
-        <option value="0" data-i18n="настройки.maxRate.вариант.0">без ограничения</option>
+        <option value="1000" data-i18n="настройки.maxRate.вариант.1000"></option>
+        <option value="2000" data-i18n="настройки.maxRate.вариант.2000"></option>
+        <option value="3000" data-i18n="настройки.maxRate.вариант.3000"></option>
+        <option value="5000" data-i18n="настройки.maxRate.вариант.5000"></option>
+        <option value="8000" data-i18n="настройки.maxRate.вариант.8000"></option>
+        <option value="10000" data-i18n="настройки.maxRate.вариант.10000"></option>
+        <option value="0" data-i18n="настройки.maxRate.вариант.0"></option>
       </select>
       <i class="tip" data-hint="maxRate" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.maxRate.пояснение" hidden>Отсекает слишком тяжёлые дорожки: из уложившихся
-      берётся самое крупное разрешение. Сравнивать дорожки по битрейту нельзя
-      — верхняя приходит от модели как есть, а нижние CDN пережимает на лету
-      и часто вдвое расточительнее. Встречается и прямая ложь: дорожка
-      объявляет 3.4 Мбит/с, а отдаёт 2.1. Битрейт каждой дорожки виден в
-      списке «Качество».
-      Режим «авто» тоже подчиняется этому потолку и опирается на измеренные
-      значения, а не на заявленные. Если под потолок не проходит ни одна
-      дорожка, играет самая лёгкая: показать что-то лучше, чем ничего.</p>
+    <p class="hint" data-i18n="настройки.maxRate.пояснение" hidden></p>
 
     <div class="row">
-      <label for="libDir" data-i18n="настройки.libDir.подпись">Папка видео</label>
-      <input id="libDir" spellcheck="false" placeholder="не задана" data-i18n-ph="подпись.11" readonly>
+      <label for="libDir" data-i18n="настройки.libDir.подпись"></label>
+      <input id="libDir" spellcheck="false" data-i18n-ph="подпись.11" readonly>
       <i class="tip" data-hint="libDir" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.libDir.пояснение" hidden>Откуда кнопка «Видео» берёт файлы. Годится любая
-      папка внутри /mnt/DATA, /mnt/Projects и /home/vladimir — за их пределы
-      сервер не пустит, он виден всей локальной сети. Права на запись здесь не
-      нужны, в отличие от папки записей: сюда мы только читаем. Подпапки не
-      обходятся.</p>
+    <p class="hint" data-i18n="настройки.libDir.пояснение" hidden></p>
 
 
     <div class="row">
-      <label for="wallCols" data-i18n="настройки.wallCols.подпись">Столбцов в стене</label>
+      <label for="wallCols" data-i18n="настройки.wallCols.подпись"></label>
       <select id="wallCols">
-        <option value="0" data-i18n="настройки.wallCols.вариант.0">авто</option>
-        <option value="1" data-i18n="настройки.wallCols.вариант.1">1 (в столбик)</option>
+        <option value="0" data-i18n="настройки.wallCols.вариант.0"></option>
+        <option value="1" data-i18n="настройки.wallCols.вариант.1"></option>
         <option value="2">2</option>
         <option value="3">3</option>
         <option value="4">4</option>
@@ -939,16 +926,10 @@
       </select>
       <i class="tip" data-hint="wallCols" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.wallCols.пояснение" hidden>Во сколько столбцов раскладывать ячейки; строк
-      получится столько, сколько понадобится. «Авто» перебирает все раскладки
-      и берёт ту, где кадр выходит крупнее при нынешней форме окна: на широком
-      экране две трансляции встанут рядом, а не одна под другой, — так каждая
-      получается почти вдвое больше. Явное число нужно, когда важен порядок:
-      «1» ставит ячейки строго в столбик, «2» при восьми ячейках даёт высокую
-      сетку 2×4, «4» — широкую 4×2.</p>
+    <p class="hint" data-i18n="настройки.wallCols.пояснение" hidden></p>
 
     <div class="row">
-      <label for="wallQ" data-i18n="настройки.wallQ.подпись">Качество в стене</label>
+      <label for="wallQ" data-i18n="настройки.wallQ.подпись"></label>
       <select id="wallQ">
         <option value="240">240p</option>
         <option value="480">480p</option>
@@ -956,318 +937,254 @@
       </select>
       <i class="tip" data-hint="wallQ" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.wallQ.пояснение" hidden>Потолок высоты дорожки в ячейках. Берётся самая
-      крупная не выше этого значения. На четверти экрана разницы между 480p и
-      1080p практически не видно, а декодирование 1080p обходится вчетверо
-      дороже: замер дал 9× реального времени на ядро для 480p против примерно
-      2× для 1080p.</p>
+    <p class="hint" data-i18n="настройки.wallQ.пояснение" hidden></p>
 
     <div class="row">
-      <label for="warm" data-i18n="настройки.warm.подпись">Разгон канала</label>
+      <label for="warm" data-i18n="настройки.warm.подпись"></label>
       <select id="warm">
-        <option value="0" data-i18n="настройки.warm.вариант.0">не ждать</option>
-        <option value="1" data-i18n="настройки.warm.вариант.1">1 с</option>
-        <option value="3" data-i18n="настройки.warm.вариант.3">3 с</option>
-        <option value="5" data-i18n="настройки.warm.вариант.5">5 с</option>
-        <option value="10" data-i18n="настройки.warm.вариант.10">10 с</option>
+        <option value="0" data-i18n="настройки.warm.вариант.0"></option>
+        <option value="1" data-i18n="настройки.warm.вариант.1"></option>
+        <option value="3" data-i18n="настройки.warm.вариант.3"></option>
+        <option value="5" data-i18n="настройки.warm.вариант.5"></option>
+        <option value="10" data-i18n="настройки.warm.вариант.10"></option>
       </select>
       <i class="tip" data-hint="warm" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.warm.пояснение" hidden>Сколько секунд после запуска держать выбранное
-      качество, не слушая оценку канала. Свежее соединение разгоняется не
-      сразу: замер на десяти серверах показал, что первый кусок занижает
-      возможности вчетверо — 2.5 против 9.8 Мбит/с, — а до 80% от предела
-      соединение доходит за 4.2 секунды по медиане и за 8.3 в худшем случае.
-      Пять секунд по умолчанию закрывают половину случаев; если качество
-      всё же срывается на старте, стоит поднять до десяти. Ноль вернёт
-      прежнее поведение, когда подбор верит оценке с первой же секунды и
-      роняет качество на ровном месте.</p>
+    <p class="hint" data-i18n="настройки.warm.пояснение" hidden></p>
 
     <div class="row">
-      <label for="buffer" data-i18n="настройки.buffer.подпись">Буфер памяти</label>
+      <label for="buffer" data-i18n="настройки.buffer.подпись"></label>
       <select id="buffer">
-        <option value="60" data-i18n="настройки.buffer.вариант.60">1 мин</option>
-        <option value="300" data-i18n="настройки.buffer.вариант.300">5 мин</option>
-        <option value="900" data-i18n="настройки.buffer.вариант.900">15 мин</option>
-        <option value="1800" data-i18n="настройки.buffer.вариант.1800">30 мин</option>
-        <option value="3600" data-i18n="настройки.buffer.вариант.3600">60 мин</option>
+        <option value="60" data-i18n="настройки.buffer.вариант.60"></option>
+        <option value="300" data-i18n="настройки.buffer.вариант.300"></option>
+        <option value="900" data-i18n="настройки.buffer.вариант.900"></option>
+        <option value="1800" data-i18n="настройки.buffer.вариант.1800"></option>
+        <option value="3600" data-i18n="настройки.buffer.вариант.3600"></option>
       </select>
       <i class="tip" data-hint="buffer" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.buffer.пояснение" hidden>Глубина мгновенной перемотки. При записи на диск —
-      быстрый кэш поверх файла, без записи — вся доступная глубина. Час 720p ≈
-      1 ГБ памяти.</p>
+    <p class="hint" data-i18n="настройки.buffer.пояснение" hidden></p>
 
     <div class="row">
-      <label data-i18n="настройки.подпись2">Панели</label>
+      <label data-i18n="настройки.подпись2"></label>
       <span>
-        <label class="check"><input type="checkbox" id="panelLeft"><span data-i18n="настройки.panelLeft.рядом">история</span></label>
-        <label class="check"><input type="checkbox" id="panelRight"><span data-i18n="настройки.panelRight.рядом">эфир</span></label>
+        <label class="check"><input type="checkbox" id="panelLeft"><span data-i18n="настройки.panelLeft.рядом"></span></label>
+        <label class="check"><input type="checkbox" id="panelRight"><span data-i18n="настройки.panelRight.рядом"></span></label>
       </span>
       <i class="tip" data-hint="panelLeft" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.panelRight.пояснение" hidden>То же самое делают синие ручки по краям видео.</p>
+    <p class="hint" data-i18n="настройки.panelRight.пояснение" hidden></p>
 
     <div class="row">
-      <label data-i18n="настройки.подпись3">Связь</label>
-      <button id="net"  data-i18n="настройки.net.кнопка" data-i18n-title="настройки.net.кнопка.подсказка" data-i18n-title="подпись.12">📡 Проверить</button>
+      <label data-i18n="настройки.подпись3"></label>
+      <button id="net"  data-i18n="настройки.net.кнопка" data-i18n-title="настройки.net.кнопка.подсказка"></button>
       <i class="tip" data-hint="net" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.net.пояснение" hidden>Пингует по очереди роутер, нейтральные узлы и
-      серверы вещания и показывает задержку с потерями по каждому. Нужна,
-      когда картинка сыплется: сразу видно, канал ли виноват и на каком
-      участке.</p>
+    <p class="hint" data-i18n="настройки.net.пояснение" hidden></p>
 
     <div class="row">
-      <label for="msgs" data-i18n="настройки.msgs.подпись">Сообщения о событиях</label>
-      <label class="check"><input type="checkbox" id="msgs"><span data-i18n="настройки.msgs.рядом">показывать в верхней панели</span></label>
+      <label for="msgs" data-i18n="настройки.msgs.подпись"></label>
+      <label class="check"><input type="checkbox" id="msgs"><span data-i18n="настройки.msgs.рядом"></span></label>
       <i class="tip" data-hint="msgs" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.msgs.пояснение" hidden>Строка справа в верхней панели: кто ушёл из эфира,
-      что скопировано, сколько трансляций остановлено. Выключите, если она
-      отвлекает. Ошибки показываются в любом случае — молчащая панель при
-      поломке хуже лишней надписи.</p>
+    <p class="hint" data-i18n="настройки.msgs.пояснение" hidden></p>
 
     </details>
 
     <details class="sect" open data-sect="rec">
-      <summary data-i18n="настройки.раздел.rec">Запись</summary>
+      <summary data-i18n="настройки.раздел.rec"></summary>
     <div class="row">
-      <label for="recRate" data-i18n="настройки.recRate.подпись">Максимальный битрейт записи</label>
+      <label for="recRate" data-i18n="настройки.recRate.подпись"></label>
       <select id="recRate">
-        <option value="1000" data-i18n="настройки.recRate.вариант.1000">1 Мбит/с</option>
-        <option value="2000" data-i18n="настройки.recRate.вариант.2000">2 Мбит/с</option>
-        <option value="3000" data-i18n="настройки.recRate.вариант.3000">3 Мбит/с</option>
-        <option value="5000" data-i18n="настройки.recRate.вариант.5000">5 Мбит/с</option>
-        <option value="8000" data-i18n="настройки.recRate.вариант.8000">8 Мбит/с</option>
-        <option value="10000" data-i18n="настройки.recRate.вариант.10000">10 Мбит/с</option>
-        <option value="0" data-i18n="настройки.recRate.вариант.0">как при просмотре</option>
+        <option value="1000" data-i18n="настройки.recRate.вариант.1000"></option>
+        <option value="2000" data-i18n="настройки.recRate.вариант.2000"></option>
+        <option value="3000" data-i18n="настройки.recRate.вариант.3000"></option>
+        <option value="5000" data-i18n="настройки.recRate.вариант.5000"></option>
+        <option value="8000" data-i18n="настройки.recRate.вариант.8000"></option>
+        <option value="10000" data-i18n="настройки.recRate.вариант.10000"></option>
+        <option value="0" data-i18n="настройки.recRate.вариант.0"></option>
       </select>
       <i class="tip" data-hint="recRate" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.recRate.пояснение" hidden>Если поток тяжелее — сервер пережимает его до этого
-      битрейта на видеокарте, разрешение при этом сохраняется. «Как при
-      просмотре» пишет поток как есть, без перекодирования.</p>
+    <p class="hint" data-i18n="настройки.recRate.пояснение" hidden></p>
 
     <div class="row">
-      <label for="recMode" data-i18n="настройки.recMode.подпись">Режим записи</label>
+      <label for="recMode" data-i18n="настройки.recMode.подпись"></label>
       <select id="recMode">
-        <option value="1" data-i18n="настройки.recMode.вариант.1">авто</option>
-        <option value="0" data-i18n="настройки.recMode.вариант.0">вручную</option>
+        <option value="1" data-i18n="настройки.recMode.вариант.1"></option>
+        <option value="0" data-i18n="настройки.recMode.вариант.0"></option>
       </select>
       <i class="tip" data-hint="recMode" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.recMode.пояснение" hidden>В авто пишется каждая открытая трансляция — это и
-      есть буфер перемотки. Вручную запись начинается только по кнопке в
-      верхней панели.</p>
+    <p class="hint" data-i18n="настройки.recMode.пояснение" hidden></p>
 
     <div class="row">
-      <label for="recDir" data-i18n="настройки.recDir.подпись">Папка записей</label>
+      <label for="recDir" data-i18n="настройки.recDir.подпись"></label>
       <input id="recDir" spellcheck="false" placeholder="/mnt/DATA/Bonga_rec">
       <i class="tip" data-hint="recDir" tabindex="0" role="button" aria-expanded="false" id="recDirHint" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.recDir.пояснение" hidden>Куда сервер кладёт файлы. Допустимы пути внутри
-      /mnt/DATA, /mnt/Projects и /home/vladimir — остальные systemd закроет на
-      запись. Прежние записи остаются там, где лежали.</p>
+    <p class="hint" data-i18n="настройки.recDir.пояснение" hidden></p>
 
     <div class="row">
-      <label for="segment" data-i18n="настройки.segment.подпись">Длина сегмента</label>
+      <label for="segment" data-i18n="настройки.segment.подпись"></label>
       <select id="segment">
-        <option value="10" data-i18n="настройки.segment.вариант.10">10 с</option>
-        <option value="30" data-i18n="настройки.segment.вариант.30">30 с</option>
-        <option value="60" data-i18n="настройки.segment.вариант.60">60 с</option>
-        <option value="300" data-i18n="настройки.segment.вариант.300">5 мин</option>
+        <option value="10" data-i18n="настройки.segment.вариант.10"></option>
+        <option value="30" data-i18n="настройки.segment.вариант.30"></option>
+        <option value="60" data-i18n="настройки.segment.вариант.60"></option>
+        <option value="300" data-i18n="настройки.segment.вариант.300"></option>
       </select>
       <i class="tip" data-hint="segment" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.segment.пояснение" hidden>Куски, на которые ffmpeg режет запись; по её
-      окончании они склеиваются в один mp4. Короткие — больше файлов, зато
-      свежее точка перехода по кнопке «Из записи».</p>
+    <p class="hint" data-i18n="настройки.segment.пояснение" hidden></p>
 
     <div class="row">
-      <label for="keepMin" data-i18n="настройки.keepMin.подпись">Спрашивать о сохранении</label>
+      <label for="keepMin" data-i18n="настройки.keepMin.подпись"></label>
       <select id="keepMin">
-        <option value="0" data-i18n="настройки.keepMin.вариант.0">всегда</option>
-        <option value="60" data-i18n="настройки.keepMin.вариант.60">если длиннее минуты</option>
-        <option value="300" data-i18n="настройки.keepMin.вариант.300">если длиннее 5 минут</option>
-        <option value="86400" data-i18n="настройки.keepMin.вариант.86400">никогда, удалять</option>
+        <option value="0" data-i18n="настройки.keepMin.вариант.0"></option>
+        <option value="60" data-i18n="настройки.keepMin.вариант.60"></option>
+        <option value="300" data-i18n="настройки.keepMin.вариант.300"></option>
+        <option value="86400" data-i18n="настройки.keepMin.вариант.86400"></option>
       </select>
       <i class="tip" data-hint="keepMin" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.keepMin.пояснение" hidden>Запись включена всегда — она даёт перемотку глубже
-      оперативной памяти. При переходе в другую комнату плеер спросит,
-      оставить файл или стереть; короткие записи стираются молча, они были
-      нужны лишь как буфер.</p>
+    <p class="hint" data-i18n="настройки.keepMin.пояснение" hidden></p>
 
     </details>
 
     <details class="sect" open data-sect="hist">
-      <summary data-i18n="настройки.раздел.hist">История</summary>
+      <summary data-i18n="настройки.раздел.hist"></summary>
     <div class="row">
-      <label for="deep" data-i18n="настройки.deep.подпись">Искать переехавших</label>
+      <label for="deep" data-i18n="настройки.deep.подпись"></label>
       <select id="deep">
-        <option value="0" data-i18n="настройки.deep.вариант.0">вручную</option>
-        <option value="5" data-i18n="настройки.deep.вариант.5">каждые 5 мин</option>
-        <option value="15" data-i18n="настройки.deep.вариант.15">каждые 15 мин</option>
-        <option value="60" data-i18n="настройки.deep.вариант.60">раз в час</option>
+        <option value="0" data-i18n="настройки.deep.вариант.0"></option>
+        <option value="5" data-i18n="настройки.deep.вариант.5"></option>
+        <option value="15" data-i18n="настройки.deep.вариант.15"></option>
+        <option value="60" data-i18n="настройки.deep.вариант.60"></option>
       </select>
       <i class="tip" data-hint="deep" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.deep.пояснение" hidden>Серые ники в истории обходятся по всем серверам
-      вещания сразу: модель могла не уйти, а переехать на другой сервер —
-      тогда обычная проверка считает её ушедшей. Обход тяжёлый, поэтому идёт
-      по расписанию; кнопка ↻ над историей запускает его немедленно.</p>
+    <p class="hint" data-i18n="настройки.deep.пояснение" hidden></p>
     <div class="row">
-      <label for="deepBatch" data-i18n="настройки.deepBatch.подпись">Ников за заход</label>
+      <label for="deepBatch" data-i18n="настройки.deepBatch.подпись"></label>
       <select id="deepBatch">
         <option value="6">6</option>
         <option value="12">12</option>
         <option value="25">25</option>
-        <option value="0" data-i18n="настройки.deepBatch.вариант.0">все серые</option>
+        <option value="0" data-i18n="настройки.deepBatch.вариант.0"></option>
       </select>
       <i class="tip" data-hint="deepBatch" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.deepBatch.пояснение" hidden>Ники истории, не ответившие на своём сервере,
-      перебираются по всем 105 серверам: модель могла переехать. Один такой
-      ник стоит до 105 запросов и около 10 секунд, поэтому за заход берётся
-      порция, начиная с тех, кого дольше не проверяли — за пару циклов очередь
-      обходит всех. Кнопка ↻ в истории запускает проверку немедленно.</p>
+    <p class="hint" data-i18n="настройки.deepBatch.пояснение" hidden></p>
 
     </details>
 
     <details class="sect" open data-sect="upd">
-      <summary data-i18n="настройки.раздел.upd">Как часто обновлять</summary>
+      <summary data-i18n="настройки.раздел.upd"></summary>
     <div class="row">
-      <label for="catalog" data-i18n="настройки.catalog.подпись">Каталог сайта</label>
+      <label for="catalog" data-i18n="настройки.catalog.подпись"></label>
       <select id="catalog">
-        <option value="0" data-i18n="настройки.catalog.вариант.0">не опрашивать</option>
-        <option value="30" data-i18n="настройки.catalog.вариант.30">30 с</option>
-        <option value="60" data-i18n="настройки.catalog.вариант.60">1 мин</option>
-        <option value="180" data-i18n="настройки.catalog.вариант.180">3 мин</option>
-        <option value="600" data-i18n="настройки.catalog.вариант.600">10 мин</option>
+        <option value="0" data-i18n="настройки.catalog.вариант.0"></option>
+        <option value="30" data-i18n="настройки.catalog.вариант.30"></option>
+        <option value="60" data-i18n="настройки.catalog.вариант.60"></option>
+        <option value="180" data-i18n="настройки.catalog.вариант.180"></option>
+        <option value="600" data-i18n="настройки.catalog.вариант.600"></option>
       </select>
       <i class="tip" data-hint="catalog" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.catalog.пояснение" hidden>Сервер сам опрашивает список эфира на сайте — это
-      главный источник правой колонки: около 1200 комнат с верными номерами
-      серверов. Собственный обход плеера находит куда меньше, потому что знает
-      лишь прежние серверы, а модели между ними переезжают. Чаще, чем раз в
-      полминуты, спрашивать не стоит: сайт отвечает отказом на частые серии
-      запросов.</p>
+    <p class="hint" data-i18n="настройки.catalog.пояснение" hidden></p>
 
     <div class="row">
-      <label for="ladder" data-i18n="настройки.ladder.подпись">Битрейты дорожек</label>
+      <label for="ladder" data-i18n="настройки.ladder.подпись"></label>
       <select id="ladder">
-        <option value="0" data-i18n="настройки.ladder.вариант.0">не мерить</option>
-        <option value="43200" data-i18n="настройки.ladder.вариант.43200">12 часов</option>
-        <option value="86400" data-i18n="настройки.ladder.вариант.86400">1 день</option>
-        <option value="259200" data-i18n="настройки.ladder.вариант.259200">3 дня</option>
-        <option value="604800" data-i18n="настройки.ladder.вариант.604800">1 неделя</option>
+        <option value="0" data-i18n="настройки.ladder.вариант.0"></option>
+        <option value="43200" data-i18n="настройки.ladder.вариант.43200"></option>
+        <option value="86400" data-i18n="настройки.ladder.вариант.86400"></option>
+        <option value="259200" data-i18n="настройки.ladder.вариант.259200"></option>
+        <option value="604800" data-i18n="настройки.ladder.вариант.604800"></option>
       </select>
       <i class="tip" data-hint="ladder" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.ladder.пояснение" hidden>Сервер заранее взвешивает дорожки комнат из истории
-      и хранит результат, чтобы плеер выбирал качество по настоящим числам с
-      первой же секунды. Без этого первые пару секунд решения принимаются по
-      заявленным в манифесте, где у 720p бывает 3.4 Мбит/с при настоящих 0.65
-      — и подбор успевает уронить качество, особенно на первой комнате после
-      перезагрузки страницы. Значение задаёт срок годности замера; проверка
-      идёт раз в минуту, поэтому новая комната в истории меряется сразу.</p>
+    <p class="hint" data-i18n="настройки.ladder.пояснение" hidden></p>
 
     <div class="row">
-      <label for="act" data-i18n="настройки.act.подпись">Активность комнат</label>
+      <label for="act" data-i18n="настройки.act.подпись"></label>
       <select id="act">
-        <option value="0" data-i18n="настройки.act.вариант.0">не мерить</option>
-        <option value="10" data-i18n="настройки.act.вариант.10">10 с</option>
-        <option value="15" data-i18n="настройки.act.вариант.15">15 с</option>
-        <option value="30" data-i18n="настройки.act.вариант.30">30 с</option>
-        <option value="60" data-i18n="настройки.act.вариант.60">1 мин</option>
+        <option value="0" data-i18n="настройки.act.вариант.0"></option>
+        <option value="10" data-i18n="настройки.act.вариант.10"></option>
+        <option value="15" data-i18n="настройки.act.вариант.15"></option>
+        <option value="30" data-i18n="настройки.act.вариант.30"></option>
+        <option value="60" data-i18n="настройки.act.вариант.60"></option>
       </select>
       <i class="tip" data-hint="act" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.act.пояснение" hidden>Сервер взвешивает куски нижней дорожки у комнат из
-      истории и по разбросу судит о подвижности сцены — столбики слева от
-      времени. Считается от собственной нормы комнаты, потому что разрешение и
-      энкодер у всех разные. Первая оценка появляется примерно через две
-      минуты: нужно накопить хотя бы дюжину кусков. Опрос идёт только по тем,
-      кто сейчас в эфире; видео при этом не качается, спрашивается лишь размер
-      куска.</p>
+    <p class="hint" data-i18n="настройки.act.пояснение" hidden></p>
 
     <div class="row">
-      <label for="thumbs" data-i18n="настройки.thumbs.подпись">Превью справа</label>
+      <label for="thumbs" data-i18n="настройки.thumbs.подпись"></label>
       <select id="thumbs">
-        <option value="0" data-i18n="настройки.thumbs.вариант.0">не обновлять</option>
-        <option value="5" data-i18n="настройки.thumbs.вариант.5">5 с</option>
-        <option value="10" data-i18n="настройки.thumbs.вариант.10">10 с</option>
-        <option value="30" data-i18n="настройки.thumbs.вариант.30">30 с</option>
+        <option value="0" data-i18n="настройки.thumbs.вариант.0"></option>
+        <option value="5" data-i18n="настройки.thumbs.вариант.5"></option>
+        <option value="10" data-i18n="настройки.thumbs.вариант.10"></option>
+        <option value="30" data-i18n="настройки.thumbs.вариант.30"></option>
       </select>
       <i class="tip" data-hint="thumbs" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.thumbs.пояснение" hidden>Сам CDN перерисовывает кадры примерно раз в 10
-      секунд.</p>
+    <p class="hint" data-i18n="настройки.thumbs.пояснение" hidden></p>
 
     <div class="row">
-      <label for="hist" data-i18n="настройки.hist.подпись">Статус в истории</label>
+      <label for="hist" data-i18n="настройки.hist.подпись"></label>
       <select id="hist">
-        <option value="0" data-i18n="настройки.hist.вариант.0">не проверять</option>
-        <option value="30" data-i18n="настройки.hist.вариант.30">30 с</option>
-        <option value="60" data-i18n="настройки.hist.вариант.60">1 мин</option>
-        <option value="300" data-i18n="настройки.hist.вариант.300">5 мин</option>
+        <option value="0" data-i18n="настройки.hist.вариант.0"></option>
+        <option value="30" data-i18n="настройки.hist.вариант.30"></option>
+        <option value="60" data-i18n="настройки.hist.вариант.60"></option>
+        <option value="300" data-i18n="настройки.hist.вариант.300"></option>
       </select>
       <i class="tip" data-hint="hist" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.hist.пояснение" hidden>Как часто левая колонка перепроверяет, идёт ли эфир
-      у просмотренных ранее ников. Спрашивается только их последний известный
-      сервер — это быстро; поиск по всем серверам вынесен в «Искать
-      переехавших».</p>
+    <p class="hint" data-i18n="настройки.hist.пояснение" hidden></p>
 
     <div class="row">
-      <label for="pull" data-i18n="настройки.pull.подпись">Перечитывать базу</label>
+      <label for="pull" data-i18n="настройки.pull.подпись"></label>
       <select id="pull">
-        <option value="30" data-i18n="настройки.pull.вариант.30">30 с</option>
-        <option value="60" data-i18n="настройки.pull.вариант.60">1 мин</option>
-        <option value="300" data-i18n="настройки.pull.вариант.300">5 мин</option>
-        <option value="900" data-i18n="настройки.pull.вариант.900">15 мин</option>
+        <option value="30" data-i18n="настройки.pull.вариант.30"></option>
+        <option value="60" data-i18n="настройки.pull.вариант.60"></option>
+        <option value="300" data-i18n="настройки.pull.вариант.300"></option>
+        <option value="900" data-i18n="настройки.pull.вариант.900"></option>
       </select>
       <i class="tip" data-hint="pull" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.pull.пояснение" hidden>Как часто страница забирает с сервера общую базу
-      ников. Пока закладка-сборщик работает в соседней вкладке, база
-      пополняется каждую минуту, и открытые плееры подхватывают новые номера
-      серверов отсюда.</p>
+    <p class="hint" data-i18n="настройки.pull.пояснение" hidden></p>
 
     </details>
 
     <details class="sect" open data-sect="sweep">
-      <summary data-i18n="настройки.раздел.sweep">Проверка эфира</summary>
+      <summary data-i18n="настройки.раздел.sweep"></summary>
     <div class="row">
-      <label for="ttl" data-i18n="настройки.ttl.подпись">Результат годен</label>
+      <label for="ttl" data-i18n="настройки.ttl.подпись"></label>
       <select id="ttl">
-        <option value="15" data-i18n="настройки.ttl.вариант.15">15 мин</option>
-        <option value="60" data-i18n="настройки.ttl.вариант.60">1 час</option>
-        <option value="360" data-i18n="настройки.ttl.вариант.360">6 часов</option>
-        <option value="1440" data-i18n="настройки.ttl.вариант.1440">сутки</option>
+        <option value="15" data-i18n="настройки.ttl.вариант.15"></option>
+        <option value="60" data-i18n="настройки.ttl.вариант.60"></option>
+        <option value="360" data-i18n="настройки.ttl.вариант.360"></option>
+        <option value="1440" data-i18n="настройки.ttl.вариант.1440"></option>
       </select>
       <i class="tip" data-hint="ttl" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.ttl.пояснение" hidden>Пока результат свежий, при загрузке страницы список
-      берётся с сервера без обхода.</p>
+    <p class="hint" data-i18n="настройки.ttl.пояснение" hidden></p>
 
     <div class="row">
-      <label for="gap" data-i18n="настройки.gap.подпись">Пауза между обходами</label>
+      <label for="gap" data-i18n="настройки.gap.подпись"></label>
       <select id="gap">
-        <option value="0" data-i18n="настройки.gap.вариант.0">без паузы</option>
-        <option value="5" data-i18n="настройки.gap.вариант.5">5 мин</option>
-        <option value="10" data-i18n="настройки.gap.вариант.10">10 мин</option>
-        <option value="30" data-i18n="настройки.gap.вариант.30">30 мин</option>
+        <option value="0" data-i18n="настройки.gap.вариант.0"></option>
+        <option value="5" data-i18n="настройки.gap.вариант.5"></option>
+        <option value="10" data-i18n="настройки.gap.вариант.10"></option>
+        <option value="30" data-i18n="настройки.gap.вариант.30"></option>
       </select>
       <i class="tip" data-hint="gap" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.gap.пояснение" hidden>Насколько часто плеер может сам запускать полный
-      обход. Кнопка ↻ паузу игнорирует.</p>
+    <p class="hint" data-i18n="настройки.gap.пояснение" hidden></p>
 
     <div class="row">
-      <label for="pool" data-i18n="настройки.pool.подпись">Запросов разом</label>
+      <label for="pool" data-i18n="настройки.pool.подпись"></label>
       <select id="pool">
         <option value="12">12</option>
         <option value="24">24</option>
@@ -1276,111 +1193,106 @@
       </select>
       <i class="tip" data-hint="pool" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" data-i18n="настройки.pool.пояснение" hidden>Больше — быстрее обход, но выше нагрузка на сеть.
-      Сейчас в базе несколько тысяч ников.</p>
+    <p class="hint" data-i18n="настройки.pool.пояснение" hidden></p>
 
     </details>
 
   </div>
 
-  <div id="status" data-i18n="статус.начало">Стена поднимается сама. Комнату можно взять из правой колонки.</div>
+  <div id="status" data-i18n="статус.начало"></div>
   <!-- Настройки последними: правый угол, подальше от кнопок, которые жмут
        постоянно. Отступом этого не добиться — строка статуса растягивается
        и всё равно встала бы правее. -->
-  <button id="gear" data-i18n-title="панель.настройки" data-i18n-title="подпись.13">⚙</button>
+  <button id="gear" data-i18n-title="панель.настройки">⚙</button>
 
   <div id="statusDetails" hidden>
     <pre id="statusText"></pre>
     <div class="dlg-btns">
-      <button id="statusCopy" data-i18n="настройки.statusCopy.кнопка">Копировать</button>
+      <button id="statusCopy" data-i18n="настройки.statusCopy.кнопка"></button>
     </div>
   </div>
 </header>
 
 <dialog id="orphanDlg">
-  <h3 data-i18n="диалог.осколки.заголовок">Незавершённые записи</h3>
-  <p data-i18n="текст.2">Сервер перезапускался во время записи, и эти куски остались без хозяина.
-     «Сохранить» склеит их в один mp4, «Удалить» — сотрёт.</p>
+  <h3 data-i18n="диалог.осколки.заголовок"></h3>
+  <p data-i18n="текст.2"></p>
   <div id="orphanList"></div>
   <div class="dlg-btns">
-    <button id="orphanKeepAll"  data-i18n="настройки.orphanKeepAll.кнопка" data-i18n-title="настройки.orphanKeepAll.кнопка.подсказка" data-i18n-title="подпись.14">Сохранить все</button>
-    <button id="orphanDropAll"  data-i18n="настройки.orphanDropAll.кнопка" data-i18n-title="настройки.orphanDropAll.кнопка.подсказка" data-i18n-title="подпись.15">Удалить все</button>
-    <button id="orphanClose" class="primary"  data-i18n="настройки.orphanClose.кнопка" data-i18n-title="настройки.orphanClose.кнопка.подсказка" data-i18n-title="подпись.16">Позже</button>
+    <button id="orphanKeepAll"  data-i18n="настройки.orphanKeepAll.кнопка" data-i18n-title="настройки.orphanKeepAll.кнопка.подсказка"></button>
+    <button id="orphanDropAll"  data-i18n="настройки.orphanDropAll.кнопка" data-i18n-title="настройки.orphanDropAll.кнопка.подсказка"></button>
+    <button id="orphanClose" class="primary"  data-i18n="настройки.orphanClose.кнопка" data-i18n-title="настройки.orphanClose.кнопка.подсказка"></button>
   </div>
 </dialog>
 
 <dialog id="noteDlg">
-  <h3 id="noteTitle" data-i18n="диалог.заметка.заголовок">Заметка</h3>
+  <h3 id="noteTitle" data-i18n="диалог.заметка.заголовок"></h3>
   <textarea id="noteText" rows="4" maxlength="500"
-            placeholder="Чем эта комната запомнилась" data-i18n-ph="подпись.17"></textarea>
-  <p class="hint" id="noteHint" data-i18n="текст.3">Пустая заметка удаляется. Видна со всех устройств —
-    хранится на сервере.</p>
+            data-i18n-ph="подпись.17"></textarea>
+  <p class="hint" id="noteHint" data-i18n="текст.3"></p>
   <div class="dlg-btns">
-    <button id="noteSave" class="primary" data-i18n="настройки.noteSave.кнопка">Сохранить</button>
-    <button id="noteCancel" data-i18n="настройки.noteCancel.кнопка">Отмена</button>
+    <button id="noteSave" class="primary" data-i18n="настройки.noteSave.кнопка"></button>
+    <button id="noteCancel" data-i18n="настройки.noteCancel.кнопка"></button>
   </div>
 </dialog>
 
 <dialog id="dirDlg">
-  <h3 id="dirTitle" data-i18n="диалог.папка.заголовок">Куда писать записи</h3>
+  <h3 id="dirTitle" data-i18n="диалог.папка.заголовок"></h3>
   <p id="dirPath">…</p>
   <div id="dirList"></div>
   <div class="row">
-    <input id="dirNew" spellcheck="false" placeholder="имя новой подпапки (необязательно)" data-i18n-ph="подпись.18"
-           title="Создать подпапку внутри текущей и выбрать её. Оставьте пустым, чтобы взять текущую" data-i18n-title="подпись.19">
+    <input id="dirNew" spellcheck="false" data-i18n-ph="подпись.18"
+           data-i18n-title="подпись.19">
   </div>
   <div class="dlg-btns">
-    <button id="dirUp"  data-i18n="настройки.dirUp.кнопка" data-i18n-title="настройки.dirUp.кнопка.подсказка" data-i18n-title="подпись.20">Наверх</button>
-    <button id="dirPick" class="primary"  data-i18n="настройки.dirPick.кнопка" data-i18n-title="настройки.dirPick.кнопка.подсказка" data-i18n-title="подпись.21">Выбрать эту папку</button>
-    <button id="dirCancel"  data-i18n="настройки.dirCancel.кнопка" data-i18n-title="настройки.dirCancel.кнопка.подсказка" data-i18n-title="подпись.22">Отмена</button>
+    <button id="dirUp"  data-i18n="настройки.dirUp.кнопка" data-i18n-title="настройки.dirUp.кнопка.подсказка"></button>
+    <button id="dirPick" class="primary"  data-i18n="настройки.dirPick.кнопка" data-i18n-title="настройки.dirPick.кнопка.подсказка"></button>
+    <button id="dirCancel"  data-i18n="настройки.dirCancel.кнопка" data-i18n-title="настройки.dirCancel.кнопка.подсказка"></button>
   </div>
 </dialog>
 
 <dialog id="baseDlg">
-  <h3 data-i18n="диалог.база.заголовок">База ников</h3>
+  <h3 data-i18n="диалог.база.заголовок"></h3>
   <p id="baseCount"></p>
   <ol>
     <!-- Текст разорван ссылкой посередине, поэтому переводится двумя кусками:
          в разных языках ссылка встаёт в другое место фразы, и склеивать её в
          один ключ нельзя — перевод потерял бы свободу порядка слов. -->
-    <li><span data-i18n="закладка.до">Один раз перетащите ссылку</span>
-        <a id="bmLink" href="#" data-i18n="меню.1">Собрать ники BongaCams</a>
-        <span data-i18n="закладка.после">на панель закладок.</span></li>
-    <li data-i18n="меню.2">На bongacams.com нажмите закладку один раз — ники уйдут прямо в базу,
-        и дальше она будет обновлять их каждые 60 секунд, пока вкладка сайта открыта.
-        Выключить — плашка в углу той страницы или повторное нажатие закладки.</li>
+    <li><span data-i18n="закладка.до"></span>
+        <a id="bmLink" href="#" data-i18n="меню.1"></a>
+        <span data-i18n="закладка.после"></span></li>
+    <li data-i18n="меню.2"></li>
   </ol>
   <details>
-    <summary data-i18n="текст.4">Если сервер был недоступен — вставить список вручную</summary>
+    <summary data-i18n="текст.4"></summary>
     <textarea id="importText" placeholder='[["ник",67,4589], …]'></textarea>
     <div class="dlg-btns">
-      <button id="importOk" data-i18n="настройки.importOk.кнопка">Импортировать</button>
+      <button id="importOk" data-i18n="настройки.importOk.кнопка"></button>
     </div>
   </details>
   <div class="dlg-btns">
-    <button id="baseClose" class="primary" data-i18n="настройки.baseClose.кнопка">Закрыть</button>
+    <button id="baseClose" class="primary" data-i18n="настройки.baseClose.кнопка"></button>
   </div>
 </dialog>
 
 <div id="main">
   <aside id="history">
     <div class="panel-head">
-      <span data-i18n="история.заголовок">История</span>
+      <span data-i18n="история.заголовок"></span>
       <span id="histProgress"></span>
-      <button id="histClear" data-i18n="история.очистить" data-i18n-title="история.очистить.подсказка" data-i18n-title="подпись.23">Очистить</button>
+      <button id="histClear" data-i18n="история.очистить" data-i18n-title="история.очистить.подсказка"></button>
       <!-- Значок отдельным узлом: анимация на самой кнопке крутила её
            целиком, вместе с рамкой и фоном. -->
-      <button id="histCheck" data-i18n-title="история.проверить" data-i18n-title="подпись.24"><span class="rot">↻</span></button>
+      <button id="histCheck" data-i18n-title="история.проверить"><span class="rot">↻</span></button>
     </div>
     <div class="panel-body" id="histBody"></div>
   </aside>
 
-  <div class="grip" id="gripLeft"><span data-i18n-title="ручка.история" data-i18n-title="подпись.25"></span></div>
+  <div class="grip" id="gripLeft"><span data-i18n-title="ручка.история"></span></div>
 
   <div id="stage">
     <video id="v" controls autoplay playsinline></video>
     <div id="wallGrid" hidden></div>
-    <div id="wallAdd" hidden><span data-i18n="стена.новаяЯчейка">＋ новая ячейка</span></div>
+    <div id="wallAdd" hidden><span data-i18n="стена.новаяЯчейка"></span></div>
 
     <div id="scrPanel" hidden>
       <div id="scrWin">
@@ -1390,78 +1302,78 @@
     <div id="keepAsk" hidden>
       <div id="keepText"></div>
       <div class="dlg-btns">
-        <button id="keepYes" class="primary" data-i18n="текст.5">Сохранить</button>
-        <button id="keepNo" data-i18n="текст.6">Удалить</button>
+        <button id="keepYes" class="primary" data-i18n="текст.5"></button>
+        <button id="keepNo" data-i18n="текст.6"></button>
       </div>
     </div>
 
     <div id="logPanel" hidden>
-      <div id="logHead" data-i18n="текст.7">Журнал воспроизведения · пишется в /mnt/DATA/Bonga_rec/playback.log</div>
-      <button id="logClose" title="Закрыть журнал" data-i18n-title="подпись.26">×</button>
-      <button id="logCopy" title="Скопировать журнал" data-i18n-title="подпись.27" data-i18n="меню.4">Копировать</button>
+      <div id="logHead" data-i18n="текст.7"></div>
+      <button id="logClose" data-i18n-title="подпись.26">×</button>
+      <button id="logCopy" data-i18n-title="подпись.27" data-i18n="меню.4"></button>
       <pre id="logBody"></pre>
     </div>
 
     <div id="stats" hidden>
-      <button id="statsClose" title="Закрыть статистику" data-i18n-title="подпись.28">×</button>
+      <button id="statsClose" data-i18n-title="подпись.28">×</button>
       <pre id="statsBody"></pre>
     </div>
 
     <div id="netPanel" hidden>
-      <button id="netClose" title="Закрыть проверку" data-i18n-title="подпись.29">×</button>
-      <button id="netRun" title="Прогнать замеры заново" data-i18n-title="подпись.30" data-i18n="меню.5">Ещё раз</button>
+      <button id="netClose" data-i18n-title="подпись.29">×</button>
+      <button id="netRun" data-i18n-title="подпись.30" data-i18n="меню.5"></button>
       <pre id="netBody"></pre>
     </div>
 
     <div id="libPanel" hidden>
-      <button id="libClose" title="Закрыть список" data-i18n-title="подпись.31">×</button>
-      <div id="libHead" data-i18n="текст.8">Видео</div>
+      <button id="libClose" data-i18n-title="подпись.31">×</button>
+      <div id="libHead" data-i18n="текст.8"></div>
       <div id="libBody"></div>
     </div>
   </div>
 
   <div id="ctxMenu" hidden>
     <div data-act="stats"
-         title="Разрешение, битрейт, буфер, потерянные кадры, подвисания и ошибки — обновляется каждую секунду" data-i18n-title="подпись.32" data-i18n="меню.6">Статистика для сисадминов</div>
+         data-i18n-title="подпись.32" data-i18n="меню.6"></div>
     <div data-act="log"
-         title="Лента событий плеера: смены качества, обрывы сегментов, восстановления. Пишется и в файл на сервере" data-i18n-title="подпись.33" data-i18n="меню.7">Журнал воспроизведения</div>
+         data-i18n-title="подпись.33" data-i18n="меню.7"></div>
     <hr>
     <div class="hint" id="ctxAutoTitle"
-         title="Плеер сам перейдёт в следующую комнату из списка справа через заданный срок" data-i18n-title="подпись.34" data-i18n="меню.8">Автопереключение комнат</div>
-    <div data-act="auto:0" title="Оставаться в текущей комнате, пока не переключите вручную" data-i18n-title="подпись.35" data-i18n="меню.9">выключить</div>
-    <div data-act="auto:30" title="Менять комнату каждые 30 секунд" data-i18n-title="подпись.36" data-i18n="меню.10">каждые 30 секунд</div>
-    <div data-act="auto:60" title="Менять комнату раз в минуту" data-i18n-title="подпись.37" data-i18n="меню.11">каждую минуту</div>
-    <div data-act="auto:180" title="Менять комнату раз в 3 минуты" data-i18n-title="подпись.38" data-i18n="меню.12">каждые 3 минуты</div>
+         data-i18n-title="подпись.34" data-i18n="меню.8"></div>
+    <div data-act="auto:0" data-i18n-title="подпись.35" data-i18n="меню.9"></div>
+    <div data-act="auto:30" data-i18n-title="подпись.36" data-i18n="меню.10"></div>
+    <div data-act="auto:60" data-i18n-title="подпись.37" data-i18n="меню.11"></div>
+    <div data-act="auto:180" data-i18n-title="подпись.38" data-i18n="меню.12"></div>
     <hr>
     <div data-act="pip"
-         title="Вынести видео в отдельное окно поверх других окон — со своими кнопками смены комнат" data-i18n-title="подпись.39" data-i18n="меню.13">Картинка в картинке</div>
-    <div data-act="full" title="Развернуть видео на весь экран" data-i18n-title="подпись.40" data-i18n="меню.14">Во весь экран</div>
-    <div data-act="mute" title="Приглушить или вернуть звук, не трогая громкость системы" data-i18n-title="подпись.41" data-i18n="меню.15">Звук вкл/выкл</div>
+         data-i18n-title="подпись.39" data-i18n="меню.13"></div>
+    <div data-act="full" data-i18n-title="подпись.40" data-i18n="меню.14"></div>
+    <div data-act="mute" data-i18n-title="подпись.41" data-i18n="меню.15"></div>
     <hr>
-    <div data-act="profile" title="Открыть страницу модели на bongacams.com в новой вкладке" data-i18n-title="подпись.42" data-i18n="меню.16">Открыть профиль на сайте</div>
-    <div data-act="copy" title="Скопировать адрес m3u8 — его понимают VLC, mpv и ffmpeg" data-i18n-title="подпись.43" data-i18n="меню.17">Копировать адрес потока</div>
+    <div data-act="profile" data-i18n-title="подпись.42" data-i18n="меню.16"></div>
+    <div data-act="copy" data-i18n-title="подпись.43" data-i18n="меню.17"></div>
     <div data-act="reload"
-         title="Пересоздать поток с нуля: помогает, когда картинка замерла или звук ушёл вперёд" data-i18n-title="подпись.44" data-i18n="меню.18">Перезапустить поток</div>
+         data-i18n-title="подпись.44" data-i18n="меню.18"></div>
     <hr>
     <div data-act="haltAll"
-         title="Разорвать все потоки этого экрана: трафик прекращается, комнаты остаются в ячейках с последним кадром" data-i18n-title="подпись.45" data-i18n="меню.19">Остановить все на экране</div>
+         data-i18n-title="подпись.45" data-i18n="меню.19"></div>
     <div data-act="goOnAll"
-         title="Поднять заново все остановленные ячейки этого экрана" data-i18n-title="подпись.46" data-i18n="меню.20">Возобновить все</div>
+         data-i18n-title="подпись.46" data-i18n="меню.20"></div>
     <hr>
-    <div class="hint" data-i18n="текст.9">Shift + правая кнопка — меню браузера</div>
+    <div class="hint" data-i18n="текст.9"></div>
   </div>
 
-  <div class="grip" id="gripRight"><span data-i18n-title="ручка.эфир" data-i18n-title="подпись.47"></span></div>
+  <div class="grip" id="gripRight"><span data-i18n-title="ручка.эфир"></span></div>
 
   <aside id="online">
     <div class="panel-head">
-      <span id="onlineCount" data-i18n="эфир.заголовок">Доступные</span>
-      <button id="onlineRefresh" data-i18n-title="эфир.обновить" data-i18n-title="подпись.48">↻</button>
+      <span id="onlineCount" data-i18n="эфир.заголовок"></span>
+      <button id="onlineRefresh" data-i18n-title="эфир.обновить">↻</button>
     </div>
     <div class="panel-find">
       <input id="onlineFind" spellcheck="false" data-i18n-ph="эфир.поиск"
              autocomplete="off">
-      <button id="findClear" data-i18n-title="эфир.поиск.очистить" data-i18n-title="подпись.49" hidden>×</button>
+      <button id="findClear" data-i18n-title="эфир.поиск.очистить" hidden>×</button>
       <div id="findTips" hidden></div>
     </div>
     <div class="panel-body" id="onlineBody"></div>
@@ -1646,32 +1558,83 @@
     document.documentElement.lang = langNow;
   }
 
+  /* Кэш словарей в браузере. Без него каждая загрузка ждала бы сеть, а в
+     разметке лежат одни ключи — то есть страница висела бы пустой. С кэшем
+     словарь берётся мгновенно, а свежий подтягивается следом и подменяет его,
+     если изменился. */
+  const langKey = code => `lang:${code}`;
+
+  function cachedLang(code) {
+    try { return JSON.parse(localStorage.getItem(langKey(code))) || null; }
+    catch { return null; }
+  }
+
+  function keepLang(code, words) {
+    try { localStorage.setItem(langKey(code), JSON.stringify(words)); }
+    catch { /* приватный режим или переполнение — обойдёмся сетью */ }
+  }
+
   async function fetchLang(code) {
     try {
       const res = await fetch(`api/lang/${encodeURIComponent(code)}`, { cache: 'no-store' });
       const data = await res.json();
-      return data.words || null;
-    } catch { return null; }         // сервер молчит — останется текст разметки
+      if (!data.words) return null;
+      keepLang(code, data.words);
+      return data.words;
+    } catch { return null; }         // сервер молчит — останется кэш
   }
+
+  // Показываем страницу, когда подписи на месте. Скрытой она остаётся не
+  // дольше секунды: если сеть молчит и кэша нет, лучше ключи, чем пустота.
+  const showPage = () => document.body.classList.remove('i18n-wait');
+  setTimeout(showPage, 1000);
 
   /* Какой язык показывать. «Авто» — язык браузера, если для него есть словарь;
      иначе русский. Настройка сильнее браузера: человек, выбравший язык руками,
      не должен получать другой при смене системной локали. */
-  async function pickLang() {
-    base = (await fetchLang('ru')) || {};
+  function wantLang(have) {
     const want = String(cfg('lang') || 'auto');
-    let code = want;
-    if (want === 'auto') {
-      const list = (navigator.languages || [navigator.language || 'ru'])
-        .map(item => String(item).toLowerCase().split('-')[0]);
-      let have = [];
-      try {
-        const res = await fetch('api/langs', { cache: 'no-store' });
-        have = (await res.json()).langs || [];
-      } catch { /* сервер молчит — остаёмся на русском */ }
-      code = list.find(item => have.includes(item)) || 'ru';
+    if (want !== 'auto') return want;
+    const list = (navigator.languages || [navigator.language || 'ru'])
+      .map(item => String(item).toLowerCase().split('-')[0]);
+    return list.find(item => have.includes(item)) || 'ru';
+  }
+
+  /* Порядок загрузки языка. Сперва кэш — он в памяти браузера и читается
+     мгновенно, поэтому страница показывается сразу и без мигания ключами.
+     Потом сеть: свежий словарь подменяет кэш, если изменился. Так правка
+     перевода доходит со следующей загрузки, а ждать сеть не приходится
+     никогда. */
+  async function pickLang() {
+    let have = [];
+    try {
+      have = cachedLang('список') || [];
+    } catch { /* пусто */ }
+
+    // Быстрый путь: язык и словари уже лежат в кэше
+    const guess = wantLang(have.length ? have : ['ru']);
+    const cachedRu = cachedLang('ru');
+    const cachedNow = guess === 'ru' ? cachedRu : cachedLang(guess);
+    if (cachedRu && cachedNow) {
+      base = cachedRu;
+      words = guess === 'ru' ? base : { ...base, ...cachedNow };
+      langNow = guess;
+      applyLang();
+      showPage();
     }
+
+    // Медленный путь: спрашиваем сервер и обновляемся, если что-то изменилось
+    try {
+      const res = await fetch('api/langs', { cache: 'no-store' });
+      have = (await res.json()).langs || [];
+      keepLang('список', have);
+    } catch { /* сервер молчит — остаёмся на том, что в кэше */ }
+
+    const code = wantLang(have);
+    const fresh = await fetchLang('ru');
+    if (fresh) base = fresh;
     await useLang(code);
+    showPage();
   }
 
   /* Список языков берём с сервера: он смотрит, какие файлы реально лежат в
@@ -1680,10 +1643,11 @@
   async function fillLangs() {
     const list = $('lang');
     if (!list) return;
-    let have = [];
+    let have = cachedLang('список') || [];
     try {
       const res = await fetch('api/langs', { cache: 'no-store' });
-      have = (await res.json()).langs || [];
+      have = (await res.json()).langs || have;
+      keepLang('список', have);
     } catch { /* сервер молчит — остаются встроенные пункты */ }
     const names = { ru: 'Русский', en: 'English', de: 'Deutsch', es: 'Español',
                     fr: 'Français', pl: 'Polski', uk: 'Українська', it: 'Italiano',
@@ -1698,7 +1662,13 @@
   async function useLang(code) {
     // Недостающие ключи берутся из русского: перевод отстаёт от страницы
     // всегда, и смешанный язык лучше дыр в интерфейсе.
-    words = code === 'ru' ? base : { ...base, ...((await fetchLang(code)) || {}) };
+    if (code === 'ru') {
+      words = base;
+    } else {
+      const other = cachedLang(code) || await fetchLang(code) || {};
+      words = { ...base, ...other };
+      if (!cachedLang(code)) fetchLang(code);        // освежим в фоне
+    }
     langNow = code;
     applyLang();
   }
