@@ -188,6 +188,24 @@
     width: 96px; background: rgba(22, 48, 28, .92);
     border-left-color: #7ee787; color: #7ee787;
   }
+  /* Разворот ячейки — отдельный плеер поверх сетки, а не подмена главного:
+     стена под ним остаётся собранной, и возврат ничего не стоит. Фон не
+     сплошной: сквозь него видно, что трансляции никуда не делись. */
+  #tileZoom {
+    position: absolute; inset: 0; z-index: 40; padding: 16px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(4, 6, 10, .88);
+  }
+  #tileZoom[hidden] { display: none; }    /* display:flex перебил бы hidden */
+  #tileZoom .frame {
+    position: relative; width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #tileZoom video {
+    max-width: 100%; max-height: 100%; background: #000;
+    box-shadow: 0 0 0 1px #2a2f39, 0 18px 48px rgba(0, 0, 0, .6);
+  }
+  #tileZoom .tcap { font-size: 14px; }
   .card[draggable], .item[draggable] { cursor: grab; }
   .tcap {
     position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
@@ -1072,6 +1090,15 @@
     <video id="v" controls autoplay playsinline></video>
     <div id="wallGrid" hidden></div>
     <div id="wallAdd" hidden><span>＋ новая ячейка</span></div>
+    <div id="tileZoom" hidden>
+      <div class="frame">
+        <video id="zoomVideo" playsinline></video>
+        <div class="tcap"><b id="zoomNick"></b>
+          <span id="zoomSnd" title="Звук">🔊</span>
+          <span id="zoomMain" title="Открыть в главном плеере вместо стены">⤴</span>
+          <span id="zoomClose" title="Свернуть обратно в ячейку (Esc)">×</span></div>
+      </div>
+    </div>
     <div id="keepAsk" hidden>
       <div id="keepText"></div>
       <div class="dlg-btns">
@@ -2679,6 +2706,126 @@
     if (tile.user) tile.video.play().catch(() => {});
   }
 
+  /* Разворот ячейки на всю сетку. Раньше ⤢ гасил стену и отдавал комнату
+     главному плееру — состав приходилось собирать заново, а это десяток
+     кликов. Теперь поверх сетки открывается отдельный плеер, стена под ним
+     цела, и возврат стоит одного нажатия. */
+  const zoom = { hls: null, tile: null, seq: 0 };
+
+  /* Замеры дорожек этой комнаты берём с сервера отдельным запросом: глобальная
+     ladderRates принадлежит главному плееру, и затирать её нельзя — он по ней
+     держит потолок качества у своего потока. */
+  async function zoomRates(user) {
+    try {
+      const res = await fetch(`api/ladder?user=${encodeURIComponent(user)}`,
+                              { cache: 'no-store' });
+      const data = await res.json();
+      return (data.room && data.room.rates) || null;
+    } catch { return null; }           // сервер молчит — обойдёмся заявленными
+  }
+
+  /* Дорожка для развёрнутого окна: самая крупная из тех, что влезают в потолок
+     битрейта. Ячейке хватает 480p, но здесь картинка во весь экран, и правило
+     нужно то же, что у главного плеера. Настоящий вес берём из замеров, а не
+     из манифеста: заявленному верить нельзя — у zury-moon 720p объявляет
+     3.4 Мбит/с при настоящих 0.65. */
+  function zoomPick(levels, rates) {
+    const limit = cfg('maxRate') * 1000;
+    const rate = lvl => (rates && rates[`${lvl.width}x${lvl.height}`]) || lvl.bitrate || 0;
+    const px = lvl => (lvl.width || 0) * (lvl.height || 0);
+    let pick = -1, light = 0;
+    levels.forEach((lvl, i) => {
+      if (rate(lvl) < rate(levels[light])) light = i;
+      if (limit && rate(lvl) > limit) return;
+      if (pick < 0 || px(lvl) > px(levels[pick])) pick = i;
+    });
+    return pick < 0 ? light : pick;    // не влезла ни одна — берём самую лёгкую
+  }
+
+  async function zoomOpen(tile) {
+    if (!tile.user) return;
+    zoomShut(true);                    // прежний разворот гасим без возни со стеной
+    const token = ++zoom.seq;
+    zoom.tile = tile;
+    $('zoomNick').textContent = tile.user;
+    $('tileZoom').hidden = false;
+
+    /* Канал общий на всех. Пока смотрим одну комнату крупно, остальные ячейки
+       только отнимали бы полосу: шесть по 480p — это около 8 Мбит/с, столько
+       же нужно самой развёрнутой. Поэтому останавливаем загрузку, а плееры не
+       разрушаем: состав стены цел, по закрытию всё стартует с живого края. */
+    for (const other of tiles) {
+      if (other.hls) other.hls.stopLoad();
+      other.video.pause();
+      other.video.muted = true;
+      other.box.classList.remove('loud');
+      const icon = other.box.querySelector('.tsnd');
+      if (icon) icon.textContent = '🔇';
+    }
+
+    const rates = await zoomRates(tile.user);
+    if (token !== zoom.seq) return;    // успели закрыть, пока ходили на сервер
+
+    const video = $('zoomVideo');
+    const hlsZoom = new Hls({ lowLatencyMode: false, backBufferLength: 10 });
+    zoom.hls = hlsZoom;
+    hlsZoom.loadSource(playlistUrl(tile.user, tile.edge));
+    hlsZoom.attachMedia(video);
+    hlsZoom.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+      hlsZoom.currentLevel = zoomPick(data.levels, rates);
+      video.muted = false;
+      $('zoomSnd').textContent = '🔊';
+      // Автозапуск со звуком браузер иногда не пускает — тогда хотя бы молча.
+      video.play().catch(() => {
+        video.muted = true;
+        $('zoomSnd').textContent = '🔇';
+        video.play().catch(() => {});
+      });
+    });
+    hlsZoom.on(Hls.Events.ERROR, (_, err) => {
+      if (err.fatal) logEvent('разворот', `${tile.user}: ${err.details}`, 'err');
+    });
+  }
+
+  /* quiet — не возвращать стену к жизни: так закрывают при переходе в главный
+     плеер и при выключении стены, где ячейки и так вот-вот остановятся. */
+  function zoomShut(quiet) {
+    zoom.seq++;
+    if (zoom.hls) { zoom.hls.destroy(); zoom.hls = null; }
+    const video = $('zoomVideo');
+    video.removeAttribute('src');
+    video.load();
+    $('tileZoom').hidden = true;
+    const back = zoom.tile;
+    zoom.tile = null;
+    if (quiet) return;
+
+    for (const other of tiles) {
+      if (other.hls) other.hls.startLoad(-1);   // -1 — снова с живого края
+      if (other.user) other.video.play().catch(() => {});
+    }
+    if (back && back.user) tileLoud(back);      // звук остаётся у той, что смотрели
+  }
+
+  $('zoomClose').onclick = () => zoomShut();
+  $('zoomSnd').onclick = () => {
+    const video = $('zoomVideo');
+    video.muted = !video.muted;
+    $('zoomSnd').textContent = video.muted ? '🔇' : '🔊';
+  };
+  $('zoomMain').onclick = () => {
+    if (!zoom.tile) return;
+    const { user, edge } = zoom.tile;
+    zoomShut(true);
+    wallOff();
+    openStream(user, edge);
+  };
+  // Клик мимо картинки — тоже выход: так ведут себя все окна поверх.
+  $('tileZoom').onclick = e => { if (e.target === $('tileZoom')) zoomShut(); };
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !$('tileZoom').hidden) zoomShut();
+  });
+
   // Выбранная ячейка: следующая открытая комната ляжет в неё. Без выбора —
   // в первую свободную, а если свободных нет — по кругу с начала.
   function pickTile(index) {
@@ -2700,7 +2847,13 @@
 
   function wallAssign(user, edge) {
     if (!tiles.length) return false;
-    tilePlay(tiles[nextSlot()], user, edge);
+    const tile = tiles[nextSlot()];
+    tilePlay(tile, user, edge);
+    /* Пока открыт разворот, показываем комнату в нём же. Ячейка своё получает
+       как обычно — состав стены не ломается, — но играть за кадром она не
+       должна: канал общий, и невидимая трансляция отнимала бы его у той,
+       на которую как раз смотрят. */
+    if (!$('tileZoom').hidden) zoomOpen(tile);
     return true;
   }
 
@@ -2778,7 +2931,7 @@
                     '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
                     'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
                     '<div class="tcap"><b></b><span class="tsnd">🔇</span>' +
-                    '<span class="tmain" title="Открыть в главном плеере">⤢</span>' +
+                    '<span class="tmain" title="Развернуть поверх остальных">⤢</span>' +
                     '<span class="tclose" title="Убрать ячейку">×</span></div>';
     const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
 
@@ -2802,11 +2955,7 @@
     };
     box.querySelector('.tsnd').onclick = () => tileLoud(tile);
     box.querySelector('.tclose').onclick = () => dropTile(tile);
-    box.querySelector('.tmain').onclick = () => {
-      if (!tile.user) return;
-      wallOff();
-      openStream(tile.user, tile.edge);
-    };
+    box.querySelector('.tmain').onclick = () => zoomOpen(tile);
     tiles.push(tile);
     $('wallGrid').appendChild(box);
     // Раскладку тут не трогаем: layoutWall сам достраивает недостающие ячейки
@@ -2915,6 +3064,7 @@
   }
 
   function wallOff() {
+    zoomShut(true);                // разворот без стены под ним не живёт
     wallQuiet = true;              // выключение — не повод забывать состав
     for (const tile of tiles) tileStop(tile);
     wallQuiet = false;
