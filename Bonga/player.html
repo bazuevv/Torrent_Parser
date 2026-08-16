@@ -268,9 +268,16 @@
     padding: 2px 6px; border-radius: 4px;
     background: rgba(12, 14, 18, .78); color: #e6e8ec; font-size: 11px;
   }
-  .tile:not(.offline) .tshot, .tile:not(.offline) .offBox { display: none; }
+  .tile:not(.offline):not(.halted) .tshot,
+  .tile:not(.offline):not(.halted) .offBox { display: none; }
   .tile.offline .tcap b { color: #98a1b0; }
-  .tile.offline .tbar { display: none; }   /* управлять нечем: потока больше нет */
+  .tile.offline .tbar { display: none; }   /* управлять нечем: комната ушла */
+
+  /* Приём остановлен вручную. Кадр тот же механизм, что у ушедшей, но плашка
+     серая: это наше решение, а не пропажа комнаты. Панель остаётся — ею же
+     поток и возобновляют. */
+  .tile.halted .off { background: rgba(90, 98, 112, .92); }
+  .tile.halted .tstop { display: none; }   /* останавливать уже нечего */
 
   /* Развёрнутая ячейка растягивается на всю сетку и ложится поверх соседей.
      Отдельного плеера тут нарочно нет: он заново качал бы манифест и первый
@@ -2969,6 +2976,7 @@
     tile.video.load();
     tile.box.classList.add('offline');
     tile.box.classList.remove('loud');
+    tile.box.querySelector('.off').textContent = 'нет';
 
     const shot = tile.box.querySelector('.tshot');
     // Кадр пробуем на своём сервере, а если он уже не отдаёт — на том, что
@@ -2993,10 +3001,58 @@
 
   function tileLive(tile) {
     tile.goneAt = 0;
-    tile.box.classList.remove('offline');
+    tile.halted = false;
+    tile.box.classList.remove('offline', 'halted');
     const shot = tile.box.querySelector('.tshot');
     if (shot.blobUrl) { URL.revokeObjectURL(shot.blobUrl); shot.blobUrl = null; }
     shot.removeAttribute('src');
+  }
+
+  /* Снимок текущего кадра. Поток отдаёт hls.js через MediaSource, то есть
+     данные приходят из самой страницы, а не с чужого домена — холст от этого
+     не «пачкается» и кадр удаётся забрать. Нужен, чтобы остановленная ячейка
+     не превращалась в чёрный квадрат: видно, на чём остановились. */
+  function tileFrame(tile) {
+    const video = tile.video;
+    if (!video.videoWidth) return '';
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      return canvas.toDataURL('image/jpeg', 0.7);
+    } catch { return ''; }
+  }
+
+  /* Остановка приёма. Пауза только замораживает картинку — куски продолжают
+     качаться, чтобы возобновление было мгновенным, и канал занят по-прежнему.
+     Здесь поток разрывается совсем: трафика ноль, память под буфер
+     освобождается, комната остаётся за ячейкой, на экране застывает кадр. */
+  function tileHalt(tile) {
+    if (!tile.user || tile.halted) return;
+    const frame = tileFrame(tile);
+    if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
+    tile.ready = false;
+    tile.halted = true;
+    tile.video.pause();
+    tile.video.removeAttribute('src');
+    tile.video.load();
+    tile.box.classList.add('halted');
+    tile.box.classList.remove('loud');
+    tile.box.querySelector('.off').textContent = 'стоп';
+
+    const shot = tile.box.querySelector('.tshot');
+    if (shot.blobUrl) { URL.revokeObjectURL(shot.blobUrl); shot.blobUrl = null; }
+    if (frame) shot.src = frame; else shot.removeAttribute('src');
+    logEvent('стена', `${tile.user}: приём остановлен`, 'act');
+    paintBar(tile);
+  }
+
+  // Возобновление: поток поднимается заново, с живого края.
+  function tileGoOn(tile) {
+    if (!tile.user) return;
+    tileLive(tile);
+    tilePlay(tile, tile.user, bestEdge(tile.user, tile.edge));
   }
 
   function tileStop(tile) {
@@ -3123,7 +3179,13 @@
     const video = tile.video;
     const play = bar.querySelector('.tplay');
     play.textContent = video.paused ? '▶' : '⏸';
-    play.title = video.paused ? 'Смотреть (пробел)' : 'Пауза (пробел)';
+    play.title = tile.halted ? 'Возобновить приём (пробел)'
+      : video.paused ? 'Смотреть (пробел)' : 'Пауза (пробел)';
+    // У остановленной время просмотра замирает: считать нечего, потока нет.
+    if (tile.halted) {
+      bar.querySelector('.tlive').hidden = true;
+      return;
+    }
 
     const off = video.muted || !video.volume;
     bar.querySelector('.tmute').textContent = off ? '🔇' : '🔊';
@@ -3149,6 +3211,8 @@
   const paintBars = () => { for (const tile of tiles) if (tile.user) paintBar(tile); };
 
   function tilePlayPause(tile) {
+    // После полной остановки играть нечему — поднимаем поток заново.
+    if (tile.halted) return tileGoOn(tile);
     const video = tile.video;
     if (video.paused) { toLive(tile); video.play().catch(() => {}); }
     else video.pause();
@@ -3474,6 +3538,8 @@
                     '<span class="tclose" title="Убрать ячейку">×</span></div>' +
                     '<div class="tbar">' +
                       '<span class="tb tplay" title="Пауза (пробел)">⏸</span>' +
+                      '<span class="tb tstop" title="Остановить приём: трафик ' +
+                        'прекращается, комната остаётся в ячейке">⏹</span>' +
                       '<span class="tb tmute" title="Звук (M)">🔇</span>' +
                       '<input class="tvol" type="range" min="0" max="1" step="0.02" ' +
                         'aria-label="Громкость">' +
@@ -3568,6 +3634,7 @@
     bar.onmouseup = bar.onmouseleave = () => { box.draggable = true; };
 
     bar.querySelector('.tplay').onclick = () => tilePlayPause(tile);
+    bar.querySelector('.tstop').onclick = () => tileHalt(tile);
     /* Кнопка звука работает в двух смыслах, и оба нужны: у молчащей ячейки
        забирает звук себе (на стене он один на всех), у звучащей — глушит. */
     bar.querySelector('.tmute').onclick = () => {
