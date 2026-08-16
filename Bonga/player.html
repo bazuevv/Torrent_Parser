@@ -348,7 +348,9 @@
   #recDir, #libDir { flex: 1 1 auto; min-width: 0; font-size: 12px; cursor: pointer; }
   #libDir.err { border-color: #b5372c; }
   #settings .row > select, #settings .row > button { flex: 0 0 auto; }
-  #settings .hint { margin: 4px 0 0 140px; color: #6b7484; font-size: 12px; line-height: 1.4; }
+  /* Пояснения читают редко, но когда читают — их надо видеть. Прежний серый
+     сливался с фоном панели, поэтому цвет тот же, что у остального текста. */
+  #settings .hint { margin: 4px 0 0 140px; color: #fff; font-size: 12px; line-height: 1.4; }
   /* Пояснение свёрнуто, пока не нажали значок. Правило явное: у .hint нет
      своего display, но в этом файле уже дважды всплывало, что авторский
      display перебивает атрибут hidden — пусть будет застраховано. */
