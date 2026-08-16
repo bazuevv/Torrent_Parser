@@ -2997,12 +2997,20 @@
     paintQuality(tile);
 
     const shot = tile.box.querySelector('.tshot');
-    // Кадр пробуем на своём сервере, а если он уже не отдаёт — на том, что
-    // знает база: комната могла переехать перед самым уходом.
-    for (const at of [edge, known.get(String(user).toLowerCase())]) {
-      if (!at || tile.user !== user) continue;
+    /* Кадр берём по очереди: свой сервер, потом тот, что знает база (комната
+       могла переехать перед самым уходом), и лишь затем адрес с сайта. Порядок
+       именно такой из-за времени: по edge-кадру видно, когда комната пропала,
+       а кадр сайта отстаёт на минуты и дал бы неверное «ушла N назад». */
+    const tries = [thumbUrl(user, edge)];
+    const other = known.get(String(user).toLowerCase());
+    if (other && String(other) !== String(edge)) tries.push(thumbUrl(user, other));
+    const fromSite = siteShot(user);
+    if (fromSite) tries.push(fromSite);
+
+    for (const at of tries) {
+      if (tile.user !== user) break;
       try {
-        const res = await fetch(`${thumbUrl(user, at)}?t=${Date.now()}`, { cache: 'no-store' });
+        const res = await fetch(`${at}?t=${Date.now()}`, { cache: 'no-store' });
         if (!res.ok) continue;
         const modified = res.headers.get('Last-Modified');
         tile.goneAt = modified ? new Date(modified).getTime() : Date.now();
@@ -4477,6 +4485,21 @@
   const thumbUrl = (user, edge) =>
     `https://${host(String(edge))}.bcvcdn.com/stream_${encodeURIComponent(user)}.jpg`;
 
+  /* Запасной адрес превью — тот, что каталог получил от самого сайта. Нужен,
+     когда edge кадра не отдаёт: у venusx1 поток на edge 69, а картинки там нет
+     вовсе, и карточка оставалась пустой.
+
+     Основным его сделать нельзя, хотя он и надёжнее. Замер 60 живых комнат
+     (2026-08-16): кадры на сайте отстают на 70–407 секунд, медиана 159. Это
+     годится показать лицо, но не годится решать, ушла ли модель, — по такому
+     возрасту «ушедшими» вышли бы все шестьдесят. Свежесть остаётся за
+     edge-кадром: он переписывается непрерывно, у живых 0–1 секунда. */
+  const siteShot = user => {
+    const key = String(user).toLowerCase();
+    const row = (liveList || []).find(item => String(item[0]).toLowerCase() === key);
+    return (row && row[4]) || '';
+  };
+
   let probing = false;
 
   // Полный обход — это тысячи запросов и несколько минут, поэтому результат
@@ -4602,21 +4625,40 @@
     const timer = setTimeout(() => ctl.abort(), THUMB_MS);
     const card = img.closest('.card');
 
+    /* Кадра на edge может не быть вовсе — у venusx1 поток на edge 69, а
+       картинки там нет. Тогда переходим на адрес, который каталог получил от
+       самого сайта: он есть всегда. Свежесть по нему не считаем — кадры сайта
+       отстают на минуты, и по ним «ушедшими» вышли бы все подряд. */
+    const fromSite = img.dataset.base === img.dataset.shot;
+    const fallback = () => {
+      if (fromSite || !img.dataset.shot) return false;
+      img.dataset.base = img.dataset.shot;
+      clearTimeout(timer);
+      img.busy = false;
+      loadThumb(img);
+      return true;
+    };
+
     try {
       const res = await fetch(`${img.dataset.base}?t=${Date.now()}`,
                               { cache: 'no-store', signal: ctl.signal });
-      if (!res.ok) { if (card) card.classList.add('offline'); return; }
+      if (!res.ok) {
+        if (fallback()) return;
+        if (card) card.classList.add('offline');
+        return;
+      }
 
       // Last-Modified приходит тем же ответом, что и картинка: статус комнаты
-      // не требует отдельного запроса.
+      // не требует отдельного запроса. У кадра с сайта его не спрашиваем —
+      // см. выше, там возраст ничего не значит.
       const modified = res.headers.get('Last-Modified');
       const age = modified ? Date.now() - new Date(modified).getTime() : 0;
-      const gone = age > FRESH_MS;
+      const gone = !fromSite && age > FRESH_MS;
 
-      // Карточка помнит сервер с момента обхода, а модель могла переехать —
-      // тогда на старом сервере кадр честно протух, хотя эфир идёт. Если база
-      // (её освежает сборщик и открытие потока) знает другой номер, проверяем
-      // там же, но только один раз.
+      /* Карточка помнит сервер с момента обхода, а модель могла переехать —
+         тогда на старом сервере кадр честно протух, хотя эфир идёт. Если база
+         (её освежает сборщик и открытие потока) знает другой номер, проверяем
+         там же, но только один раз. */
       if (gone && card && !img.retried) {
         const fresher = known.get((card.dataset.user || '').toLowerCase());
         if (fresher && fresher !== card.dataset.edge) {
@@ -4641,7 +4683,12 @@
       if (img.blobUrl) URL.revokeObjectURL(img.blobUrl);
       img.blobUrl = url;
       img.src = url;
-    } catch { /* таймаут или обрыв — оставляем прежний кадр */ }
+    } catch {
+      // Сеть отказала. Сюда же попадает 404 с чужого домена: страница ошибки
+      // приходит без CORS-заголовков, и fetch считает это отказом. Ровно этот
+      // случай и оставлял карточку пустой — пробуем адрес сайта.
+      fallback();                             // не вышло — остаётся прежний кадр
+    }
     finally {
       clearTimeout(timer);
       img.busy = false;
@@ -4683,7 +4730,7 @@
   /* Карточка комнаты. Отдельной функцией, потому что такую же строит поиск для
      ника, которого нет в эфире: раньше он предлагал только строку «Открыть»,
      и было не видно ни последнего кадра, ни того, когда комната пропала. */
-  function buildCard(user, edge, viewers, seen) {
+  function buildCard(user, edge, viewers, seen, shot) {
     const card = document.createElement('div');
     card.className = 'card';
     card.dataset.user = user;
@@ -4695,6 +4742,7 @@
     const img = document.createElement('img');
     img.alt = user;
     img.dataset.base = thumbUrl(user, edge);
+    img.dataset.shot = shot || '';   // запасной, если edge кадра не отдаст
     img.dataset.visible = '0';
     visObserver.observe(img);
 
@@ -4756,12 +4804,12 @@
       body.innerHTML = '<div class="empty">Никого не нашлось. Список — снимок сохранённой страницы.</div>';
       return;
     }
-    for (const [user, edgeAtSweep, viewers, seen] of live) {
+    for (const [user, edgeAtSweep, viewers, seen, shot] of live) {
       // Снимку эфира может быть до часа, а база обновляется каждую минуту —
       // поэтому сервер берём из неё, если он там известен. Иначе карточка
       // стучалась бы на старый сервер и считала модель ушедшей.
       body.appendChild(buildCard(user, known.get(user.toLowerCase()) || edgeAtSweep,
-                                 viewers, seen));
+                                 viewers, seen, shot));
     }
     paintNotes();
     markCurrent();

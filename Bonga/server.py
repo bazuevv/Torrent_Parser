@@ -374,7 +374,14 @@ def save_online(rows, src='sweep'):
             except (TypeError, ValueError):
                 seen = 0
 
-        live.append([user, edge, viewers, seen])
+        # Пятым идёт адрес превью с сайта. Пустой он у строк из обхода и от
+        # закладки — там его просто неоткуда взять, плеер откатится на догадку
+        # по edge. Формат от этого не ломается: старые записи короче на поле.
+        shot = str(row[4]).strip() if len(row) > 4 and isinstance(row[4], str) else ''
+        if not shot.startswith('https://'):
+            shot = ''
+
+        live.append([user, edge, viewers, seen, shot])
 
     at = int(time.time())
     prev = load_online()
@@ -1356,6 +1363,26 @@ CATALOG_UA = ('Mozilla/5.0 (X11; Linux x86_64; rv:153.0) '
               'Gecko/20100101 Firefox/153.0')
 
 
+def thumb_of(row):
+    """Адрес превью из строки листинга.
+
+    Плеер до сих пор угадывал его как mobile-edge<N>.bcvcdn.com/stream_<ник>.jpg
+    и обычно попадал: edge публикует кадр рядом с потоком. Но не всегда —
+    у venusx1 поток на edge 69, а кадра там нет вовсе, зато он есть на 35.
+    Сайт же знает точный адрес и держит превью на отдельном CDN.
+
+    Приходит вида «//i.bgicdn.com/…/c38918.{ext}»: без схемы и с заглушкой
+    расширения. Берём webp — он вдвое легче jpg (7.8 КБ против 12), а на
+    тысяче с лишним карточек это заметная разница по трафику."""
+    raw = str(row.get('thumb_image') or '').strip()
+    if not raw or '{ext}' not in raw and not raw.endswith(('.jpg', '.webp')):
+        return ''
+    url = raw.replace('{ext}', 'webp')
+    if url.startswith('//'):
+        url = 'https:' + url
+    return url if url.startswith('https://') else ''
+
+
 def fetch_catalog(pages=8):
     """Каталог эфира прямо с сайта, без браузера и без чужих кук.
 
@@ -1395,7 +1422,7 @@ def fetch_catalog(pages=8):
             if not EDGE_RE.match(edge):
                 continue
             seen.add(user.lower())
-            out.append([user, edge, int(row.get('viewers') or 0)])
+            out.append([user, edge, int(row.get('viewers') or 0), 0, thumb_of(row)])
         if len(models) < CATALOG_PAGE or (total and len(seen) >= total):
             break
         time.sleep(0.4)          # без паузы сайт иногда обрывает выдачу на середине
