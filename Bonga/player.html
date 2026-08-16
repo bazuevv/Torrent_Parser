@@ -2298,6 +2298,18 @@
       $('edge').value = edge;
       localStorage.setItem('edge:' + user.toLowerCase(), edge);
       location.hash = user;
+
+      /* Стена — основной режим, поэтому найденная комната идёт в ячейку.
+         Главный плеер держится только под записи и файлы: у него один поток на
+         всю страницу, а ячейка делает то же самое и не мешает соседям. */
+      if (!$('wallGrid').hidden) {
+        wallAssign(user, edge);
+        pushHist(user, edge);
+        learn(user, edge);
+        markCurrent();
+        return;
+      }
+
       playingFrom = 'live';
       // Замеры с сервера забираем до запуска: запрос свой, локальный, стоит
       // единицы миллисекунд, а разбор манифеста ждёт ответа с CDN — успеваем
@@ -2988,7 +3000,16 @@
       other.box.classList.toggle('loud', on && Boolean(other.user));
     }
     paintBars();
-    if (tile.user) tile.video.play().catch(() => {});
+    if (!tile.user) return;
+    /* Со звуком браузер запускает только после клика. При загрузке страницы
+       клика ещё не было, и без запасного хода ячейка просто осталась бы на
+       паузе — молча играть всё же лучше, чем не играть вовсе. */
+    tile.video.play().catch(() => {
+      tile.video.muted = true;
+      tile.box.classList.remove('loud');
+      paintBars();
+      tile.video.play().catch(() => {});
+    });
   }
 
   /* Разворот ячейки на всю сетку. Раньше ⤢ гасил стену и отдавал комнату
@@ -3477,8 +3498,12 @@
       seen.add(now.u.toLowerCase());
       putFree({ u: now.u, e: now.e });
     }
-    if (opts.extra && !seen.has(String(opts.extra.user).toLowerCase())) {
-      putFree({ u: opts.extra.user, e: String(opts.extra.edge || '') });
+    // opts.room — комната из адреса при загрузке страницы: она добавляется к
+    // сохранённому составу, а не подменяет его (этим занят opts.extra).
+    for (const item of [opts.room, opts.extra]) {
+      if (!item || seen.has(String(item.user).toLowerCase())) continue;
+      seen.add(String(item.user).toLowerCase());
+      putFree({ u: item.user, e: String(item.edge || '') });
     }
 
     stopStream();                 // главный поток гасим: ресурсы нужны ячейкам
@@ -3524,6 +3549,34 @@
         'в последнюю ячейку, перетаскивание — в любую, а полоса у края ' +
         'добавляет ещё одну.'
       : 'Стена пуста. Перетащите сюда карточку из правой колонки.', 'ok');
+  }
+
+  /* Стена при загрузке поднимается раньше списка эфира — ждать сеть значило бы
+     показывать пустой экран. Поэтому ушедшие комнаты отсеиваются потом, когда
+     список пришёл. Делается это ровно один раз: комната может пропасть из
+     листинга и на минуту (приватное шоу, сбой обхода), и регулярная чистка
+     сносила бы живые ячейки. */
+  let wallPruned = false;
+
+  function pruneWall() {
+    if (wallPruned || $('wallGrid').hidden || !liveList || !liveList.length) return;
+    wallPruned = true;
+    const live = new Set(liveList.map(row => String(row[0]).toLowerCase()));
+    const gone = [];
+    wallQuiet = true;
+    for (const screen of screens) {
+      for (const tile of screen.tiles) {
+        if (tile.user && !live.has(tile.user.toLowerCase())) {
+          gone.push(tile.user);
+          tileStop(tile);
+        }
+      }
+    }
+    wallQuiet = false;
+    if (!gone.length) return;
+    layoutWall();
+    saveWall();
+    say(`Ушли из эфира с прошлого раза: ${gone.join(', ')}. Их ячейки свободны.`, 'ok');
   }
 
   function wallOff() {
@@ -4143,6 +4196,7 @@
       `Ещё ${catalog.length - all.length} в базе без сервера — они есть в подсказках поля «Ник».`;
     $('onlineRefresh').disabled = false;
     probing = false;
+    pruneWall();            // первый пришедший список чистит стену от ушедших
   }
 
   // При загрузке страницы показываем прошлый результат, если он свежий:
@@ -5510,7 +5564,14 @@
     applySettingsToUI();
     loadNotes();               // заметки лежат на сервере, забираем при запуске
 
-    if (params.get('u') || location.hash) start();
+    /* Стена поднимается сразу: она и есть основной режим. Раньше при загрузке
+       запускался главный плеер с комнатой из адреса, и собранный накануне
+       состав оставался забытым — приходилось каждый раз жать «Стену». Одна
+       ячейка делает всё то же, что главный плеер, только их может быть много.
+       Комната из адреса при этом не теряется: встаёт в свободное место. */
+    const asked = (params.get('u') || location.hash)
+      ? { user: initial, edge: $('edge').value.trim() } : null;
+    wallOn(asked ? { room: asked } : {});
 
     if (await pullAccounts()) {
       const onServer = new Set(serverBase.map(m => String(m[0]).toLowerCase()));
@@ -5521,7 +5582,8 @@
         await pullAccounts();
       }
     }
-    if (!await showOnlineFromCache()) setTimeout(() => refreshOnline(true), 300);
+    if (await showOnlineFromCache()) pruneWall();   // список пришёл — чистим стену
+    else setTimeout(() => refreshOnline(true), 300);
   })();
   setTimeout(checkHistory, 3000);
   setTimeout(checkOrphans, 1500);         // остатки прошлых сеансов
