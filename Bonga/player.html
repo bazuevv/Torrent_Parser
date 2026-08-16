@@ -631,20 +631,6 @@
       нужны, в отличие от папки записей: сюда мы только читаем. Подпапки не
       обходятся.</p>
 
-    <div class="row">
-      <label for="wallN">Ячеек в стене</label>
-      <select id="wallN">
-        <option value="4">4 (2×2)</option>
-        <option value="6">6 (3×2)</option>
-        <option value="9">9 (3×3)</option>
-      </select>
-      <i class="tip" data-hint="wallN" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
-    </div>
-    <p class="hint" hidden>Сколько трансляций показывать разом по кнопке
-      «Стена». Каждая ячейка — отдельный плеер, и цена растёт линейно:
-      декодирование 480p стоит около 11% ядра на поток, так что девять ячеек
-      займут примерно одно ядро из восьми. Канал считается так же — девять
-      потоков по 1.2 Мбит/с это около 11 Мбит/с.</p>
 
     <div class="row">
       <label for="wallQ">Качество в стене</label>
@@ -1254,7 +1240,7 @@
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
                      catalog: 60, act: 15, ladder: 43200, warm: 5,
-                     wallN: 4, wallQ: 480 };
+                     wallQ: 480 };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];
@@ -1405,8 +1391,6 @@
     clearInterval(thumbTimer); clearInterval(histTimer); clearInterval(pullTimer);
     clearInterval(actTimer); clearInterval(watchTimer);
     applyAutoCap();            // потолок мог смениться в настройках
-    // Смена числа ячеек перестраивает стену, если она открыта.
-    if (!$('wallGrid').hidden && tiles.length !== cfg('wallN')) wallOn();
     if (cfg('thumbs')) thumbTimer = setInterval(refreshThumbs, cfg('thumbs') * 1000);
     if (cfg('hist')) histTimer = setInterval(checkHistory, cfg('hist') * 1000);
     // Замеряет сервер, нам остаётся забирать готовое — вдвое реже, чем он
@@ -2733,21 +2717,19 @@
     tiles.splice(tiles.indexOf(tile), 1);
     tile.box.remove();
     layoutWall();
-    pushSettings({ wallN: tiles.length });
-    saveWall();
+    saveWall();                 // число ячеек хранится составом, не настройкой
   }
 
   function addTile(user, edge) {
     if (tiles.length >= 16) return say('Больше шестнадцати ячеек — перебор.', 'err');
     const tile = makeTile();
-    pushSettings({ wallN: tiles.length });
     if (user) tilePlay(tile, user, known.get(String(user).toLowerCase()) || edge);
+    else saveWall();               // пустую ячейку тоже надо запомнить
     pickTile(tiles.length - 1);
     return tile;
   }
 
-  function buildWall() {
-    const want = cfg('wallN');
+  function buildWall(want) {
     if (tiles.length === want) return;
     wallQuiet = true;                 // пересборка сетки — не повод стирать состав
     for (const tile of tiles) tileStop(tile);
@@ -2757,35 +2739,36 @@
     for (let i = 0; i < want; i++) makeTile();
   }
 
+  /* Ячеек ровно столько, сколько комнат: жёсткой четвёрки больше нет, стена
+     растёт перетаскиванием и сжимается крестиком. opts.extra — комната,
+     принесённая на полосу-приёмник; она встаёт последней, чтобы текущая
+     трансляция осталась в первой ячейке. */
   function wallOn(opts = {}) {
-    // Всё, что нужно, забираем до пересборки и остановки потока: buildWall
-    // очищает ячейки, а stopStream стирает поля ника и сервера.
-    const saved = opts.fill === false ? [] : loadWall();
+    // Всё нужное забираем до пересборки и остановки потока: buildWall очищает
+    // ячейки, а stopStream стирает поля ника и сервера.
+    const saved = loadWall();
     const now = playingFrom === 'live'
       ? { u: $('user').value.trim(), e: $('edge').value.trim() } : null;
 
-    buildWall();
-    stopStream();                 // главный поток гасим: ресурсы нужны ячейкам
-    $('wallGrid').hidden = false;
-    $('wall').classList.add('on');
-
-    /* Порядок наполнения: сперва то, что смотрели, — иначе нажатие «Стены»
-       теряло бы текущую комнату; затем прошлый состав; остаток добираем из
-       списка эфира. Повторов не допускаем: одна комната в двух ячейках —
-       двойной трафик без пользы. */
+    // Порядок: сперва то, что смотрели, иначе нажатие «Стены» теряло бы
+    // текущую комнату; затем прошлый состав; затем принесённая. Повторов не
+    // допускаем — одна комната в двух ячейках это двойной трафик без пользы.
     const plan = [];
     const seen = new Set();
     const add = (user, edge) => {
       const key = String(user || '').toLowerCase();
-      if (!key || seen.has(key) || plan.length >= tiles.length) return;
+      if (!key || seen.has(key) || plan.length >= 16) return;
       seen.add(key);
       plan.push({ u: user, e: String(edge || '') });
     };
-    if (opts.fill !== false) {
-      if (now && now.u) add(now.u, now.e);
-      for (const item of saved) if (item) add(item.u, item.e);
-      for (const row of liveList || []) add(row[0], row[1]);
-    }
+    if (now && now.u) add(now.u, now.e);
+    for (const item of saved) if (item) add(item.u, item.e);
+    if (opts.extra) add(opts.extra.user, opts.extra.edge);
+
+    buildWall(Math.max(1, plan.length));     // пустая стена — одна ячейка
+    stopStream();                 // главный поток гасим: ресурсы нужны ячейкам
+    $('wallGrid').hidden = false;
+    $('wall').classList.add('on');
 
     wallQuiet = true;                       // раскладываем — пишем один раз в конце
     tiles.forEach((tile, i) => {
@@ -2797,8 +2780,10 @@
 
     if (tiles[0]) tileLoud(tiles[0]);
     pickTile(0);
-    say(`Стена: ${plan.length} трансляций. Перетащите карточку в ячейку или ` +
-        'выберите ячейку кликом, ⤢ открывает в главном плеере.', 'ok');
+    say(plan.length
+      ? `Стена: ${plan.length} трансляций. Тащите карточки в ячейки, ` +
+        'а на полосу у края — чтобы добавить ещё одну.'
+      : 'Стена пуста. Перетащите сюда карточку из правой колонки.', 'ok');
   }
 
   function wallOff() {
@@ -2835,13 +2820,9 @@
     $('wallAdd').classList.remove('drop');
     const room = dragRoom(e);
     if (!room) return;
-    // Стена могла быть выключена: тогда открываем её пустой и кладём только
-    // принесённое — досыпать чужих комнат в этот момент никто не просил.
-    if ($('wallGrid').hidden) {
-      wallOn({ fill: false });
-      if (tiles[0]) return tilePlay(tiles[0], room.user,
-                                    known.get(room.user.toLowerCase()) || room.edge);
-    }
+    // Стена могла быть выключена: тогда открываем её, и принесённая комната
+    // встаёт следом за текущей трансляцией, а не вместо неё.
+    if ($('wallGrid').hidden) return wallOn({ extra: room });
     addTile(room.user, room.edge);
   };
 
