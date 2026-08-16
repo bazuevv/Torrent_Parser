@@ -31,26 +31,36 @@
   /* Обзор экранов: каждый экран своей мозаикой превью, в том же порядке, в
      каком трансляции стоят в сетке. Нужен, когда экранов больше двух и по
      номеру уже не вспомнить, что где. */
+  /* Затемнение на всю сцену: оно же служит местом, куда можно щёлкнуть, чтобы
+     закрыть обзор. Само окно — по центру и ровно по содержимому. */
   #scrPanel {
-    position: absolute; inset: 0; z-index: 50; padding: 12px;
-    display: flex; flex-direction: column; gap: 10px;
-    background: rgba(8, 10, 14, .95);
+    position: absolute; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(8, 10, 14, .82);
   }
   #scrPanel[hidden] { display: none; }     /* display:flex перебил бы hidden */
+  #scrWin {
+    display: flex; flex-direction: column; gap: 10px;
+    max-width: calc(100% - 40px); max-height: calc(100% - 40px);
+    padding: 12px 14px; background: #14171d;
+    border: 1px solid #39404d; border-radius: 12px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .6);
+  }
   #scrHead { display: flex; align-items: center; gap: 10px; color: #e6e8ec; font-size: 14px; }
   #scrHead .gap { flex: 1 1 auto; }
-  #scrHead #scrAdd, #scrHead #scrClose {
+  #scrHead #scrClose {
     cursor: pointer; padding: 3px 9px; border-radius: 5px; background: #232833;
     font-size: 12px; color: #b8c0cc;
   }
-  #scrHead #scrAdd:hover, #scrHead #scrClose:hover { background: #2f6fd0; color: #fff; }
+  #scrHead #scrClose:hover { background: #2f6fd0; color: #fff; }
+  /* Экраны идут строкой: их бывает и десяток, а окно не должно расти на всю
+     ширину — листаем по горизонтали. */
   #scrBody {
-    flex: 1 1 auto; min-height: 0; overflow: auto;
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;
-    align-content: start;
+    display: flex; gap: 12px; align-items: flex-start;
+    overflow-x: auto; overflow-y: hidden; padding-bottom: 4px;
   }
   .scr {
-    border: 1px solid #2a2f3a; border-radius: 10px; overflow: hidden;
+    flex: 0 0 320px; border: 1px solid #2a2f3a; border-radius: 10px; overflow: hidden;
     background: #14171d; cursor: pointer;
   }
   .scr:hover { border-color: #2f6fd0; }
@@ -78,6 +88,11 @@
   }
   .scrCell.free { display: flex; align-items: center; justify-content: center;
                   color: #454c57; font-size: 20px; }
+  /* Новый экран заводится такой же карточкой, стоящей последней: кнопка в
+     шапке требовала объяснения, а пустой экран с плюсом говорит сам за себя. */
+  .scr.add .scrGrid { display: flex; align-items: center; justify-content: center;
+                      color: #5c646f; font-size: 44px; }
+  .scr.add:hover .scrGrid { color: #6ea8fe; }
 
   /* Подробности к строке статуса: системная подсказка не годится — из неё
      нельзя выделить текст, а он нужен именно для копирования. */
@@ -1331,13 +1346,14 @@
     <div id="wallAdd" hidden><span>＋ новая ячейка</span></div>
 
     <div id="scrPanel" hidden>
-      <div id="scrHead">
-        <b>Экраны</b>
-        <span id="scrAdd" title="Завести пустой экран">＋ новый</span>
-        <span class="gap"></span>
-        <span id="scrClose" title="Закрыть (Esc)">×</span>
+      <div id="scrWin">
+        <div id="scrHead">
+          <b>Экраны</b>
+          <span class="gap"></span>
+          <span id="scrClose" title="Закрыть (Esc)">×</span>
+        </div>
+        <div id="scrBody"></div>
       </div>
-      <div id="scrBody"></div>
     </div>
     <div id="keepAsk" hidden>
       <div id="keepText"></div>
@@ -2590,11 +2606,8 @@
      нет, а уводят от неё запись и файлы из папки. */
   $('scrAll').onclick = () => scrShow($('scrPanel').hidden);
   $('scrClose').onclick = e => { e.stopPropagation(); scrShow(false); };
-  $('scrAdd').onclick = e => {
-    e.stopPropagation();
-    addScreen();                   // новый экран сразу становится текущим
-    scrPaint();
-  };
+  // Щелчок мимо окна — тоже выход: так ведут себя все окна поверх.
+  $('scrPanel').onclick = e => { if (e.target === $('scrPanel')) scrShow(false); };
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && !$('scrPanel').hidden) scrShow(false);
   });
@@ -3123,6 +3136,22 @@
       card.onclick = () => { useScreen(at); scrShow(false); };
       body.appendChild(card);
     });
+
+    // Последней стоит пустая карточка с плюсом — ею и заводят новый экран.
+    const [wide, high] = wallArea();
+    const add = document.createElement('div');
+    add.className = 'scr add';
+    add.title = 'Завести пустой экран';
+    const cap = document.createElement('div');
+    cap.className = 'scrCap';
+    cap.innerHTML = '<span>Новый экран</span><i>ещё шестнадцать ячеек</i>';
+    const grid = document.createElement('div');
+    grid.className = 'scrGrid';
+    grid.style.aspectRatio = `${wide} / ${high}`;
+    grid.textContent = '＋';
+    add.append(cap, grid);
+    add.onclick = () => { addScreen(); scrPaint(); };
+    body.appendChild(add);
   }
 
   function scrShow(on) {
