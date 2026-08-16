@@ -172,6 +172,11 @@
   .tile.picked { box-shadow: inset 0 0 0 2px #6ea8fe; }
   /* Ячейка под перетаскиваемой карточкой. */
   .tile.drop { box-shadow: inset 0 0 0 3px #7ee787; background: #16301c; }
+  /* Ячейка под другой ячейкой: не добавление, а обмен местами — и цвет
+     другой, чтобы жесты не путались. */
+  .tile.swap { box-shadow: inset 0 0 0 3px #6ea8fe; background: #16223a; }
+  .tile.busy { cursor: grab; }
+  .tile.dragging { opacity: .45; cursor: grabbing; }
 
   /* Полоса у правого края: появляется, только пока карточку тащат, и
      добавляет ячейку вместо того, чтобы занимать существующую. Висит поверх
@@ -3076,15 +3081,31 @@
                     '</div>';
     const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
 
-    /* Перетаскивание карточки из правой колонки или строки истории прямо в
-       ячейку. Подсветку снимаем и по dragleave, и по drop: без первого она
-       остаётся висеть, если карточку увели мимо. */
+    /* Ячейку можно взять и переставить. Тащим за картинку, а не за отдельную
+       ручку: так привычнее, зато панель приходится из жеста исключать —
+       иначе ползунок громкости не подвинуть, нажатие на нём начинало бы
+       тащить всю ячейку. */
+    box.draggable = true;
+    box.ondragstart = e => {
+      if (!tile.user) return e.preventDefault();   // пустую переставлять незачем
+      e.dataTransfer.setData(TILE_DRAG, String(tiles.indexOf(tile)));
+      e.dataTransfer.effectAllowed = 'move';
+      box.classList.add('dragging');
+    };
+    box.ondragend = () => box.classList.remove('dragging');
+
+    /* Приём: либо карточка из правой колонки или истории, либо другая ячейка.
+       Что именно тащат, во время dragover известно только по списку типов —
+       содержимое браузер отдаёт лишь при drop. Подсветку снимаем и по
+       dragleave, и по drop: без первого она остаётся висеть, если увели мимо. */
     box.ondragover = e => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      box.classList.add('drop');
+      const move = Array.from(e.dataTransfer.types).includes(TILE_DRAG);
+      e.dataTransfer.dropEffect = move ? 'move' : 'copy';
+      box.classList.toggle('swap', move);
+      box.classList.toggle('drop', !move);
     };
-    box.ondragleave = () => box.classList.remove('drop');
+    box.ondragleave = () => box.classList.remove('drop', 'swap');
 
     /* Подпись развёрнутой ячейки живёт по расписанию штатной панели: та
        всплывает на движение курсора и прячется через пару секунд покоя.
@@ -3103,7 +3124,9 @@
     box.onmouseleave = () => { clearTimeout(ctlTimer); box.classList.remove('ctl'); };
     box.ondrop = e => {
       e.preventDefault();
-      box.classList.remove('drop');
+      box.classList.remove('drop', 'swap');
+      const from = e.dataTransfer.getData(TILE_DRAG);
+      if (from !== '') return swapTiles(Number(from), tiles.indexOf(tile));
       const room = dragRoom(e);
       if (!room) return;
       // Перетаскивание само говорит, куда класть, — подсветку не трогаем:
@@ -3126,6 +3149,12 @@
     const bar = box.querySelector('.tbar');
     const vol = bar.querySelector('.tvol');
     vol.value = String(wallVolume);
+
+    /* Пока держат панель, ячейка не перетаскивается: иначе нажатие на
+       ползунке громкости уезжало бы в перенос всей ячейки, и подвинуть его
+       было бы нельзя. Отпустили или ушли с панели — жест снова доступен. */
+    bar.onmousedown = () => { box.draggable = false; };
+    bar.onmouseup = bar.onmouseleave = () => { box.draggable = true; };
 
     bar.querySelector('.tplay').onclick = () => tilePlayPause(tile);
     /* Кнопка звука работает в двух смыслах, и оба нужны: у молчащей ячейки
@@ -3157,6 +3186,26 @@
     // Раскладку тут не трогаем: layoutWall сам достраивает недостающие ячейки
     // и вызвал бы себя по кругу.
     return tile;
+  }
+
+  /* Своя метка перетаскивания: по ней ячейка отличает «переставляют соседа»
+     от «принесли карточку из колонки». Тип свой, а не text/plain, потому что
+     во время dragover браузер отдаёт только список типов — по нему и решаем,
+     показывать зелёную подсветку добавления или синюю перестановки. */
+  const TILE_DRAG = 'application/x-wall-tile';
+
+  /* Перестановка — это обмен местами в массиве, а не перенос узлов в DOM:
+     раскладка расставляет ячейки по их номерам, поэтому смена номеров сама
+     двигает картинки. Видео при этом никто не трогает — ни паузы, ни
+     перезагрузки потока, ни моргания. */
+  function swapTiles(from, to) {
+    if (!Number.isInteger(from) || from === to) return;
+    if (from < 0 || to < 0 || from >= tiles.length || to >= tiles.length) return;
+    const moved = tiles[from];
+    tiles[from] = tiles[to];
+    tiles[to] = moved;
+    layoutWall();
+    saveWall();
   }
 
   const dragRoom = e => {
