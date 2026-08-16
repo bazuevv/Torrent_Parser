@@ -859,53 +859,53 @@
           data-i18n-title="панель.экраны.подсказка">&#x1F5D7;&#xFE0E;</button>
 
   <div id="settings" hidden>
-    <button id="settingsClose" title="Закрыть настройки">×</button>
-    <h3>Настройки</h3>
+    <button id="settingsClose" data-i18n-title="настройки.закрыть">×</button>
+    <h3 data-i18n="настройки.заголовок">Настройки</h3>
 
     <details class="sect" open data-sect="base">
-      <summary>База ников</summary>
+      <summary data-i18n="настройки.раздел.base">База ников</summary>
     <div class="row">
-      <label>Пополнение</label>
-      <button id="accounts" title="Перечитать базу с сервера и показать сборщик">Обновить аккаунты</button>
-      <i class="tip" data-hint="accounts" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <label data-i18n="настройки.подпись1">Пополнение</label>
+      <button id="accounts"  data-i18n="настройки.accounts.кнопка" data-i18n-title="настройки.accounts.кнопка.подсказка">Обновить аккаунты</button>
+      <i class="tip" data-hint="accounts" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>База ников общая для всех браузеров — она живёт на
+    <p class="hint" data-i18n="настройки.accounts.пояснение" hidden>База ников общая для всех браузеров — она живёт на
       сервере, а не в памяти страницы. Пополняет её закладка-сборщик,
       запускаемая на самом сайте: оттуда доступен каталог, закрытый для нас
       защитой Cloudflare.</p>
     </details>
 
     <details class="sect" open data-sect="view">
-      <summary>Просмотр</summary>
+      <summary data-i18n="настройки.раздел.view">Просмотр</summary>
 
     <div class="row">
-      <label for="lang">Язык интерфейса</label>
+      <label for="lang" data-i18n="настройки.lang.подпись">Язык интерфейса</label>
       <select id="lang">
-        <option value="auto">как в браузере</option>
-        <option value="ru">Русский</option>
+        <option value="auto" data-i18n="настройки.lang.вариант.auto">как в браузере</option>
+        <option value="ru" data-i18n="настройки.lang.вариант.ru">Русский</option>
       </select>
-      <i class="tip" data-hint="lang" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="lang" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>«Как в браузере» берёт язык из его настроек, если для
+    <p class="hint" data-i18n="настройки.lang.пояснение" hidden>«Как в браузере» берёт язык из его настроек, если для
       него есть словарь, иначе оставляет русский. Выбранный руками язык сильнее:
       смена системной локали его не перебьёт. Список пополняется сам — словари
       лежат файлами в папке lang рядом с сервером, добавление языка не требует
       правок ни в странице, ни в сервере.</p>
 
     <div class="row">
-      <label for="maxRate">Максимальный битрейт</label>
+      <label for="maxRate" data-i18n="настройки.maxRate.подпись">Максимальный битрейт</label>
       <select id="maxRate">
-        <option value="1000">1 Мбит/с</option>
-        <option value="2000">2 Мбит/с</option>
-        <option value="3000">3 Мбит/с</option>
-        <option value="5000">5 Мбит/с</option>
-        <option value="8000">8 Мбит/с</option>
-        <option value="10000">10 Мбит/с</option>
-        <option value="0">без ограничения</option>
+        <option value="1000" data-i18n="настройки.maxRate.вариант.1000">1 Мбит/с</option>
+        <option value="2000" data-i18n="настройки.maxRate.вариант.2000">2 Мбит/с</option>
+        <option value="3000" data-i18n="настройки.maxRate.вариант.3000">3 Мбит/с</option>
+        <option value="5000" data-i18n="настройки.maxRate.вариант.5000">5 Мбит/с</option>
+        <option value="8000" data-i18n="настройки.maxRate.вариант.8000">8 Мбит/с</option>
+        <option value="10000" data-i18n="настройки.maxRate.вариант.10000">10 Мбит/с</option>
+        <option value="0" data-i18n="настройки.maxRate.вариант.0">без ограничения</option>
       </select>
-      <i class="tip" data-hint="maxRate" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="maxRate" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Отсекает слишком тяжёлые дорожки: из уложившихся
+    <p class="hint" data-i18n="настройки.maxRate.пояснение" hidden>Отсекает слишком тяжёлые дорожки: из уложившихся
       берётся самое крупное разрешение. Сравнивать дорожки по битрейту нельзя
       — верхняя приходит от модели как есть, а нижние CDN пережимает на лету
       и часто вдвое расточительнее. Встречается и прямая ложь: дорожка
@@ -916,11 +916,11 @@
       дорожка, играет самая лёгкая: показать что-то лучше, чем ничего.</p>
 
     <div class="row">
-      <label for="libDir">Папка видео</label>
+      <label for="libDir" data-i18n="настройки.libDir.подпись">Папка видео</label>
       <input id="libDir" spellcheck="false" placeholder="не задана" readonly>
-      <i class="tip" data-hint="libDir" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="libDir" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Откуда кнопка «Видео» берёт файлы. Годится любая
+    <p class="hint" data-i18n="настройки.libDir.пояснение" hidden>Откуда кнопка «Видео» берёт файлы. Годится любая
       папка внутри /mnt/DATA, /mnt/Projects и /home/vladimir — за их пределы
       сервер не пустит, он виден всей локальной сети. Права на запись здесь не
       нужны, в отличие от папки записей: сюда мы только читаем. Подпапки не
@@ -928,18 +928,18 @@
 
 
     <div class="row">
-      <label for="wallCols">Столбцов в стене</label>
+      <label for="wallCols" data-i18n="настройки.wallCols.подпись">Столбцов в стене</label>
       <select id="wallCols">
-        <option value="0">авто</option>
-        <option value="1">1 (в столбик)</option>
+        <option value="0" data-i18n="настройки.wallCols.вариант.0">авто</option>
+        <option value="1" data-i18n="настройки.wallCols.вариант.1">1 (в столбик)</option>
         <option value="2">2</option>
         <option value="3">3</option>
         <option value="4">4</option>
         <option value="5">5</option>
       </select>
-      <i class="tip" data-hint="wallCols" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="wallCols" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Во сколько столбцов раскладывать ячейки; строк
+    <p class="hint" data-i18n="настройки.wallCols.пояснение" hidden>Во сколько столбцов раскладывать ячейки; строк
       получится столько, сколько понадобится. «Авто» перебирает все раскладки
       и берёт ту, где кадр выходит крупнее при нынешней форме окна: на широком
       экране две трансляции встанут рядом, а не одна под другой, — так каждая
@@ -948,32 +948,32 @@
       сетку 2×4, «4» — широкую 4×2.</p>
 
     <div class="row">
-      <label for="wallQ">Качество в стене</label>
+      <label for="wallQ" data-i18n="настройки.wallQ.подпись">Качество в стене</label>
       <select id="wallQ">
         <option value="240">240p</option>
         <option value="480">480p</option>
         <option value="720">720p</option>
       </select>
-      <i class="tip" data-hint="wallQ" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="wallQ" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Потолок высоты дорожки в ячейках. Берётся самая
+    <p class="hint" data-i18n="настройки.wallQ.пояснение" hidden>Потолок высоты дорожки в ячейках. Берётся самая
       крупная не выше этого значения. На четверти экрана разницы между 480p и
       1080p практически не видно, а декодирование 1080p обходится вчетверо
       дороже: замер дал 9× реального времени на ядро для 480p против примерно
       2× для 1080p.</p>
 
     <div class="row">
-      <label for="warm">Разгон канала</label>
+      <label for="warm" data-i18n="настройки.warm.подпись">Разгон канала</label>
       <select id="warm">
-        <option value="0">не ждать</option>
-        <option value="1">1 с</option>
-        <option value="3">3 с</option>
-        <option value="5">5 с</option>
-        <option value="10">10 с</option>
+        <option value="0" data-i18n="настройки.warm.вариант.0">не ждать</option>
+        <option value="1" data-i18n="настройки.warm.вариант.1">1 с</option>
+        <option value="3" data-i18n="настройки.warm.вариант.3">3 с</option>
+        <option value="5" data-i18n="настройки.warm.вариант.5">5 с</option>
+        <option value="10" data-i18n="настройки.warm.вариант.10">10 с</option>
       </select>
-      <i class="tip" data-hint="warm" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="warm" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Сколько секунд после запуска держать выбранное
+    <p class="hint" data-i18n="настройки.warm.пояснение" hidden>Сколько секунд после запуска держать выбранное
       качество, не слушая оценку канала. Свежее соединение разгоняется не
       сразу: замер на десяти серверах показал, что первый кусок занижает
       возможности вчетверо — 2.5 против 9.8 Мбит/с, — а до 80% от предела
@@ -984,46 +984,46 @@
       роняет качество на ровном месте.</p>
 
     <div class="row">
-      <label for="buffer">Буфер памяти</label>
+      <label for="buffer" data-i18n="настройки.buffer.подпись">Буфер памяти</label>
       <select id="buffer">
-        <option value="60">1 мин</option>
-        <option value="300">5 мин</option>
-        <option value="900">15 мин</option>
-        <option value="1800">30 мин</option>
-        <option value="3600">60 мин</option>
+        <option value="60" data-i18n="настройки.buffer.вариант.60">1 мин</option>
+        <option value="300" data-i18n="настройки.buffer.вариант.300">5 мин</option>
+        <option value="900" data-i18n="настройки.buffer.вариант.900">15 мин</option>
+        <option value="1800" data-i18n="настройки.buffer.вариант.1800">30 мин</option>
+        <option value="3600" data-i18n="настройки.buffer.вариант.3600">60 мин</option>
       </select>
-      <i class="tip" data-hint="buffer" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="buffer" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Глубина мгновенной перемотки. При записи на диск —
+    <p class="hint" data-i18n="настройки.buffer.пояснение" hidden>Глубина мгновенной перемотки. При записи на диск —
       быстрый кэш поверх файла, без записи — вся доступная глубина. Час 720p ≈
       1 ГБ памяти.</p>
 
     <div class="row">
-      <label>Панели</label>
+      <label data-i18n="настройки.подпись2">Панели</label>
       <span>
-        <label class="check"><input type="checkbox" id="panelLeft"> история</label>
-        <label class="check"><input type="checkbox" id="panelRight"> эфир</label>
+        <label class="check"><input type="checkbox" id="panelLeft"><span data-i18n="настройки.panelLeft.рядом">история</span></label>
+        <label class="check"><input type="checkbox" id="panelRight"><span data-i18n="настройки.panelRight.рядом">эфир</span></label>
       </span>
-      <i class="tip" data-hint="panelLeft" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="panelLeft" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>То же самое делают синие ручки по краям видео.</p>
+    <p class="hint" data-i18n="настройки.panelRight.пояснение" hidden>То же самое делают синие ручки по краям видео.</p>
 
     <div class="row">
-      <label>Связь</label>
-      <button id="net" title="Задержки и потери до роутера, нейтральных узлов и серверов вещания">📡 Проверить</button>
-      <i class="tip" data-hint="net" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <label data-i18n="настройки.подпись3">Связь</label>
+      <button id="net"  data-i18n="настройки.net.кнопка" data-i18n-title="настройки.net.кнопка.подсказка">📡 Проверить</button>
+      <i class="tip" data-hint="net" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Пингует по очереди роутер, нейтральные узлы и
+    <p class="hint" data-i18n="настройки.net.пояснение" hidden>Пингует по очереди роутер, нейтральные узлы и
       серверы вещания и показывает задержку с потерями по каждому. Нужна,
       когда картинка сыплется: сразу видно, канал ли виноват и на каком
       участке.</p>
 
     <div class="row">
-      <label for="msgs">Сообщения о событиях</label>
-      <label class="check"><input type="checkbox" id="msgs"> показывать в верхней панели</label>
-      <i class="tip" data-hint="msgs" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <label for="msgs" data-i18n="настройки.msgs.подпись">Сообщения о событиях</label>
+      <label class="check"><input type="checkbox" id="msgs"><span data-i18n="настройки.msgs.рядом">показывать в верхней панели</span></label>
+      <i class="tip" data-hint="msgs" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Строка справа в верхней панели: кто ушёл из эфира,
+    <p class="hint" data-i18n="настройки.msgs.пояснение" hidden>Строка справа в верхней панели: кто ушёл из эфира,
       что скопировано, сколько трансляций остановлено. Выключите, если она
       отвлекает. Ошибки показываются в любом случае — молчащая панель при
       поломке хуже лишней надписи.</p>
@@ -1031,70 +1031,70 @@
     </details>
 
     <details class="sect" open data-sect="rec">
-      <summary>Запись</summary>
+      <summary data-i18n="настройки.раздел.rec">Запись</summary>
     <div class="row">
-      <label for="recRate">Максимальный битрейт записи</label>
+      <label for="recRate" data-i18n="настройки.recRate.подпись">Максимальный битрейт записи</label>
       <select id="recRate">
-        <option value="1000">1 Мбит/с</option>
-        <option value="2000">2 Мбит/с</option>
-        <option value="3000">3 Мбит/с</option>
-        <option value="5000">5 Мбит/с</option>
-        <option value="8000">8 Мбит/с</option>
-        <option value="10000">10 Мбит/с</option>
-        <option value="0">как при просмотре</option>
+        <option value="1000" data-i18n="настройки.recRate.вариант.1000">1 Мбит/с</option>
+        <option value="2000" data-i18n="настройки.recRate.вариант.2000">2 Мбит/с</option>
+        <option value="3000" data-i18n="настройки.recRate.вариант.3000">3 Мбит/с</option>
+        <option value="5000" data-i18n="настройки.recRate.вариант.5000">5 Мбит/с</option>
+        <option value="8000" data-i18n="настройки.recRate.вариант.8000">8 Мбит/с</option>
+        <option value="10000" data-i18n="настройки.recRate.вариант.10000">10 Мбит/с</option>
+        <option value="0" data-i18n="настройки.recRate.вариант.0">как при просмотре</option>
       </select>
-      <i class="tip" data-hint="recRate" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="recRate" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Если поток тяжелее — сервер пережимает его до этого
+    <p class="hint" data-i18n="настройки.recRate.пояснение" hidden>Если поток тяжелее — сервер пережимает его до этого
       битрейта на видеокарте, разрешение при этом сохраняется. «Как при
       просмотре» пишет поток как есть, без перекодирования.</p>
 
     <div class="row">
-      <label for="recMode">Режим записи</label>
+      <label for="recMode" data-i18n="настройки.recMode.подпись">Режим записи</label>
       <select id="recMode">
-        <option value="1">авто</option>
-        <option value="0">вручную</option>
+        <option value="1" data-i18n="настройки.recMode.вариант.1">авто</option>
+        <option value="0" data-i18n="настройки.recMode.вариант.0">вручную</option>
       </select>
-      <i class="tip" data-hint="recMode" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="recMode" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>В авто пишется каждая открытая трансляция — это и
+    <p class="hint" data-i18n="настройки.recMode.пояснение" hidden>В авто пишется каждая открытая трансляция — это и
       есть буфер перемотки. Вручную запись начинается только по кнопке в
       верхней панели.</p>
 
     <div class="row">
-      <label for="recDir">Папка записей</label>
+      <label for="recDir" data-i18n="настройки.recDir.подпись">Папка записей</label>
       <input id="recDir" spellcheck="false" placeholder="/mnt/DATA/Bonga_rec">
-      <i class="tip" data-hint="recDir" tabindex="0" role="button" aria-expanded="false" id="recDirHint" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="recDir" tabindex="0" role="button" aria-expanded="false" id="recDirHint" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Куда сервер кладёт файлы. Допустимы пути внутри
+    <p class="hint" data-i18n="настройки.recDir.пояснение" hidden>Куда сервер кладёт файлы. Допустимы пути внутри
       /mnt/DATA, /mnt/Projects и /home/vladimir — остальные systemd закроет на
       запись. Прежние записи остаются там, где лежали.</p>
 
     <div class="row">
-      <label for="segment">Длина сегмента</label>
+      <label for="segment" data-i18n="настройки.segment.подпись">Длина сегмента</label>
       <select id="segment">
-        <option value="10">10 с</option>
-        <option value="30">30 с</option>
-        <option value="60">60 с</option>
-        <option value="300">5 мин</option>
+        <option value="10" data-i18n="настройки.segment.вариант.10">10 с</option>
+        <option value="30" data-i18n="настройки.segment.вариант.30">30 с</option>
+        <option value="60" data-i18n="настройки.segment.вариант.60">60 с</option>
+        <option value="300" data-i18n="настройки.segment.вариант.300">5 мин</option>
       </select>
-      <i class="tip" data-hint="segment" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="segment" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Куски, на которые ffmpeg режет запись; по её
+    <p class="hint" data-i18n="настройки.segment.пояснение" hidden>Куски, на которые ffmpeg режет запись; по её
       окончании они склеиваются в один mp4. Короткие — больше файлов, зато
       свежее точка перехода по кнопке «Из записи».</p>
 
     <div class="row">
-      <label for="keepMin">Спрашивать о сохранении</label>
+      <label for="keepMin" data-i18n="настройки.keepMin.подпись">Спрашивать о сохранении</label>
       <select id="keepMin">
-        <option value="0">всегда</option>
-        <option value="60">если длиннее минуты</option>
-        <option value="300">если длиннее 5 минут</option>
-        <option value="86400">никогда, удалять</option>
+        <option value="0" data-i18n="настройки.keepMin.вариант.0">всегда</option>
+        <option value="60" data-i18n="настройки.keepMin.вариант.60">если длиннее минуты</option>
+        <option value="300" data-i18n="настройки.keepMin.вариант.300">если длиннее 5 минут</option>
+        <option value="86400" data-i18n="настройки.keepMin.вариант.86400">никогда, удалять</option>
       </select>
-      <i class="tip" data-hint="keepMin" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="keepMin" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Запись включена всегда — она даёт перемотку глубже
+    <p class="hint" data-i18n="настройки.keepMin.пояснение" hidden>Запись включена всегда — она даёт перемотку глубже
       оперативной памяти. При переходе в другую комнату плеер спросит,
       оставить файл или стереть; короткие записи стираются молча, они были
       нужны лишь как буфер.</p>
@@ -1102,32 +1102,32 @@
     </details>
 
     <details class="sect" open data-sect="hist">
-      <summary>История</summary>
+      <summary data-i18n="настройки.раздел.hist">История</summary>
     <div class="row">
-      <label for="deep">Искать переехавших</label>
+      <label for="deep" data-i18n="настройки.deep.подпись">Искать переехавших</label>
       <select id="deep">
-        <option value="0">вручную</option>
-        <option value="5">каждые 5 мин</option>
-        <option value="15">каждые 15 мин</option>
-        <option value="60">раз в час</option>
+        <option value="0" data-i18n="настройки.deep.вариант.0">вручную</option>
+        <option value="5" data-i18n="настройки.deep.вариант.5">каждые 5 мин</option>
+        <option value="15" data-i18n="настройки.deep.вариант.15">каждые 15 мин</option>
+        <option value="60" data-i18n="настройки.deep.вариант.60">раз в час</option>
       </select>
-      <i class="tip" data-hint="deep" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="deep" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Серые ники в истории обходятся по всем серверам
+    <p class="hint" data-i18n="настройки.deep.пояснение" hidden>Серые ники в истории обходятся по всем серверам
       вещания сразу: модель могла не уйти, а переехать на другой сервер —
       тогда обычная проверка считает её ушедшей. Обход тяжёлый, поэтому идёт
       по расписанию; кнопка ↻ над историей запускает его немедленно.</p>
     <div class="row">
-      <label for="deepBatch">Ников за заход</label>
+      <label for="deepBatch" data-i18n="настройки.deepBatch.подпись">Ников за заход</label>
       <select id="deepBatch">
         <option value="6">6</option>
         <option value="12">12</option>
         <option value="25">25</option>
-        <option value="0">все серые</option>
+        <option value="0" data-i18n="настройки.deepBatch.вариант.0">все серые</option>
       </select>
-      <i class="tip" data-hint="deepBatch" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="deepBatch" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Ники истории, не ответившие на своём сервере,
+    <p class="hint" data-i18n="настройки.deepBatch.пояснение" hidden>Ники истории, не ответившие на своём сервере,
       перебираются по всем 105 серверам: модель могла переехать. Один такой
       ник стоит до 105 запросов и около 10 секунд, поэтому за заход берётся
       порция, начиная с тех, кого дольше не проверяли — за пару циклов очередь
@@ -1136,19 +1136,19 @@
     </details>
 
     <details class="sect" open data-sect="upd">
-      <summary>Как часто обновлять</summary>
+      <summary data-i18n="настройки.раздел.upd">Как часто обновлять</summary>
     <div class="row">
-      <label for="catalog">Каталог сайта</label>
+      <label for="catalog" data-i18n="настройки.catalog.подпись">Каталог сайта</label>
       <select id="catalog">
-        <option value="0">не опрашивать</option>
-        <option value="30">30 с</option>
-        <option value="60">1 мин</option>
-        <option value="180">3 мин</option>
-        <option value="600">10 мин</option>
+        <option value="0" data-i18n="настройки.catalog.вариант.0">не опрашивать</option>
+        <option value="30" data-i18n="настройки.catalog.вариант.30">30 с</option>
+        <option value="60" data-i18n="настройки.catalog.вариант.60">1 мин</option>
+        <option value="180" data-i18n="настройки.catalog.вариант.180">3 мин</option>
+        <option value="600" data-i18n="настройки.catalog.вариант.600">10 мин</option>
       </select>
-      <i class="tip" data-hint="catalog" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="catalog" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Сервер сам опрашивает список эфира на сайте — это
+    <p class="hint" data-i18n="настройки.catalog.пояснение" hidden>Сервер сам опрашивает список эфира на сайте — это
       главный источник правой колонки: около 1200 комнат с верными номерами
       серверов. Собственный обход плеера находит куда меньше, потому что знает
       лишь прежние серверы, а модели между ними переезжают. Чаще, чем раз в
@@ -1156,17 +1156,17 @@
       запросов.</p>
 
     <div class="row">
-      <label for="ladder">Битрейты дорожек</label>
+      <label for="ladder" data-i18n="настройки.ladder.подпись">Битрейты дорожек</label>
       <select id="ladder">
-        <option value="0">не мерить</option>
-        <option value="43200">12 часов</option>
-        <option value="86400">1 день</option>
-        <option value="259200">3 дня</option>
-        <option value="604800">1 неделя</option>
+        <option value="0" data-i18n="настройки.ladder.вариант.0">не мерить</option>
+        <option value="43200" data-i18n="настройки.ladder.вариант.43200">12 часов</option>
+        <option value="86400" data-i18n="настройки.ladder.вариант.86400">1 день</option>
+        <option value="259200" data-i18n="настройки.ladder.вариант.259200">3 дня</option>
+        <option value="604800" data-i18n="настройки.ladder.вариант.604800">1 неделя</option>
       </select>
-      <i class="tip" data-hint="ladder" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="ladder" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Сервер заранее взвешивает дорожки комнат из истории
+    <p class="hint" data-i18n="настройки.ladder.пояснение" hidden>Сервер заранее взвешивает дорожки комнат из истории
       и хранит результат, чтобы плеер выбирал качество по настоящим числам с
       первой же секунды. Без этого первые пару секунд решения принимаются по
       заявленным в манифесте, где у 720p бывает 3.4 Мбит/с при настоящих 0.65
@@ -1175,17 +1175,17 @@
       идёт раз в минуту, поэтому новая комната в истории меряется сразу.</p>
 
     <div class="row">
-      <label for="act">Активность комнат</label>
+      <label for="act" data-i18n="настройки.act.подпись">Активность комнат</label>
       <select id="act">
-        <option value="0">не мерить</option>
-        <option value="10">10 с</option>
-        <option value="15">15 с</option>
-        <option value="30">30 с</option>
-        <option value="60">1 мин</option>
+        <option value="0" data-i18n="настройки.act.вариант.0">не мерить</option>
+        <option value="10" data-i18n="настройки.act.вариант.10">10 с</option>
+        <option value="15" data-i18n="настройки.act.вариант.15">15 с</option>
+        <option value="30" data-i18n="настройки.act.вариант.30">30 с</option>
+        <option value="60" data-i18n="настройки.act.вариант.60">1 мин</option>
       </select>
-      <i class="tip" data-hint="act" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="act" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Сервер взвешивает куски нижней дорожки у комнат из
+    <p class="hint" data-i18n="настройки.act.пояснение" hidden>Сервер взвешивает куски нижней дорожки у комнат из
       истории и по разбросу судит о подвижности сцены — столбики слева от
       времени. Считается от собственной нормы комнаты, потому что разрешение и
       энкодер у всех разные. Первая оценка появляется примерно через две
@@ -1194,44 +1194,44 @@
       куска.</p>
 
     <div class="row">
-      <label for="thumbs">Превью справа</label>
+      <label for="thumbs" data-i18n="настройки.thumbs.подпись">Превью справа</label>
       <select id="thumbs">
-        <option value="0">не обновлять</option>
-        <option value="5">5 с</option>
-        <option value="10">10 с</option>
-        <option value="30">30 с</option>
+        <option value="0" data-i18n="настройки.thumbs.вариант.0">не обновлять</option>
+        <option value="5" data-i18n="настройки.thumbs.вариант.5">5 с</option>
+        <option value="10" data-i18n="настройки.thumbs.вариант.10">10 с</option>
+        <option value="30" data-i18n="настройки.thumbs.вариант.30">30 с</option>
       </select>
-      <i class="tip" data-hint="thumbs" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="thumbs" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Сам CDN перерисовывает кадры примерно раз в 10
+    <p class="hint" data-i18n="настройки.thumbs.пояснение" hidden>Сам CDN перерисовывает кадры примерно раз в 10
       секунд.</p>
 
     <div class="row">
-      <label for="hist">Статус в истории</label>
+      <label for="hist" data-i18n="настройки.hist.подпись">Статус в истории</label>
       <select id="hist">
-        <option value="0">не проверять</option>
-        <option value="30">30 с</option>
-        <option value="60">1 мин</option>
-        <option value="300">5 мин</option>
+        <option value="0" data-i18n="настройки.hist.вариант.0">не проверять</option>
+        <option value="30" data-i18n="настройки.hist.вариант.30">30 с</option>
+        <option value="60" data-i18n="настройки.hist.вариант.60">1 мин</option>
+        <option value="300" data-i18n="настройки.hist.вариант.300">5 мин</option>
       </select>
-      <i class="tip" data-hint="hist" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="hist" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Как часто левая колонка перепроверяет, идёт ли эфир
+    <p class="hint" data-i18n="настройки.hist.пояснение" hidden>Как часто левая колонка перепроверяет, идёт ли эфир
       у просмотренных ранее ников. Спрашивается только их последний известный
       сервер — это быстро; поиск по всем серверам вынесен в «Искать
       переехавших».</p>
 
     <div class="row">
-      <label for="pull">Перечитывать базу</label>
+      <label for="pull" data-i18n="настройки.pull.подпись">Перечитывать базу</label>
       <select id="pull">
-        <option value="30">30 с</option>
-        <option value="60">1 мин</option>
-        <option value="300">5 мин</option>
-        <option value="900">15 мин</option>
+        <option value="30" data-i18n="настройки.pull.вариант.30">30 с</option>
+        <option value="60" data-i18n="настройки.pull.вариант.60">1 мин</option>
+        <option value="300" data-i18n="настройки.pull.вариант.300">5 мин</option>
+        <option value="900" data-i18n="настройки.pull.вариант.900">15 мин</option>
       </select>
-      <i class="tip" data-hint="pull" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="pull" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Как часто страница забирает с сервера общую базу
+    <p class="hint" data-i18n="настройки.pull.пояснение" hidden>Как часто страница забирает с сервера общую базу
       ников. Пока закладка-сборщик работает в соседней вкладке, база
       пополняется каждую минуту, и открытые плееры подхватывают новые номера
       серверов отсюда.</p>
@@ -1239,44 +1239,44 @@
     </details>
 
     <details class="sect" open data-sect="sweep">
-      <summary>Проверка эфира</summary>
+      <summary data-i18n="настройки.раздел.sweep">Проверка эфира</summary>
     <div class="row">
-      <label for="ttl">Результат годен</label>
+      <label for="ttl" data-i18n="настройки.ttl.подпись">Результат годен</label>
       <select id="ttl">
-        <option value="15">15 мин</option>
-        <option value="60">1 час</option>
-        <option value="360">6 часов</option>
-        <option value="1440">сутки</option>
+        <option value="15" data-i18n="настройки.ttl.вариант.15">15 мин</option>
+        <option value="60" data-i18n="настройки.ttl.вариант.60">1 час</option>
+        <option value="360" data-i18n="настройки.ttl.вариант.360">6 часов</option>
+        <option value="1440" data-i18n="настройки.ttl.вариант.1440">сутки</option>
       </select>
-      <i class="tip" data-hint="ttl" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="ttl" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Пока результат свежий, при загрузке страницы список
+    <p class="hint" data-i18n="настройки.ttl.пояснение" hidden>Пока результат свежий, при загрузке страницы список
       берётся с сервера без обхода.</p>
 
     <div class="row">
-      <label for="gap">Пауза между обходами</label>
+      <label for="gap" data-i18n="настройки.gap.подпись">Пауза между обходами</label>
       <select id="gap">
-        <option value="0">без паузы</option>
-        <option value="5">5 мин</option>
-        <option value="10">10 мин</option>
-        <option value="30">30 мин</option>
+        <option value="0" data-i18n="настройки.gap.вариант.0">без паузы</option>
+        <option value="5" data-i18n="настройки.gap.вариант.5">5 мин</option>
+        <option value="10" data-i18n="настройки.gap.вариант.10">10 мин</option>
+        <option value="30" data-i18n="настройки.gap.вариант.30">30 мин</option>
       </select>
-      <i class="tip" data-hint="gap" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="gap" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Насколько часто плеер может сам запускать полный
+    <p class="hint" data-i18n="настройки.gap.пояснение" hidden>Насколько часто плеер может сам запускать полный
       обход. Кнопка ↻ паузу игнорирует.</p>
 
     <div class="row">
-      <label for="pool">Запросов разом</label>
+      <label for="pool" data-i18n="настройки.pool.подпись">Запросов разом</label>
       <select id="pool">
         <option value="12">12</option>
         <option value="24">24</option>
         <option value="48">48</option>
         <option value="96">96</option>
       </select>
-      <i class="tip" data-hint="pool" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+      <i class="tip" data-hint="pool" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
-    <p class="hint" hidden>Больше — быстрее обход, но выше нагрузка на сеть.
+    <p class="hint" data-i18n="настройки.pool.пояснение" hidden>Больше — быстрее обход, но выше нагрузка на сеть.
       Сейчас в базе несколько тысяч ников.</p>
 
     </details>
@@ -1292,7 +1292,7 @@
   <div id="statusDetails" hidden>
     <pre id="statusText"></pre>
     <div class="dlg-btns">
-      <button id="statusCopy">Копировать</button>
+      <button id="statusCopy" data-i18n="настройки.statusCopy.кнопка">Копировать</button>
     </div>
   </div>
 </header>
@@ -1303,9 +1303,9 @@
      «Сохранить» склеит их в один mp4, «Удалить» — сотрёт.</p>
   <div id="orphanList"></div>
   <div class="dlg-btns">
-    <button id="orphanKeepAll" title="Склеить каждую папку в отдельный mp4 и убрать куски">Сохранить все</button>
-    <button id="orphanDropAll" title="Стереть все незавершённые куски без склейки — отменить будет нельзя">Удалить все</button>
-    <button id="orphanClose" class="primary" title="Оставить как есть: вопрос повторится при следующем запуске">Позже</button>
+    <button id="orphanKeepAll"  data-i18n="настройки.orphanKeepAll.кнопка" data-i18n-title="настройки.orphanKeepAll.кнопка.подсказка">Сохранить все</button>
+    <button id="orphanDropAll"  data-i18n="настройки.orphanDropAll.кнопка" data-i18n-title="настройки.orphanDropAll.кнопка.подсказка">Удалить все</button>
+    <button id="orphanClose" class="primary"  data-i18n="настройки.orphanClose.кнопка" data-i18n-title="настройки.orphanClose.кнопка.подсказка">Позже</button>
   </div>
 </dialog>
 
@@ -1316,8 +1316,8 @@
   <p class="hint" id="noteHint">Пустая заметка удаляется. Видна со всех устройств —
     хранится на сервере.</p>
   <div class="dlg-btns">
-    <button id="noteSave" class="primary">Сохранить</button>
-    <button id="noteCancel">Отмена</button>
+    <button id="noteSave" class="primary" data-i18n="настройки.noteSave.кнопка">Сохранить</button>
+    <button id="noteCancel" data-i18n="настройки.noteCancel.кнопка">Отмена</button>
   </div>
 </dialog>
 
@@ -1330,9 +1330,9 @@
            title="Создать подпапку внутри текущей и выбрать её. Оставьте пустым, чтобы взять текущую">
   </div>
   <div class="dlg-btns">
-    <button id="dirUp" title="Перейти в родительскую папку">Наверх</button>
-    <button id="dirPick" class="primary" title="Записывать сюда. Путь сохранится в настройках сервера">Выбрать эту папку</button>
-    <button id="dirCancel" title="Закрыть, оставив прежнюю папку записей">Отмена</button>
+    <button id="dirUp"  data-i18n="настройки.dirUp.кнопка" data-i18n-title="настройки.dirUp.кнопка.подсказка">Наверх</button>
+    <button id="dirPick" class="primary"  data-i18n="настройки.dirPick.кнопка" data-i18n-title="настройки.dirPick.кнопка.подсказка">Выбрать эту папку</button>
+    <button id="dirCancel"  data-i18n="настройки.dirCancel.кнопка" data-i18n-title="настройки.dirCancel.кнопка.подсказка">Отмена</button>
   </div>
 </dialog>
 
@@ -1350,11 +1350,11 @@
     <summary>Если сервер был недоступен — вставить список вручную</summary>
     <textarea id="importText" placeholder='[["ник",67,4589], …]'></textarea>
     <div class="dlg-btns">
-      <button id="importOk">Импортировать</button>
+      <button id="importOk" data-i18n="настройки.importOk.кнопка">Импортировать</button>
     </div>
   </details>
   <div class="dlg-btns">
-    <button id="baseClose" class="primary">Закрыть</button>
+    <button id="baseClose" class="primary" data-i18n="настройки.baseClose.кнопка">Закрыть</button>
   </div>
 </dialog>
 
@@ -1611,6 +1611,170 @@
     'история.очистить': 'Очистить',
     'история.очистить.подсказка': 'Очистить историю',
     'история.проверить': 'Проверить серые ники на всех серверах',
+    'настройки.accounts.кнопка': 'Обновить аккаунты',
+    'настройки.accounts.кнопка.подсказка': 'Перечитать базу с сервера и показать сборщик',
+    'настройки.accounts.пояснение': 'База ников общая для всех браузеров — она живёт на сервере, а не в памяти страницы. Пополняет её закладка-сборщик, запускаемая на самом сайте: оттуда доступен каталог, закрытый для нас защитой Cloudflare.',
+    'настройки.act.вариант.0': 'не мерить',
+    'настройки.act.вариант.10': '10 с',
+    'настройки.act.вариант.15': '15 с',
+    'настройки.act.вариант.30': '30 с',
+    'настройки.act.вариант.60': '1 мин',
+    'настройки.act.подпись': 'Активность комнат',
+    'настройки.act.пояснение': 'Сервер взвешивает куски нижней дорожки у комнат из истории и по разбросу судит о подвижности сцены — столбики слева от времени. Считается от собственной нормы комнаты, потому что разрешение и энкодер у всех разные. Первая оценка появляется примерно через две минуты: нужно накопить хотя бы дюжину кусков. Опрос идёт только по тем, кто сейчас в эфире; видео при этом не качается, спрашивается лишь размер куска.',
+    'настройки.baseClose.кнопка': 'Закрыть',
+    'настройки.buffer.вариант.1800': '30 мин',
+    'настройки.buffer.вариант.300': '5 мин',
+    'настройки.buffer.вариант.3600': '60 мин',
+    'настройки.buffer.вариант.60': '1 мин',
+    'настройки.buffer.вариант.900': '15 мин',
+    'настройки.buffer.подпись': 'Буфер памяти',
+    'настройки.buffer.пояснение': 'Глубина мгновенной перемотки. При записи на диск — быстрый кэш поверх файла, без записи — вся доступная глубина. Час 720p ≈ 1 ГБ памяти.',
+    'настройки.catalog.вариант.0': 'не опрашивать',
+    'настройки.catalog.вариант.180': '3 мин',
+    'настройки.catalog.вариант.30': '30 с',
+    'настройки.catalog.вариант.60': '1 мин',
+    'настройки.catalog.вариант.600': '10 мин',
+    'настройки.catalog.подпись': 'Каталог сайта',
+    'настройки.catalog.пояснение': 'Сервер сам опрашивает список эфира на сайте — это главный источник правой колонки: около 1200 комнат с верными номерами серверов. Собственный обход плеера находит куда меньше, потому что знает лишь прежние серверы, а модели между ними переезжают. Чаще, чем раз в полминуты, спрашивать не стоит: сайт отвечает отказом на частые серии запросов.',
+    'настройки.deep.вариант.0': 'вручную',
+    'настройки.deep.вариант.15': 'каждые 15 мин',
+    'настройки.deep.вариант.5': 'каждые 5 мин',
+    'настройки.deep.вариант.60': 'раз в час',
+    'настройки.deep.подпись': 'Искать переехавших',
+    'настройки.deep.пояснение': 'Серые ники в истории обходятся по всем серверам вещания сразу: модель могла не уйти, а переехать на другой сервер — тогда обычная проверка считает её ушедшей. Обход тяжёлый, поэтому идёт по расписанию; кнопка ↻ над историей запускает его немедленно.',
+    'настройки.deepBatch.вариант.0': 'все серые',
+    'настройки.deepBatch.подпись': 'Ников за заход',
+    'настройки.deepBatch.пояснение': 'Ники истории, не ответившие на своём сервере, перебираются по всем 105 серверам: модель могла переехать. Один такой ник стоит до 105 запросов и около 10 секунд, поэтому за заход берётся порция, начиная с тех, кого дольше не проверяли — за пару циклов очередь обходит всех. Кнопка ↻ в истории запускает проверку немедленно.',
+    'настройки.dirCancel.кнопка': 'Отмена',
+    'настройки.dirCancel.кнопка.подсказка': 'Закрыть, оставив прежнюю папку записей',
+    'настройки.dirPick.кнопка': 'Выбрать эту папку',
+    'настройки.dirPick.кнопка.подсказка': 'Записывать сюда. Путь сохранится в настройках сервера',
+    'настройки.dirUp.кнопка': 'Наверх',
+    'настройки.dirUp.кнопка.подсказка': 'Перейти в родительскую папку',
+    'настройки.gap.вариант.0': 'без паузы',
+    'настройки.gap.вариант.10': '10 мин',
+    'настройки.gap.вариант.30': '30 мин',
+    'настройки.gap.вариант.5': '5 мин',
+    'настройки.gap.подпись': 'Пауза между обходами',
+    'настройки.gap.пояснение': 'Насколько часто плеер может сам запускать полный обход. Кнопка ↻ паузу игнорирует.',
+    'настройки.hist.вариант.0': 'не проверять',
+    'настройки.hist.вариант.30': '30 с',
+    'настройки.hist.вариант.300': '5 мин',
+    'настройки.hist.вариант.60': '1 мин',
+    'настройки.hist.подпись': 'Статус в истории',
+    'настройки.hist.пояснение': 'Как часто левая колонка перепроверяет, идёт ли эфир у просмотренных ранее ников. Спрашивается только их последний известный сервер — это быстро; поиск по всем серверам вынесен в «Искать переехавших».',
+    'настройки.importOk.кнопка': 'Импортировать',
+    'настройки.keepMin.вариант.0': 'всегда',
+    'настройки.keepMin.вариант.300': 'если длиннее 5 минут',
+    'настройки.keepMin.вариант.60': 'если длиннее минуты',
+    'настройки.keepMin.вариант.86400': 'никогда, удалять',
+    'настройки.keepMin.подпись': 'Спрашивать о сохранении',
+    'настройки.keepMin.пояснение': 'Запись включена всегда — она даёт перемотку глубже оперативной памяти. При переходе в другую комнату плеер спросит, оставить файл или стереть; короткие записи стираются молча, они были нужны лишь как буфер.',
+    'настройки.ladder.вариант.0': 'не мерить',
+    'настройки.ladder.вариант.259200': '3 дня',
+    'настройки.ladder.вариант.43200': '12 часов',
+    'настройки.ladder.вариант.604800': '1 неделя',
+    'настройки.ladder.вариант.86400': '1 день',
+    'настройки.ladder.подпись': 'Битрейты дорожек',
+    'настройки.ladder.пояснение': 'Сервер заранее взвешивает дорожки комнат из истории и хранит результат, чтобы плеер выбирал качество по настоящим числам с первой же секунды. Без этого первые пару секунд решения принимаются по заявленным в манифесте, где у 720p бывает 3.4 Мбит/с при настоящих 0.65 — и подбор успевает уронить качество, особенно на первой комнате после перезагрузки страницы. Значение задаёт срок годности замера; проверка идёт раз в минуту, поэтому новая комната в истории меряется сразу.',
+    'настройки.lang.вариант.auto': 'как в браузере',
+    'настройки.lang.вариант.ru': 'Русский',
+    'настройки.lang.подпись': 'Язык интерфейса',
+    'настройки.lang.пояснение': '«Как в браузере» берёт язык из его настроек, если для него есть словарь, иначе оставляет русский. Выбранный руками язык сильнее: смена системной локали его не перебьёт. Список пополняется сам — словари лежат файлами в папке lang рядом с сервером, добавление языка не требует правок ни в странице, ни в сервере.',
+    'настройки.libDir.подпись': 'Папка видео',
+    'настройки.libDir.пояснение': 'Откуда кнопка «Видео» берёт файлы. Годится любая папка внутри /mnt/DATA, /mnt/Projects и /home/vladimir — за их пределы сервер не пустит, он виден всей локальной сети. Права на запись здесь не нужны, в отличие от папки записей: сюда мы только читаем. Подпапки не обходятся.',
+    'настройки.maxRate.вариант.0': 'без ограничения',
+    'настройки.maxRate.вариант.1000': '1 Мбит/с',
+    'настройки.maxRate.вариант.10000': '10 Мбит/с',
+    'настройки.maxRate.вариант.2000': '2 Мбит/с',
+    'настройки.maxRate.вариант.3000': '3 Мбит/с',
+    'настройки.maxRate.вариант.5000': '5 Мбит/с',
+    'настройки.maxRate.вариант.8000': '8 Мбит/с',
+    'настройки.maxRate.подпись': 'Максимальный битрейт',
+    'настройки.maxRate.пояснение': 'Отсекает слишком тяжёлые дорожки: из уложившихся берётся самое крупное разрешение. Сравнивать дорожки по битрейту нельзя — верхняя приходит от модели как есть, а нижние CDN пережимает на лету и часто вдвое расточительнее. Встречается и прямая ложь: дорожка объявляет 3.4 Мбит/с, а отдаёт 2.1. Битрейт каждой дорожки виден в списке «Качество». Режим «авто» тоже подчиняется этому потолку и опирается на измеренные значения, а не на заявленные. Если под потолок не проходит ни одна дорожка, играет самая лёгкая: показать что-то лучше, чем ничего.',
+    'настройки.msgs.подпись': 'Сообщения о событиях',
+    'настройки.msgs.пояснение': 'Строка справа в верхней панели: кто ушёл из эфира, что скопировано, сколько трансляций остановлено. Выключите, если она отвлекает. Ошибки показываются в любом случае — молчащая панель при поломке хуже лишней надписи.',
+    'настройки.msgs.рядом': 'показывать в верхней панели',
+    'настройки.net.кнопка': '📡 Проверить',
+    'настройки.net.кнопка.подсказка': 'Задержки и потери до роутера, нейтральных узлов и серверов вещания',
+    'настройки.net.пояснение': 'Пингует по очереди роутер, нейтральные узлы и серверы вещания и показывает задержку с потерями по каждому. Нужна, когда картинка сыплется: сразу видно, канал ли виноват и на каком участке.',
+    'настройки.noteCancel.кнопка': 'Отмена',
+    'настройки.noteSave.кнопка': 'Сохранить',
+    'настройки.orphanClose.кнопка': 'Позже',
+    'настройки.orphanClose.кнопка.подсказка': 'Оставить как есть: вопрос повторится при следующем запуске',
+    'настройки.orphanDropAll.кнопка': 'Удалить все',
+    'настройки.orphanDropAll.кнопка.подсказка': 'Стереть все незавершённые куски без склейки — отменить будет нельзя',
+    'настройки.orphanKeepAll.кнопка': 'Сохранить все',
+    'настройки.orphanKeepAll.кнопка.подсказка': 'Склеить каждую папку в отдельный mp4 и убрать куски',
+    'настройки.panelLeft.рядом': 'история',
+    'настройки.panelRight.пояснение': 'То же самое делают синие ручки по краям видео.',
+    'настройки.panelRight.рядом': 'эфир',
+    'настройки.pool.подпись': 'Запросов разом',
+    'настройки.pool.пояснение': 'Больше — быстрее обход, но выше нагрузка на сеть. Сейчас в базе несколько тысяч ников.',
+    'настройки.pull.вариант.30': '30 с',
+    'настройки.pull.вариант.300': '5 мин',
+    'настройки.pull.вариант.60': '1 мин',
+    'настройки.pull.вариант.900': '15 мин',
+    'настройки.pull.подпись': 'Перечитывать базу',
+    'настройки.pull.пояснение': 'Как часто страница забирает с сервера общую базу ников. Пока закладка-сборщик работает в соседней вкладке, база пополняется каждую минуту, и открытые плееры подхватывают новые номера серверов отсюда.',
+    'настройки.recDir.подпись': 'Папка записей',
+    'настройки.recDir.пояснение': 'Куда сервер кладёт файлы. Допустимы пути внутри /mnt/DATA, /mnt/Projects и /home/vladimir — остальные systemd закроет на запись. Прежние записи остаются там, где лежали.',
+    'настройки.recMode.вариант.0': 'вручную',
+    'настройки.recMode.вариант.1': 'авто',
+    'настройки.recMode.подпись': 'Режим записи',
+    'настройки.recMode.пояснение': 'В авто пишется каждая открытая трансляция — это и есть буфер перемотки. Вручную запись начинается только по кнопке в верхней панели.',
+    'настройки.recRate.вариант.0': 'как при просмотре',
+    'настройки.recRate.вариант.1000': '1 Мбит/с',
+    'настройки.recRate.вариант.10000': '10 Мбит/с',
+    'настройки.recRate.вариант.2000': '2 Мбит/с',
+    'настройки.recRate.вариант.3000': '3 Мбит/с',
+    'настройки.recRate.вариант.5000': '5 Мбит/с',
+    'настройки.recRate.вариант.8000': '8 Мбит/с',
+    'настройки.recRate.подпись': 'Максимальный битрейт записи',
+    'настройки.recRate.пояснение': 'Если поток тяжелее — сервер пережимает его до этого битрейта на видеокарте, разрешение при этом сохраняется. «Как при просмотре» пишет поток как есть, без перекодирования.',
+    'настройки.segment.вариант.10': '10 с',
+    'настройки.segment.вариант.30': '30 с',
+    'настройки.segment.вариант.300': '5 мин',
+    'настройки.segment.вариант.60': '60 с',
+    'настройки.segment.подпись': 'Длина сегмента',
+    'настройки.segment.пояснение': 'Куски, на которые ffmpeg режет запись; по её окончании они склеиваются в один mp4. Короткие — больше файлов, зато свежее точка перехода по кнопке «Из записи».',
+    'настройки.statusCopy.кнопка': 'Копировать',
+    'настройки.thumbs.вариант.0': 'не обновлять',
+    'настройки.thumbs.вариант.10': '10 с',
+    'настройки.thumbs.вариант.30': '30 с',
+    'настройки.thumbs.вариант.5': '5 с',
+    'настройки.thumbs.подпись': 'Превью справа',
+    'настройки.thumbs.пояснение': 'Сам CDN перерисовывает кадры примерно раз в 10 секунд.',
+    'настройки.ttl.вариант.1440': 'сутки',
+    'настройки.ttl.вариант.15': '15 мин',
+    'настройки.ttl.вариант.360': '6 часов',
+    'настройки.ttl.вариант.60': '1 час',
+    'настройки.ttl.подпись': 'Результат годен',
+    'настройки.ttl.пояснение': 'Пока результат свежий, при загрузке страницы список берётся с сервера без обхода.',
+    'настройки.wallCols.вариант.0': 'авто',
+    'настройки.wallCols.вариант.1': '1 (в столбик)',
+    'настройки.wallCols.подпись': 'Столбцов в стене',
+    'настройки.wallCols.пояснение': 'Во сколько столбцов раскладывать ячейки; строк получится столько, сколько понадобится. «Авто» перебирает все раскладки и берёт ту, где кадр выходит крупнее при нынешней форме окна: на широком экране две трансляции встанут рядом, а не одна под другой, — так каждая получается почти вдвое больше. Явное число нужно, когда важен порядок: «1» ставит ячейки строго в столбик, «2» при восьми ячейках даёт высокую сетку 2×4, «4» — широкую 4×2.',
+    'настройки.wallQ.подпись': 'Качество в стене',
+    'настройки.wallQ.пояснение': 'Потолок высоты дорожки в ячейках. Берётся самая крупная не выше этого значения. На четверти экрана разницы между 480p и 1080p практически не видно, а декодирование 1080p обходится вчетверо дороже: замер дал 9× реального времени на ядро для 480p против примерно 2× для 1080p.',
+    'настройки.warm.вариант.0': 'не ждать',
+    'настройки.warm.вариант.1': '1 с',
+    'настройки.warm.вариант.10': '10 с',
+    'настройки.warm.вариант.3': '3 с',
+    'настройки.warm.вариант.5': '5 с',
+    'настройки.warm.подпись': 'Разгон канала',
+    'настройки.warm.пояснение': 'Сколько секунд после запуска держать выбранное качество, не слушая оценку канала. Свежее соединение разгоняется не сразу: замер на десяти серверах показал, что первый кусок занижает возможности вчетверо — 2.5 против 9.8 Мбит/с, — а до 80% от предела соединение доходит за 4.2 секунды по медиане и за 8.3 в худшем случае. Пять секунд по умолчанию закрывают половину случаев; если качество всё же срывается на старте, стоит поднять до десяти. Ноль вернёт прежнее поведение, когда подбор верит оценке с первой же секунды и роняет качество на ровном месте.',
+    'настройки.заголовок': 'Настройки',
+    'настройки.закрыть': 'Закрыть настройки',
+    'настройки.подпись1': 'Пополнение',
+    'настройки.подпись2': 'Панели',
+    'настройки.подпись3': 'Связь',
+    'настройки.раздел.base': 'База ников',
+    'настройки.раздел.hist': 'История',
+    'настройки.раздел.rec': 'Запись',
+    'настройки.раздел.sweep': 'Проверка эфира',
+    'настройки.раздел.upd': 'Как часто обновлять',
+    'настройки.раздел.view': 'Просмотр',
     'панель.pip': 'PiP',
     'панель.pip.подсказка': 'Картинка в картинке: выбор вида окна',
     'панель.вЭфир': 'В эфир',
@@ -1624,6 +1788,8 @@
     'панель.настройки': 'Настройки',
     'панель.экраны': 'Экраны',
     'панель.экраны.подсказка': 'Экраны: обзор всех экранов с превью трансляций',
+    'подсказка.нажмите': 'Нажмите для получения подробной информации',
+    'подсказка.пояснение': 'Пояснение',
     'ручка.история': 'Свернуть/развернуть историю',
     'ручка.эфир': 'Свернуть/развернуть список эфира',
     'статус.начало': 'Стена поднимается сама. Комнату можно взять из правой колонки.',
@@ -1663,6 +1829,10 @@
     }
     for (const el of root.querySelectorAll('[data-i18n-aria]')) {
       el.setAttribute('aria-label', t(el.dataset.i18nAria));
+    }
+    // data-tip рисуется через CSS content — это тоже видимый текст.
+    for (const el of root.querySelectorAll('[data-i18n-tip]')) {
+      el.dataset.tip = t(el.dataset.i18nTip);
     }
     document.documentElement.lang = langNow;
   }
