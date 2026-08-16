@@ -2628,7 +2628,15 @@
   }
 
   function tilePlay(tile, user, edge) {
+    /* Очистку проводим молча. tileStop пересчитывает раскладку, а ячейка в
+       этот миг ещё пуста — раскладка сочла бы её лишней и удалила ровно ту,
+       которую мы собрались заполнить. Из-за этого третья трансляция не
+       добавлялась вовсе. Раскладку пересчитаем в конце, когда ячейка занята. */
+    const was = wallQuiet;
+    wallQuiet = true;
     tileStop(tile);
+    wallQuiet = was;
+
     tile.user = user;
     tile.edge = String(edge);
     tile.box.querySelector('b').textContent = user;
