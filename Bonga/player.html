@@ -23,6 +23,62 @@
   #qualityBox { display: contents; }
   #qualityBox[hidden] { display: none; }
 
+  /* Кнопка обзора экранов — ровно посередине шапки, независимо от того,
+     сколько кнопок слева и справа. Обычным элементом flex этого не добиться:
+     она уехала бы вслед за соседями. */
+  #scrAll { position: absolute; left: 50%; transform: translateX(-50%); }
+
+  /* Обзор экранов: каждый экран своей мозаикой превью, в том же порядке, в
+     каком трансляции стоят в сетке. Нужен, когда экранов больше двух и по
+     номеру уже не вспомнить, что где. */
+  #scrPanel {
+    position: absolute; inset: 0; z-index: 50; padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+    background: rgba(8, 10, 14, .95);
+  }
+  #scrPanel[hidden] { display: none; }     /* display:flex перебил бы hidden */
+  #scrHead { display: flex; align-items: center; gap: 10px; color: #e6e8ec; font-size: 14px; }
+  #scrHead .gap { flex: 1 1 auto; }
+  #scrHead #scrAdd, #scrHead #scrClose {
+    cursor: pointer; padding: 3px 9px; border-radius: 5px; background: #232833;
+    font-size: 12px; color: #b8c0cc;
+  }
+  #scrHead #scrAdd:hover, #scrHead #scrClose:hover { background: #2f6fd0; color: #fff; }
+  #scrBody {
+    flex: 1 1 auto; min-height: 0; overflow: auto;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;
+    align-content: start;
+  }
+  .scr {
+    border: 1px solid #2a2f3a; border-radius: 10px; overflow: hidden;
+    background: #14171d; cursor: pointer;
+  }
+  .scr:hover { border-color: #2f6fd0; }
+  .scr.on { border-color: #7ee787; }       /* этот экран сейчас на виду */
+  .scrCap {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; font-size: 13px; color: #e6e8ec; background: #1a1e26;
+  }
+  .scrCap i { color: #8a93a3; font-size: 11px; font-style: normal; }
+  .scrCap .now {
+    padding: 1px 6px; border-radius: 4px;
+    background: rgba(126, 231, 135, .18); color: #8fd69a; font-size: 11px;
+  }
+  /* Пропорцию задаёт код — ту же, что у настоящей сетки: обзор должен быть
+     её уменьшенной копией, а не квадратом с той же начинкой. */
+  .scrGrid { display: grid; gap: 2px; background: #000; }
+  .scrCell { position: relative; overflow: hidden; background: #0a0c10; }
+  .scrCell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scrCell img:not([src]) { visibility: hidden; }
+  .scrCell b {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 5px;
+    font-size: 10px; font-weight: 400; color: #e6e8ec;
+    background: linear-gradient(transparent, rgba(0, 0, 0, .8));
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .scrCell.free { display: flex; align-items: center; justify-content: center;
+                  color: #454c57; font-size: 20px; }
+
   /* Подробности к строке статуса: системная подсказка не годится — из неё
      нельзя выделить текст, а он нужен именно для копирования. */
   #statusDetails {
@@ -770,6 +826,7 @@
     <div data-pip="doc">С панелью
       <small>стрелки комнат и автопереключение; рамка и адрес</small></div>
   </div>
+  <button id="scrAll" title="Все экраны разом: превью трансляций каждого">Экраны</button>
   <button id="gear" title="Настройки">⚙</button>
 
   <div id="settings" hidden>
@@ -1272,6 +1329,16 @@
     <video id="v" controls autoplay playsinline></video>
     <div id="wallGrid" hidden></div>
     <div id="wallAdd" hidden><span>＋ новая ячейка</span></div>
+
+    <div id="scrPanel" hidden>
+      <div id="scrHead">
+        <b>Экраны</b>
+        <span id="scrAdd" title="Завести пустой экран">＋ новый</span>
+        <span class="gap"></span>
+        <span id="scrClose" title="Закрыть (Esc)">×</span>
+      </div>
+      <div id="scrBody"></div>
+    </div>
     <div id="keepAsk" hidden>
       <div id="keepText"></div>
       <div class="dlg-btns">
@@ -2521,6 +2588,17 @@
 
   /* «В эфир» — единственный путь обратно к стене: своей кнопки у неё больше
      нет, а уводят от неё запись и файлы из папки. */
+  $('scrAll').onclick = () => scrShow($('scrPanel').hidden);
+  $('scrClose').onclick = e => { e.stopPropagation(); scrShow(false); };
+  $('scrAdd').onclick = e => {
+    e.stopPropagation();
+    addScreen();                   // новый экран сразу становится текущим
+    scrPaint();
+  };
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !$('scrPanel').hidden) scrShow(false);
+  });
+
   $('live').onclick = () => {
     if ($('wallGrid').hidden) return wallOn();
     if (playingFrom === 'disk') return backToLive();     // с записи возвращаемся к потоку
@@ -2977,6 +3055,79 @@
     layoutWall();
     paintScreens();
     saveWall();
+  }
+
+  /* Превью комнаты для обзора. Тянем напрямую в src, без разбора заголовков:
+     здесь нужна только картинка, а свежесть и статус считают карточки правой
+     колонки. Метка времени в адресе — чтобы браузер не показал вчерашний
+     кадр из своего кэша. */
+  const roomShot = (user, edge) =>
+    `${siteShot(user) || thumbUrl(user, edge)}?t=${Date.now()}`;
+
+  function scrPaint() {
+    const body = $('scrBody');
+    body.textContent = '';
+
+    screens.forEach((screen, at) => {
+      const busy = screen.tiles.filter(tile => tile.user);
+      const card = document.createElement('div');
+      card.className = 'scr' + (at === screenAt ? ' on' : '');
+      card.title = 'Перейти на этот экран';
+
+      const cap = document.createElement('div');
+      cap.className = 'scrCap';
+      const name = document.createElement('span');
+      name.textContent = `Экран ${at + 1}`;
+      const count = document.createElement('i');
+      count.textContent = busy.length
+        ? `${busy.length} ${plural(busy.length, 'трансляция', 'трансляции', 'трансляций')}`
+        : 'пусто';
+      cap.append(name, count);
+      if (at === screenAt) {
+        const now = document.createElement('span');
+        now.className = 'now';
+        now.textContent = 'открыт';
+        cap.appendChild(now);
+      }
+
+      /* Ячейки расставляем по тем же номерам, что и настоящая сетка: пустые
+         места тоже показываем, иначе обзор врал бы о расположении. */
+      const grid = document.createElement('div');
+      grid.className = 'scrGrid';
+      const [wide, high] = wallArea();
+      const { cols, rows } = gridShape(busy.length, wide, high);
+      grid.style.aspectRatio = `${wide} / ${high}`;   // мозаика — уменьшенная сетка
+      grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+
+      screen.tiles.slice(0, cols * rows).forEach((tile, k) => {
+        const cell = document.createElement('div');
+        cell.className = 'scrCell' + (tile.user ? '' : ' free');
+        cell.style.gridColumn = String(Math.floor(k / rows) + 1);
+        cell.style.gridRow = String((k % rows) + 1);
+        if (tile.user) {
+          const img = document.createElement('img');
+          img.alt = tile.user;
+          img.loading = 'lazy';
+          img.src = roomShot(tile.user, tile.edge);
+          const nick = document.createElement('b');
+          nick.textContent = tile.user;
+          cell.append(img, nick);
+        } else {
+          cell.textContent = '＋';
+        }
+        grid.appendChild(cell);
+      });
+
+      card.append(cap, grid);
+      card.onclick = () => { useScreen(at); scrShow(false); };
+      body.appendChild(card);
+    });
+  }
+
+  function scrShow(on) {
+    $('scrPanel').hidden = !on;
+    if (on) scrPaint();
   }
 
   function paintScreens() {
@@ -3619,30 +3770,38 @@
      трансляции получались вчетверо мельче, чем могли бы. */
   /* Форма сетки считается от числа ЗАНЯТЫХ ячеек: пустые в счёт не идут,
      иначе удаление трансляции не меняло бы раскладку вовсе. */
-  function wallShape() {
-    const count = Math.max(1, tiles.filter(tile => tile.user).length);
-    const grid = $('wallGrid');
+  /* Форма сетки под заданное число занятых ячеек и заданную площадь. Вынесена
+     отдельно, потому что ту же форму рисует обзор экранов: считай он по своей
+     пропорции — показывал бы расстановку, которой на экране нет. */
+  function gridShape(count, width, height) {
+    const busy = Math.max(1, count);
     let cols = cfg('wallCols');
-
     if (!cols) {
-      const width = grid.clientWidth || 16;
-      const height = grid.clientHeight || 9;
       let best = 0;
-      for (let c = 1; c <= count; c++) {
-        const cellW = width / c;
-        const cellH = height / Math.ceil(count / c);
+      for (let c = 1; c <= busy; c++) {
+        const cellW = (width || 16) / c;
+        const cellH = (height || 9) / Math.ceil(busy / c);
         const shown = Math.min(cellW, cellH * 16 / 9) * Math.min(cellH, cellW * 9 / 16);
         if (shown > best) { best = shown; cols = c; }
       }
     }
-    cols = Math.max(1, Math.min(cols, count));
+    cols = Math.max(1, Math.min(cols, busy));
     /* Число столбцов пересчитываем от строк: заданное в настройках — это
        верхний предел, а не обязательство. Заполняем по столбцам, поэтому пять
        ячеек в четырёх столбцах лягут как 2+2+1 — последний столбец не
        понадобится вовсе. Без пересчёта сетка достраивалась бы до полных 4×2 =
        восьми мест и рисовала три плюса там, где нужен один. */
-    const rows = Math.ceil(count / cols);
-    return { cols: Math.ceil(count / rows), rows };
+    const rows = Math.ceil(busy / cols);
+    return { cols: Math.ceil(busy / rows), rows };
+  }
+
+  const wallArea = () => {
+    const grid = $('wallGrid');
+    return [grid.clientWidth || 16, grid.clientHeight || 9];
+  };
+
+  function wallShape() {
+    return gridShape(tiles.filter(tile => tile.user).length, ...wallArea());
   }
 
   /* Сетка держится полным прямоугольником: свободные места остаются ячейками
