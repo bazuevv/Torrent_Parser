@@ -17,6 +17,12 @@
     display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
     padding: 8px 12px; background: #1c1f26; border-bottom: 1px solid #2a2f3a;
   }
+  /* Спрятанные поля ника и сервера. display:contents — чтобы при снятии
+     hidden они снова стали прямыми элементами шапки, а не съехали в общий
+     блок: header у нас flex, и лишняя обёртка сломала бы раскладку. */
+  #roomBox { display: contents; }
+  #roomBox[hidden] { display: none; }
+
   /* Подробности к строке статуса: системная подсказка не годится — из неё
      нельзя выделить текст, а он нужен именно для копирования. */
   #statusDetails {
@@ -706,19 +712,27 @@
 <body>
 
 <header>
-  <label for="user">Ник</label>
-  <input id="user" list="models" spellcheck="false" placeholder="AlyonaKatya"
-         title="Имя комнаты как на сайте. Регистр не важен, подсказки берутся из базы ников">
-  <datalist id="models"></datalist>
+  <!-- Поля ника и сервера с кнопками «Смотреть» и «Найти edge» убраны с
+       панели: искать комнату теперь удобнее в правой колонке, а номер сервера
+       ячейка подбирает сама и запоминает. Из разметки они не удалены, а
+       спрятаны — это по-прежнему то место, где остальной код держит текущую
+       комнату: их читают запись, профиль, PiP, перелистывание и журнал.
+       Настоящее удаление означало бы переписать эти семь мест разом. -->
+  <span id="roomBox" hidden>
+    <label for="user">Ник</label>
+    <input id="user" list="models" spellcheck="false" placeholder="AlyonaKatya"
+           title="Имя комнаты как на сайте. Регистр не важен, подсказки берутся из базы ников">
+    <datalist id="models"></datalist>
 
-  <label for="edge">edge</label>
-  <input id="edge" spellcheck="false" placeholder="67" title="Номер видеосервера: 67 или us14">
+    <label for="edge">edge</label>
+    <input id="edge" spellcheck="false" placeholder="67" title="Номер видеосервера: 67 или us14">
 
-  <button id="play" class="primary"
-          title="Открыть трансляцию. Номер сервера подберётся сам, если поле edge пустое">Смотреть</button>
+    <button id="play" class="primary"
+            title="Открыть трансляцию. Номер сервера подберётся сам, если поле edge пустое">Смотреть</button>
+    <button id="find"
+            title="Опросить все серверы вещания и найти, на каком идёт эфир этого ника. Результат запоминается">Найти edge</button>
+  </span>
   <button id="stop" title="Остановить трансляцию и запись">Стоп</button>
-  <button id="find"
-          title="Опросить все серверы вещания и найти, на каком идёт эфир этого ника. Результат запоминается">Найти edge</button>
 
   <label for="quality" title="Дорожка текущего потока; сбрасывается при переключении комнаты">Качество</label>
   <select id="quality"
