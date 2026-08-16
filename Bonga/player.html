@@ -256,6 +256,16 @@
   }
   .tcap b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
             white-space: nowrap; font-weight: 500; }
+  /* Номер ячейки — по порядку заполнения, тому же, в котором они добавляются.
+     У пустых его нет: номер нужен, чтобы следить за трансляцией, а не за
+     местом. */
+  .tcap .tnum { display: none; }
+  .tile.busy .tcap .tnum {
+    display: inline-block; flex: 0 0 auto; min-width: 18px; text-align: center;
+    padding: 1px 4px; border-radius: 4px; background: rgba(110, 168, 254, .22);
+    color: #9dc1fe; font-style: normal; font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
   .tcap span { flex: 0 0 auto; cursor: pointer; padding: 2px 5px; border-radius: 4px;
                background: rgba(28, 31, 38, .8); }
   .tcap span:hover { background: #2f6fd0; }
@@ -3051,6 +3061,9 @@
       const big = zoom.tile === tile;
       tile.box.style.gridColumn = big ? `1 / span ${cols}` : String(Math.floor(i / rows) + 1);
       tile.box.style.gridRow    = big ? `1 / span ${rows}` : String((i % rows) + 1);
+      // Номер живёт здесь же: после перестановки и удаления он обязан
+      // совпадать с новым местом, а место назначается ровно тут.
+      tile.box.querySelector('.tnum').textContent = String(i + 1);
     });
 
     pickTile(nextSlot());        // подсветка всегда стоит на цели клика
@@ -3065,7 +3078,7 @@
     box.innerHTML = '<video muted playsinline></video>' +
                     '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
                     'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
-                    '<div class="tcap"><b></b>' +
+                    '<div class="tcap"><i class="tnum"></i><b></b>' +
                     '<span class="tclose" title="Убрать ячейку">×</span></div>' +
                     '<div class="tbar">' +
                       '<span class="tb tplay" title="Пауза (пробел)">⏸</span>' +
