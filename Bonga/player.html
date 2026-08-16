@@ -17,6 +17,12 @@
     display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
     padding: 8px 12px; background: #1c1f26; border-bottom: 1px solid #2a2f3a;
   }
+  /* Спрятанный выбор дорожки. display:contents — чтобы при снятии hidden
+     он снова стал прямым элементом шапки: header у нас flex, и лишняя
+     обёртка сдвинула бы всё вправо. */
+  #qualityBox { display: contents; }
+  #qualityBox[hidden] { display: none; }
+
   /* Подробности к строке статуса: системная подсказка не годится — из неё
      нельзя выделить текст, а он нужен именно для копирования. */
   #statusDetails {
@@ -347,8 +353,13 @@
   .tcap .tname { flex: 1 1 auto; min-width: 0; display: flex; align-items: center;
                  gap: 6px; padding: 0; background: none; cursor: default; }
   .tcap .tname:hover { background: none; }
+  /* Ник ведёт на профиль модели: он и так подписан в каждой ячейке, а
+     кнопка «Открыть профиль» в шапке знает только одну комнату — ту, на
+     которую смотрят. Открываем по щелчку, а не по наведению: над сеткой из
+     девяти ячеек курсор проходит десятки раз, и вкладки полезли бы пачками. */
   .tcap b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-            white-space: nowrap; font-weight: 500; }
+            white-space: nowrap; font-weight: 500; cursor: pointer; }
+  .tile.busy .tcap b:hover { text-decoration: underline; color: #9dc1fe; }
   /* Качество идущей дорожки. Пусто, пока плейлист не разобран, — и у
      остановленной ячейки: там играть нечему. */
   .tcap .tq {
@@ -727,11 +738,17 @@
 
 <header>
 
-  <label for="quality" title="Дорожка текущего потока; сбрасывается при переключении комнаты">Качество</label>
-  <select id="quality"
-          title="Дорожки этого эфира. По умолчанию берётся лучшая в пределах «Максимального битрейта» из настроек">
-    <option value="-1">авто</option>
-  </select>
+  <!-- Выбор дорожки относится к главному плееру, а он сам по себе больше не
+       поднимается: ячейки берут качество из настройки «Качество в стене» и
+       поднимают его при развороте. Из разметки не удаляем — код заполняет этот
+       список при разборе плейлиста записи и файла. -->
+  <span id="qualityBox" hidden>
+    <label for="quality" title="Дорожка текущего потока; сбрасывается при переключении комнаты">Качество</label>
+    <select id="quality"
+            title="Дорожки этого эфира. По умолчанию берётся лучшая в пределах «Максимального битрейта» из настроек">
+      <option value="-1">авто</option>
+    </select>
+  </span>
 
   <button id="rec" title="Состояние записи. Нажатие останавливает запись текущей трансляции">Запись ждёт потока</button>
   <button id="fromRec" title="Переключиться на запись — перемотка глубже, чем помещается в памяти">Из записи</button>
@@ -3761,6 +3778,11 @@
       bar.querySelector('.tpip').hidden = true;
     }
     box.querySelector('.tclose').onclick = () => dropTile(tile);
+    // Щелчок по нику открывает профиль модели на сайте. Подпись есть у каждой
+    // ячейки, а кнопка в шапке знает только ту комнату, на которую смотрят.
+    const nick = box.querySelector('b');
+    nick.title = 'Открыть профиль на сайте';
+    nick.onclick = () => { if (tile.user) openProfile(tile.user); };
     tiles.push(tile);
     screens[screenAt].box.appendChild(box);
     // Раскладку тут не трогаем: layoutWall сам достраивает недостающие ячейки
@@ -6163,13 +6185,14 @@
 
   // Профиль на сайте. Регистр в пути важен, поэтому берём правильное написание
   // из базы, если ник там есть, — иначе сайт отдаст 404.
-  $('profile').onclick = () => {
-    const room = currentRoom().user;
+  function openProfile(room) {
     if (!room) return say('Сначала откройте комнату.', 'err');
-    const user = canon.get(room.toLowerCase()) || room;
+    const user = canon.get(String(room).toLowerCase()) || room;
     window.open(`https://ru17.bongacams.com/profile/${encodeURIComponent(user)}`,
                 '_blank', 'noopener,noreferrer');
-  };
+  }
+
+  $('profile').onclick = () => openProfile(currentRoom().user);
 
   // ?u=ник&e=edge либо #ник в адресе — сразу запускаем
   const params = new URLSearchParams(location.search);
