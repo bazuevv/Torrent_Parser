@@ -633,6 +633,24 @@
 
 
     <div class="row">
+      <label for="wallCols">Столбцов в стене</label>
+      <select id="wallCols">
+        <option value="0">авто</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+      </select>
+      <i class="tip" data-hint="wallCols" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
+    </div>
+    <p class="hint" hidden>Во сколько столбцов раскладывать ячейки; строк
+      получится столько, сколько понадобится. «Авто» берёт корень из числа
+      ячеек, то есть сетку, близкую к квадрату: 4 → 2×2, 9 → 3×3. На широком
+      экране это не всегда удачно — восемь ячеек в четыре столбца дадут 4×2 и
+      займут место лучше, чем 3×3 с пустотой. Два столбца при восьми ячейках
+      дадут высокую сетку 2×4.</p>
+
+    <div class="row">
       <label for="wallQ">Качество в стене</label>
       <select id="wallQ">
         <option value="240">240p</option>
@@ -1240,7 +1258,7 @@
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
                      catalog: 60, act: 15, ladder: 43200, warm: 5,
-                     wallQ: 480 };
+                     wallQ: 480, wallCols: 0 };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];
@@ -1391,6 +1409,7 @@
     clearInterval(thumbTimer); clearInterval(histTimer); clearInterval(pullTimer);
     clearInterval(actTimer); clearInterval(watchTimer);
     applyAutoCap();            // потолок мог смениться в настройках
+    if (tiles.length) layoutWall();   // могло смениться число столбцов
     if (cfg('thumbs')) thumbTimer = setInterval(refreshThumbs, cfg('thumbs') * 1000);
     if (cfg('hist')) histTimer = setInterval(checkHistory, cfg('hist') * 1000);
     // Замеряет сервер, нам остаётся забирать готовое — вдвое реже, чем он
@@ -2650,10 +2669,12 @@
     return true;
   }
 
-  // Раскладка считается от числа ячеек: столбцов — корень, строк сколько
-  // понадобится. 4 → 2×2, 6 → 3×2, 9 → 3×3, 5 → 3×2 с пустым местом.
+  /* Раскладка: столбцов либо ровно столько, сколько задано в настройках, либо
+     корень из числа ячеек — тогда сетка получается близкой к квадрату (4 → 2×2,
+     9 → 3×3). Число строк вытекает само. Заданные столбцы нужны, когда экран
+     широкий: восемь ячеек в четыре столбца ложатся лучше, чем в три. */
   function layoutWall() {
-    const cols = Math.max(1, Math.ceil(Math.sqrt(tiles.length)));
+    const cols = Math.max(1, cfg('wallCols') || Math.ceil(Math.sqrt(tiles.length)));
     $('wallGrid').style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
     $('wallGrid').style.gridTemplateRows = `repeat(${Math.ceil(tiles.length / cols)}, 1fr)`;
   }
