@@ -28,6 +28,7 @@
      она уехала бы вслед за соседями. */
   #scrAll { position: absolute; left: 50%; transform: translateX(-50%); }
 
+
   /* Обзор экранов: каждый экран своей мозаикой превью, в том же порядке, в
      каком трансляции стоят в сетке. Нужен, когда экранов больше двух и по
      номеру уже не вспомнить, что где. */
@@ -89,6 +90,9 @@
   /* Пометка есть у каждой карточки, показывает её только класс: так переход
      между экранами не требует пересборки мозаики. */
   .scr:not(.on) .scrCap .now { display: none; }
+  .scrCap .kill { margin-left: auto; padding: 0 5px; border-radius: 4px;
+                  color: #8a93a3; cursor: pointer; }
+  .scrCap .kill:hover { color: #fff; background: #b5372c; }
   /* Карточка «новый экран» пометки не имеет вовсе. */
   .scr.add .scrCap .now { display: none; }
   /* Пропорцию задаёт код — ту же, что у настоящей сетки: обзор должен быть
@@ -284,19 +288,6 @@
   .screen { position: absolute; inset: 0; display: grid; gap: 2px; }
   .screen[hidden] { display: none; }       /* display:grid перебил бы hidden */
 
-  /* Переключатель экранов в верхней панели — виден, только пока стена включена. */
-  #screens { display: flex; align-items: center; gap: 4px; }
-  #screens[hidden] { display: none; }      /* display:flex перебил бы hidden */
-  #screens .lbl { color: #6b7484; font-size: 12px; }
-  #screens .chip {
-    display: flex; align-items: center; gap: 5px; cursor: pointer;
-    padding: 3px 8px; border-radius: 5px; background: #232833;
-    color: #b8c0cc; font-size: 12px; user-select: none;
-  }
-  #screens .chip:hover { background: #2c3340; }
-  #screens .chip.on { background: #2f6fd0; color: #fff; }
-  #screens .chip .x { opacity: .65; }
-  #screens .chip .x:hover { opacity: 1; }
   .tile { position: relative; background: #0a0c10; overflow: hidden; }
   .tile video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
   .tile.loud { outline: 2px solid #7ee787; outline-offset: -2px; }
@@ -850,7 +841,6 @@
   <button id="lib" title="Файлы из папки, указанной в настройках">Видео</button>
   <button id="live" title="Вернуться к прямому эфиру">В эфир</button>
   <button id="pip" title="Картинка в картинке: выбор вида окна">PiP</button>
-  <div id="screens" hidden></div>
 
   <div id="pipMenu" hidden>
     <div data-pip="native">Стандартное
@@ -859,7 +849,6 @@
       <small>стрелки комнат и автопереключение; рамка и адрес</small></div>
   </div>
   <button id="scrAll" title="Все экраны разом: превью трансляций каждого">Экраны</button>
-  <button id="gear" title="Настройки">⚙</button>
 
   <div id="settings" hidden>
     <button id="settingsClose" title="Закрыть настройки">×</button>
@@ -1274,6 +1263,10 @@
 
   <div id="status">Стена поднимается сама. Комнату можно взять из правой колонки.</div>
   <span id="url" title="Ссылка на поток">—</span>
+  <!-- Настройки последними: правый угол, подальше от кнопок, которые жмут
+       постоянно. Отступом этого не добиться — строка статуса растягивается
+       и всё равно встала бы правее. -->
+  <button id="gear" title="Настройки">⚙</button>
 
   <div id="statusDetails" hidden>
     <pre id="statusText"></pre>
@@ -3067,7 +3060,6 @@
     screens[index].box.hidden = false;
     wakeScreen(screens[index]);
     layoutWall();
-    paintScreens();
     saveWall();
   }
 
@@ -3078,6 +3070,7 @@
 
   function dropScreen(index) {
     if (screens.length < 2) return;              // последний экран — это и есть стена
+    scrSign = '';                                // состав изменился: обзор пересоберём
     zoomShut();
     const gone = screens[index];
     wallQuiet = true;                            // сносим целиком, раскладка не нужна
@@ -3092,7 +3085,6 @@
     screens.forEach((screen, i) => { screen.box.hidden = i !== screenAt; });
     wakeScreen(screens[screenAt]);
     layoutWall();
-    paintScreens();
     saveWall();
   }
 
@@ -3152,6 +3144,18 @@
       now.className = 'now';
       now.textContent = 'открыт';
       cap.append(name, count, now);
+
+      /* Крестик убирает экран целиком. Раньше он жил на полоске в шапке, а
+         вместе с ней исчез бы и единственный способ удалить экран. Показываем
+         только когда экранов больше одного: последний — это и есть стена. */
+      if (screens.length > 1) {
+        const gone = document.createElement('span');
+        gone.className = 'kill';
+        gone.textContent = '×';
+        gone.title = 'Убрать этот экран вместе с трансляциями';
+        gone.onclick = e => { e.stopPropagation(); dropScreen(at); scrPaint(); };
+        cap.appendChild(gone);
+      }
 
       /* Ячейки расставляем по тем же номерам, что и настоящая сетка: пустые
          места тоже показываем, иначе обзор врал бы о расположении. */
@@ -3229,44 +3233,6 @@
     body.scrollLeft += e.deltaY;
   }, { passive: false });
 
-  function paintScreens() {
-    const host = $('screens');
-    host.textContent = '';
-    host.hidden = $('wallGrid').hidden || !screens.length;
-    if (host.hidden) return;
-
-    const label = document.createElement('span');
-    label.className = 'lbl';
-    label.textContent = 'Экран';
-    host.appendChild(label);
-
-    screens.forEach((screen, i) => {
-      const busy = screen.tiles.filter(tile => tile.user).length;
-      const chip = document.createElement('span');
-      chip.className = 'chip' + (i === screenAt ? ' on' : '');
-      chip.title = `Экран ${i + 1}: трансляций ${busy}`;
-      chip.onclick = () => useScreen(i);
-      chip.appendChild(document.createTextNode(`${i + 1}${busy ? ` · ${busy}` : ''}`));
-      // Крестик только у видимого и только когда экранов больше одного:
-      // убрать чужой экран вслепую — верный способ снести не то.
-      if (screens.length > 1 && i === screenAt) {
-        const x = document.createElement('b');
-        x.className = 'x';
-        x.textContent = '×';
-        x.title = 'Убрать этот экран';
-        x.onclick = e => { e.stopPropagation(); dropScreen(i); };
-        chip.appendChild(x);
-      }
-      host.appendChild(chip);
-    });
-
-    const plus = document.createElement('span');
-    plus.className = 'chip';
-    plus.textContent = '＋';
-    plus.title = 'Новый экран: ещё шестнадцать ячеек';
-    plus.onclick = addScreen;
-    host.appendChild(plus);
-  }
 
   // Ближайшая дорожка не выше заданной высоты; если все выше — самая мелкая.
   function wallLevel(levels) {
@@ -3939,7 +3905,6 @@
     });
 
     pickTile(nextSlot());        // подсветка всегда стоит на цели клика
-    paintScreens();              // на ярлыке экрана стоит число трансляций
   }
 
   // Окно меняют редко, но раскладка от его формы зависит напрямую.
@@ -4278,7 +4243,6 @@
     screens.forEach((screen, i) => { screen.box.hidden = i !== screenAt; });
     layoutWall();                 // достроит свободные ячейки до прямоугольника
     saveWall();                   // пишем уже после подгонки: лишние места убраны
-    paintScreens();
 
     // Звук достаётся первой ЗАНЯТОЙ ячейке: первая теперь может быть и пустой —
     // место ушедшей из эфира комнаты сохраняется вместе с остальными.
@@ -4333,7 +4297,6 @@
     }
     wallQuiet = false;
     $('wallGrid').hidden = true;
-    paintScreens();                // переключатель без стены не нужен
   }
 
   /* Полоса-приёмник у правого края. Показывается на всё время перетаскивания
