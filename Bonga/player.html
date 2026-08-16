@@ -2701,8 +2701,15 @@
       }
     }
     cols = Math.max(1, Math.min(cols, count));
-    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    /* Заполняем по столбцам: новая ячейка встаёт под предыдущей и только
+       заполнив столбец сверху донизу, переходит в следующий. Для этого задаём
+       строки, а столбцы оставляем неявными — при grid-auto-flow: column
+       браузер сам добавляет их по мере надобности. Обычный построчный порядок
+       раскидывал бы соседние трансляции по разным краям экрана. */
+    grid.style.gridTemplateColumns = '';
     grid.style.gridTemplateRows = `repeat(${Math.ceil(count / cols)}, 1fr)`;
+    grid.style.gridAutoFlow = 'column';
+    grid.style.gridAutoColumns = '1fr';
   }
 
   // Окно меняют редко, но раскладка от его формы зависит напрямую.
