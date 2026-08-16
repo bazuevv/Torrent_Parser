@@ -2746,7 +2746,11 @@
   function wallOn(opts = {}) {
     // Всё нужное забираем до пересборки и остановки потока: buildWall очищает
     // ячейки, а stopStream стирает поля ника и сервера.
-    const saved = loadWall();
+    /* Прошлый состав поднимаем только по кнопке «Стена». Если комнату принесли
+       на полосу при выключенной стене, человек просил добавить одну — а не
+       воскресить вчерашнюю раскладку: именно так и получалось сразу четыре
+       ячейки вместо двух, да ещё с пустыми от комнат, ушедших из эфира. */
+    const saved = opts.extra ? [] : loadWall();
     const now = playingFrom === 'live'
       ? { u: $('user').value.trim(), e: $('edge').value.trim() } : null;
 
@@ -2761,8 +2765,15 @@
       seen.add(key);
       plan.push({ u: user, e: String(edge || '') });
     };
+    // Из прошлого состава берём только тех, кто сейчас в эфире: ушедшие дали
+    // бы чёрные ячейки с надписью «пусто», и стена открывалась бы дырявой.
+    const live = new Set((liveList || []).map(row => String(row[0]).toLowerCase()));
     if (now && now.u) add(now.u, now.e);
-    for (const item of saved) if (item) add(item.u, item.e);
+    for (const item of saved) {
+      if (!item) continue;
+      if (live.size && !live.has(String(item.u).toLowerCase())) continue;
+      add(item.u, item.e);
+    }
     if (opts.extra) add(opts.extra.user, opts.extra.edge);
 
     buildWall(Math.max(1, plan.length));     // пустая стена — одна ячейка
