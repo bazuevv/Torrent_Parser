@@ -205,8 +205,10 @@
   .tile .empty {
     position: absolute; inset: 0; display: flex; align-items: center;
     justify-content: center; color: #454c57; font-size: 46px; line-height: 1;
-    cursor: pointer; user-select: none;
+    user-select: none;
   }
+  /* Курсор-палец убран: по самому плюсу кликать некуда — комната приходит
+     сюда либо кликом по карточке справа, либо перетаскиванием. */
   .tile .empty:hover { color: #6ea8fe; }
   .tile.drop .empty { color: #7ee787; }
   /* Четвёртый раз в этом файле: display:flex перебивает атрибут hidden, и
@@ -2597,7 +2599,7 @@
      видно, а декодирование на процессоре обходится вчетверо дешевле — замер
      дал 9× реального времени на ядро для 480p против примерно 2× для 1080p. */
   const tiles = [];                 // {box, video, hls, user, edge}
-  let tilePicked = -1;              // ячейка, в которую кладём следующую комнату
+  let tilePicked = -1;              // подсвеченная ячейка — та, куда ляжет комната
 
   /* Состав стены переживает перезагрузку. Пишем при каждом изменении ячейки,
      но не при выключении режима и не при пересборке сетки: там ячейки тоже
@@ -2684,13 +2686,21 @@
     tiles.forEach((tile, i) => tile.box.classList.toggle('picked', i === index));
   }
 
+  /* Куда ляжет следующая комната: всегда последняя ячейка. Раньше цель ходила
+     по кругу от предыдущей, и предсказать место клика было нельзя — теперь оно
+     одно и то же, а прежние трансляции стоят нетронутыми. Оговорка про
+     свободные: если пустая ячейка оказалась не в конце (так бывает после
+     удаления из середины, когда размер сетки не изменился), целимся в неё —
+     занимать место работающей трансляции, когда рядом висит пустой плюс,
+     смысла нет. */
+  function nextSlot() {
+    for (let i = tiles.length - 1; i >= 0; i--) if (!tiles[i].user) return i;
+    return tiles.length - 1;
+  }
+
   function wallAssign(user, edge) {
     if (!tiles.length) return false;
-    let index = tilePicked;
-    if (index < 0 || index >= tiles.length) index = tiles.findIndex(t => !t.user);
-    if (index < 0) index = 0;
-    tilePlay(tiles[index], user, edge);
-    pickTile((index + 1) % tiles.length);      // следующая — по порядку
+    tilePlay(tiles[nextSlot()], user, edge);
     return true;
   }
 
@@ -2755,6 +2765,7 @@
     grid.style.gridAutoFlow = 'column';
     grid.style.gridAutoColumns = '1fr';
 
+    pickTile(nextSlot());        // подсветка всегда стоит на цели клика
   }
 
   // Окно меняют редко, но раскладка от его формы зависит напрямую.
@@ -2764,15 +2775,12 @@
     const box = document.createElement('div');
     box.className = 'tile';
     box.innerHTML = '<video muted playsinline></video>' +
-                    '<div class="empty" title="Перетащите сюда карточку из правой колонки">＋</div>' +
+                    '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
+                    'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
                     '<div class="tcap"><b></b><span class="tsnd">🔇</span>' +
                     '<span class="tmain" title="Открыть в главном плеере">⤢</span>' +
                     '<span class="tclose" title="Убрать ячейку">×</span></div>';
     const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
-    // Номер ячейки берём по месту, а не запоминаем: ячейки удаляются, и
-    // сохранённый индекс через минуту указывал бы на соседа.
-    const at = () => tiles.indexOf(tile);
-    box.onclick = e => { if (!e.target.closest('.tcap')) pickTile(at()); };
 
     /* Перетаскивание карточки из правой колонки или строки истории прямо в
        ячейку. Подсветку снимаем и по dragleave, и по drop: без первого она
@@ -2788,8 +2796,9 @@
       box.classList.remove('drop');
       const room = dragRoom(e);
       if (!room) return;
+      // Перетаскивание само говорит, куда класть, — подсветку не трогаем:
+      // её место определяет layoutWall, и это всегда последняя ячейка.
       tilePlay(tile, room.user, known.get(room.user.toLowerCase()) || room.edge);
-      pickTile(at());
     };
     box.querySelector('.tsnd').onclick = () => tileLoud(tile);
     box.querySelector('.tclose').onclick = () => dropTile(tile);
@@ -2833,7 +2842,6 @@
     }
     if (user) tilePlay(tile, user, known.get(String(user).toLowerCase()) || edge);
     else { saveWall(); layoutWall(); }
-    pickTile(tiles.indexOf(tile));
     return tile;
   }
 
@@ -2898,11 +2906,11 @@
     saveWall();
     layoutWall();                 // достроит свободные ячейки до прямоугольника
 
-    if (tiles[0]) tileLoud(tiles[0]);
-    pickTile(0);
+    if (tiles[0]) tileLoud(tiles[0]);   // подсветку цели уже поставил layoutWall
     say(plan.length
-      ? `Стена: ${plan.length} трансляций. Тащите карточки в ячейки, ` +
-        'а на полосу у края — чтобы добавить ещё одну.'
+      ? `Стена: ${plan.length} трансляций. Клик по карточке кладёт её ` +
+        'в последнюю ячейку, перетаскивание — в любую, а полоса у края ' +
+        'добавляет ещё одну.'
       : 'Стена пуста. Перетащите сюда карточку из правой колонки.', 'ok');
   }
 
