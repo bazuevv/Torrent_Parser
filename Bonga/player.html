@@ -157,9 +157,12 @@
   /* Стена: четыре независимых плеера в сетке. Отдельный режим, а не доработка
      главного, — тот целиком построен вокруг единственного потока: запись, PiP,
      замеры, история. Ячейки нарочно облегчённые: только картинка и ник. */
+  /* Число столбцов и строк задаётся из кода: оно зависит от количества ячеек
+     и пропорций окна. Зашивать сюда 2×2 было ошибкой — раскладка перестала
+     соответствовать содержимому, как только ячеек стало не четыре. */
   #wallGrid {
     position: absolute; inset: 0; z-index: 20; background: #000;
-    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;
+    display: grid; gap: 2px;
   }
   #wallGrid[hidden] { display: none; }     /* display:grid перебил бы hidden */
   .tile { position: relative; background: #0a0c10; overflow: hidden; }
@@ -638,6 +641,7 @@
       <label for="wallCols">Столбцов в стене</label>
       <select id="wallCols">
         <option value="0">авто</option>
+        <option value="1">1 (в столбик)</option>
         <option value="2">2</option>
         <option value="3">3</option>
         <option value="4">4</option>
@@ -646,11 +650,12 @@
       <i class="tip" data-hint="wallCols" tabindex="0" role="button" aria-expanded="false" aria-label="Пояснение" data-tip="Нажмите для получения подробной информации">i</i>
     </div>
     <p class="hint" hidden>Во сколько столбцов раскладывать ячейки; строк
-      получится столько, сколько понадобится. «Авто» берёт корень из числа
-      ячеек, то есть сетку, близкую к квадрату: 4 → 2×2, 9 → 3×3. На широком
-      экране это не всегда удачно — восемь ячеек в четыре столбца дадут 4×2 и
-      займут место лучше, чем 3×3 с пустотой. Два столбца при восьми ячейках
-      дадут высокую сетку 2×4.</p>
+      получится столько, сколько понадобится. «Авто» перебирает все раскладки
+      и берёт ту, где кадр выходит крупнее при нынешней форме окна: на широком
+      экране две трансляции встанут рядом, а не одна под другой, — так каждая
+      получается почти вдвое больше. Явное число нужно, когда важен порядок:
+      «1» ставит ячейки строго в столбик, «2» при восьми ячейках даёт высокую
+      сетку 2×4, «4» — широкую 4×2.</p>
 
     <div class="row">
       <label for="wallQ">Качество в стене</label>
@@ -2675,11 +2680,33 @@
      корень из числа ячеек — тогда сетка получается близкой к квадрату (4 → 2×2,
      9 → 3×3). Число строк вытекает само. Заданные столбцы нужны, когда экран
      широкий: восемь ячеек в четыре столбца ложатся лучше, чем в три. */
+  /* В «авто» перебираем все раскладки и берём ту, где картинка выходит крупнее.
+     Считаем площадь кадра 16:9, вписанного в ячейку: корень из числа ячеек
+     давал квадратную сетку независимо от формы окна, и на широком экране две
+     трансляции получались вчетверо мельче, чем могли бы. */
   function layoutWall() {
-    const cols = Math.max(1, cfg('wallCols') || Math.ceil(Math.sqrt(tiles.length)));
-    $('wallGrid').style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    $('wallGrid').style.gridTemplateRows = `repeat(${Math.ceil(tiles.length / cols)}, 1fr)`;
+    const count = Math.max(1, tiles.length);
+    const grid = $('wallGrid');
+    let cols = cfg('wallCols');
+
+    if (!cols) {
+      const width = grid.clientWidth || 16;
+      const height = grid.clientHeight || 9;
+      let best = 0;
+      for (let c = 1; c <= count; c++) {
+        const cellW = width / c;
+        const cellH = height / Math.ceil(count / c);
+        const shown = Math.min(cellW, cellH * 16 / 9) * Math.min(cellH, cellW * 9 / 16);
+        if (shown > best) { best = shown; cols = c; }
+      }
+    }
+    cols = Math.max(1, Math.min(cols, count));
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.style.gridTemplateRows = `repeat(${Math.ceil(count / cols)}, 1fr)`;
   }
+
+  // Окно меняют редко, но раскладка от его формы зависит напрямую.
+  addEventListener('resize', () => { if (tiles.length) layoutWall(); });
 
   function makeTile() {
     const box = document.createElement('div');
