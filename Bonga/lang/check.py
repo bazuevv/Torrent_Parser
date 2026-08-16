@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Сверка словарей с самой страницей.
+"""Сверка словарей между собой и со страницей.
 
 Показывает, каких ключей в переводе не хватает, какие в нём лишние (остались
 от удалённых кусков интерфейса) и где разошлись подстановки — {имя} в русском
@@ -19,12 +19,38 @@ PAGE = os.path.join(os.path.dirname(HERE), 'player.html')
 
 
 def russian():
-    """Русский словарь читается прямо из страницы: он там и живёт."""
+    """Русский — такой же файл, как остальные, и служит образцом для сверки."""
+    return json.load(open(os.path.join(HERE, 'ru.json'), encoding='utf-8'))
+
+
+def used_by_page(ru):
+    """Ключи, которые страница на самом деле спрашивает.
+
+    Нужны, чтобы ловить обратное расхождение: ключ есть в словарях, а страница
+    его уже не просит — такой мусор иначе живёт годами.
+
+    Две тонкости, на которых проверка врала:
+
+    — комментарии выкидываем, иначе пример из пояснения к t() считается
+      настоящим вызовом и требует несуществующего ключа;
+    — часть ключей собирается склейкой: t('отчёт.' + key). Такие видны только
+      как приставка, поэтому все ключи с ней считаем задействованными."""
     src = open(PAGE, encoding='utf-8').read()
-    block = re.search(r'const RU = \{\n(.*?)\n  \};', src, re.S)
-    if not block:
-        sys.exit('в player.html не нашёлся словарь RU')
-    return dict(re.findall(r"^    '([^']+)': '(.*)',$", block.group(1), re.M))
+    # Атрибуты ищем в исходном тексте: грубая вырезка комментариев съедала
+    # заодно шаблон ячейки — он идёт сразу за пояснением, а «*/» встречается
+    # и внутри строк. Вызовы t() ищем в очищенном: там пример из комментария
+    # иначе сойдёт за настоящий вызов.
+    keys = set(re.findall(r'data-i18n(?:-title|-ph|-aria|-tip)?="([^"]+)"', src))
+    bare = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
+    bare = re.sub(r'(?m)^\s*//.*$', '', bare)
+    keys |= set(re.findall(r"(?<![\w.$])t\('([^']+)'", bare))
+
+    prefixes = {k for k in keys if k.endswith('.')}
+    keys = {k for k in keys
+            if re.match(r'^[а-яёA-Za-z]+\.', k) and not k.endswith('.')}
+    for prefix in prefixes:
+        keys |= {k for k in ru if k.startswith(prefix)}
+    return keys
 
 
 def slots(line):
@@ -61,12 +87,25 @@ def check(code, ru):
 
 def main():
     ru = russian()
+    used = used_by_page(ru)
+    lost = sorted(used - set(ru))
+    stale = sorted(set(ru) - used)
+    if lost:
+        print(f'страница просит ключи, которых нет в ru.json: {len(lost)}')
+        for k in lost[:10]:
+            print(f'   {k}')
+    if stale:
+        print(f'в ru.json есть ключи, которых страница не просит: {len(stale)}')
+        for k in stale[:10]:
+            print(f'   {k}')
+
     codes = sys.argv[1:] or sorted(
-        name[:-5] for name in os.listdir(HERE) if name.endswith('.json'))
+        name[:-5] for name in os.listdir(HERE)
+        if name.endswith('.json') and name != 'ru.json')
     if not codes:
-        print('словарей в папке нет; русский лежит в самой странице')
-        return 0
-    ok = all(check(code, ru) for code in codes)
+        print(f'ru.json: {len(ru)} ключей, других словарей в папке нет')
+        return 0 if not lost and not stale else 1
+    ok = all(check(code, ru) for code in codes) and not lost and not stale
     # Неполный перевод — не ошибка: недостающее берётся из русского. Ошибка —
     # лишние ключи и разъехавшиеся подстановки: первое значит мусор, второе
     # выведет человеку {имя} вместо числа.
