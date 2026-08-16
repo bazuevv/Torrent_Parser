@@ -38,6 +38,10 @@
     position: absolute; inset: 0; z-index: 50;
     display: flex; align-items: flex-start; justify-content: center;
     padding: 10px; background: none;
+    /* Курсор сквозь подложку проходит: обзор всплывает по наведению, и держать
+       под ним всю сетку заблокированной было бы наказанием за движение мышью.
+       Ловит курсор только само окно — по нему же и считается «ушёл». */
+    pointer-events: none;
   }
   #scrPanel[hidden] { display: none; }     /* display:flex перебил бы hidden */
   /* Окно прижато к верху: там его и ищут взглядом после нажатия кнопки в
@@ -49,6 +53,7 @@
   #scrWin {
     --card: 280px;
     --gap: 12px;
+    pointer-events: auto;
     display: flex; max-width: 100%; max-height: 100%;
     padding: 12px; border-radius: 12px;
     /* Полупрозрачный фон: за окном идут трансляции, и глухая плашка гасила бы
@@ -2606,9 +2611,24 @@
 
   /* «В эфир» — единственный путь обратно к стене: своей кнопки у неё больше
      нет, а уводят от неё запись и файлы из папки. */
-  $('scrAll').onclick = () => scrShow($('scrPanel').hidden);
-  // Щелчок мимо окна — тоже выход: так ведут себя все окна поверх.
-  $('scrPanel').onclick = e => { if (e.target === $('scrPanel')) scrShow(false); };
+  /* Обзор всплывает и по наведению на кнопку, и по щелчку. Закрывается тем же
+     движением — уводом курсора, — но не мгновенно: между кнопкой в шапке и
+     окном есть зазор в пару пикселей, и без задержки окно захлопывалось бы
+     ровно на пути к нему. Пока курсор внутри окна, отсчёт отменяется. */
+  let scrHold = 0;
+  const scrLater = () => {
+    clearTimeout(scrHold);
+    scrHold = setTimeout(() => scrShow(false), 260);
+  };
+  const scrKeep = () => clearTimeout(scrHold);
+
+  $('scrAll').onclick = () => { scrKeep(); scrShow($('scrPanel').hidden); };
+  // Перерисовываем только при открытии: наведение на уже открытую кнопку
+  // иначе пересобирало бы карточки и дёргало картинки заново.
+  $('scrAll').onmouseenter = () => { scrKeep(); if ($('scrPanel').hidden) scrShow(true); };
+  $('scrAll').onmouseleave = scrLater;
+  $('scrWin').onmouseenter = scrKeep;
+  $('scrWin').onmouseleave = scrLater;
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && !$('scrPanel').hidden) scrShow(false);
   });
