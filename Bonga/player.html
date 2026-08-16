@@ -169,6 +169,22 @@
   .tile.picked { box-shadow: inset 0 0 0 2px #6ea8fe; }
   /* Ячейка под перетаскиваемой карточкой. */
   .tile.drop { box-shadow: inset 0 0 0 3px #7ee787; background: #16301c; }
+
+  /* Полоса у правого края: появляется, только пока карточку тащат, и
+     добавляет ячейку вместо того, чтобы занимать существующую. Висит поверх
+     стены, но узкой лентой — перетаскивание в саму сетку не перекрывает. */
+  #wallAdd {
+    position: absolute; top: 0; bottom: 0; right: 0; width: 54px; z-index: 30;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(28, 31, 38, .82); border-left: 2px dashed #4a5261;
+    color: #98a1b0; font-size: 12px; transition: width .12s, background .12s;
+  }
+  #wallAdd[hidden] { display: none; }      /* display:flex перебил бы hidden */
+  #wallAdd span { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+  #wallAdd.drop {
+    width: 96px; background: rgba(22, 48, 28, .92);
+    border-left-color: #7ee787; color: #7ee787;
+  }
   .card[draggable], .item[draggable] { cursor: grab; }
   .tcap {
     position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
@@ -1034,6 +1050,7 @@
   <div id="stage">
     <video id="v" controls autoplay playsinline></video>
     <div id="wallGrid" hidden></div>
+    <div id="wallAdd" hidden><span>＋ новая ячейка</span></div>
     <div id="keepAsk" hidden>
       <div id="keepText"></div>
       <div class="dlg-btns">
@@ -1580,7 +1597,14 @@
   function applySettingsToUI() {
     for (const key of Object.keys(DEFAULTS)) {
       const el = $(key);
-      if (el && el.tagName === 'SELECT') el.value = String(cfg(key));
+      if (el && el.tagName === 'SELECT') {
+        // Число ячеек стены меняется и мимо этого списка — перетаскиванием.
+        // Без своего пункта список показал бы пустоту вместо текущих семи.
+        if (![...el.options].some(opt => opt.value === String(cfg(key)))) {
+          el.add(new Option(String(cfg(key)), String(cfg(key))));
+        }
+        el.value = String(cfg(key));
+      }
       if (el) el.onchange = () => { pushSettings({ [key]: Number(el.value) }); armTimers(); };
     }
     $('recDir').value = settings.recDir || '';
@@ -2642,6 +2666,86 @@
     return true;
   }
 
+  // Раскладка считается от числа ячеек: столбцов — корень, строк сколько
+  // понадобится. 4 → 2×2, 6 → 3×2, 9 → 3×3, 5 → 3×2 с пустым местом.
+  function layoutWall() {
+    const cols = Math.max(1, Math.ceil(Math.sqrt(tiles.length)));
+    $('wallGrid').style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    $('wallGrid').style.gridTemplateRows = `repeat(${Math.ceil(tiles.length / cols)}, 1fr)`;
+  }
+
+  function makeTile() {
+    const box = document.createElement('div');
+    box.className = 'tile';
+    box.innerHTML = '<video muted playsinline></video>' +
+                    '<div class="empty">пусто</div>' +
+                    '<div class="tcap"><b></b><span class="tsnd">🔇</span>' +
+                    '<span class="tmain" title="Открыть в главном плеере">⤢</span>' +
+                    '<span class="tclose" title="Убрать ячейку">×</span></div>';
+    const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
+    // Номер ячейки берём по месту, а не запоминаем: ячейки удаляются, и
+    // сохранённый индекс через минуту указывал бы на соседа.
+    const at = () => tiles.indexOf(tile);
+    box.onclick = e => { if (!e.target.closest('.tcap')) pickTile(at()); };
+
+    /* Перетаскивание карточки из правой колонки или строки истории прямо в
+       ячейку. Подсветку снимаем и по dragleave, и по drop: без первого она
+       остаётся висеть, если карточку увели мимо. */
+    box.ondragover = e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      box.classList.add('drop');
+    };
+    box.ondragleave = () => box.classList.remove('drop');
+    box.ondrop = e => {
+      e.preventDefault();
+      box.classList.remove('drop');
+      const room = dragRoom(e);
+      if (!room) return;
+      tilePlay(tile, room.user, known.get(room.user.toLowerCase()) || room.edge);
+      pickTile(at());
+    };
+    box.querySelector('.tsnd').onclick = () => tileLoud(tile);
+    box.querySelector('.tclose').onclick = () => dropTile(tile);
+    box.querySelector('.tmain').onclick = () => {
+      if (!tile.user) return;
+      wallOff();
+      openStream(tile.user, tile.edge);
+    };
+    tiles.push(tile);
+    $('wallGrid').appendChild(box);
+    layoutWall();
+    return tile;
+  }
+
+  const dragRoom = e => {
+    try {
+      const room = JSON.parse(e.dataTransfer.getData('text/plain') || '{}');
+      return room.user ? room : null;
+    } catch { return null; }           // перетащили что-то постороннее
+  };
+
+  // Ячейку теперь можно и убрать совсем: раз их добавляют по одной, то и
+  // лишнюю логично не освобождать, а удалять — иначе сетка обрастает дырами.
+  function dropTile(tile) {
+    if (tiles.length <= 1) return tileStop(tile);
+    tileStop(tile);
+    tiles.splice(tiles.indexOf(tile), 1);
+    tile.box.remove();
+    layoutWall();
+    pushSettings({ wallN: tiles.length });
+    saveWall();
+  }
+
+  function addTile(user, edge) {
+    if (tiles.length >= 16) return say('Больше шестнадцати ячеек — перебор.', 'err');
+    const tile = makeTile();
+    pushSettings({ wallN: tiles.length });
+    if (user) tilePlay(tile, user, known.get(String(user).toLowerCase()) || edge);
+    pickTile(tiles.length - 1);
+    return tile;
+  }
+
   function buildWall() {
     const want = cfg('wallN');
     if (tiles.length === want) return;
@@ -2650,57 +2754,13 @@
     wallQuiet = false;
     tiles.length = 0;
     $('wallGrid').textContent = '';
-    // Столбцов — корень из числа ячеек: 4 → 2×2, 6 → 3×2, 9 → 3×3.
-    const cols = Math.ceil(Math.sqrt(want));
-    $('wallGrid').style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    $('wallGrid').style.gridTemplateRows = `repeat(${Math.ceil(want / cols)}, 1fr)`;
-    for (let i = 0; i < want; i++) {
-      const box = document.createElement('div');
-      box.className = 'tile';
-      box.innerHTML = '<video muted playsinline></video>' +
-                      '<div class="empty">пусто</div>' +
-                      '<div class="tcap"><b></b><span class="tsnd">🔇</span>' +
-                      '<span class="tmain" title="Открыть в главном плеере">⤢</span>' +
-                      '<span class="tclose" title="Освободить ячейку">×</span></div>';
-      const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
-      const at = i;
-      box.onclick = e => { if (!e.target.closest('.tcap')) pickTile(at); };
-
-      /* Перетаскивание карточки из правой колонки или строки истории прямо в
-         ячейку. Подсветку снимаем и по dragleave, и по drop: без первого она
-         остаётся висеть, если карточку увели мимо. */
-      box.ondragover = e => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-        box.classList.add('drop');
-      };
-      box.ondragleave = () => box.classList.remove('drop');
-      box.ondrop = e => {
-        e.preventDefault();
-        box.classList.remove('drop');
-        try {
-          const room = JSON.parse(e.dataTransfer.getData('text/plain') || '{}');
-          if (!room.user) return;
-          tilePlay(tile, room.user, known.get(room.user.toLowerCase()) || room.edge);
-          pickTile(at);
-        } catch { /* перетащили что-то постороннее */ }
-      };
-      box.querySelector('.tsnd').onclick = () => tileLoud(tile);
-      box.querySelector('.tclose').onclick = () => tileStop(tile);
-      box.querySelector('.tmain').onclick = () => {
-        if (!tile.user) return;
-        wallOff();
-        openStream(tile.user, tile.edge);
-      };
-      tiles.push(tile);
-      $('wallGrid').appendChild(box);
-    }
+    for (let i = 0; i < want; i++) makeTile();
   }
 
-  function wallOn() {
+  function wallOn(opts = {}) {
     // Всё, что нужно, забираем до пересборки и остановки потока: buildWall
     // очищает ячейки, а stopStream стирает поля ника и сервера.
-    const saved = loadWall();
+    const saved = opts.fill === false ? [] : loadWall();
     const now = playingFrom === 'live'
       ? { u: $('user').value.trim(), e: $('edge').value.trim() } : null;
 
@@ -2721,9 +2781,11 @@
       seen.add(key);
       plan.push({ u: user, e: String(edge || '') });
     };
-    if (now && now.u) add(now.u, now.e);
-    for (const item of saved) if (item) add(item.u, item.e);
-    for (const row of liveList || []) add(row[0], row[1]);
+    if (opts.fill !== false) {
+      if (now && now.u) add(now.u, now.e);
+      for (const item of saved) if (item) add(item.u, item.e);
+      for (const row of liveList || []) add(row[0], row[1]);
+    }
 
     wallQuiet = true;                       // раскладываем — пишем один раз в конце
     tiles.forEach((tile, i) => {
@@ -2748,6 +2810,40 @@
   }
 
   $('wall').onclick = () => ($('wallGrid').hidden ? wallOn() : wallOff());
+
+  /* Полоса-приёмник у правого края. Показывается на всё время перетаскивания
+     любой карточки — так видно, что ячейку можно не занять, а добавить.
+     Слушаем на документе: карточки перерисовываются на каждом обходе, и
+     вешать обработчики на каждую было бы расточительно. */
+  document.addEventListener('dragstart', e => {
+    if (e.target.closest('.card, .item')) $('wallAdd').hidden = false;
+  });
+  document.addEventListener('dragend', () => {
+    $('wallAdd').hidden = true;
+    $('wallAdd').classList.remove('drop');
+  });
+
+  $('wallAdd').ondragover = e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    $('wallAdd').classList.add('drop');
+  };
+  $('wallAdd').ondragleave = () => $('wallAdd').classList.remove('drop');
+  $('wallAdd').ondrop = e => {
+    e.preventDefault();
+    $('wallAdd').hidden = true;
+    $('wallAdd').classList.remove('drop');
+    const room = dragRoom(e);
+    if (!room) return;
+    // Стена могла быть выключена: тогда открываем её пустой и кладём только
+    // принесённое — досыпать чужих комнат в этот момент никто не просил.
+    if ($('wallGrid').hidden) {
+      wallOn({ fill: false });
+      if (tiles[0]) return tilePlay(tiles[0], room.user,
+                                    known.get(room.user.toLowerCase()) || room.edge);
+    }
+    addTile(room.user, room.edge);
+  };
 
   $('lib').onclick = () => {
     if ($('libPanel').hidden) showLibrary(); else $('libPanel').hidden = true;
