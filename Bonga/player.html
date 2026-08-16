@@ -209,6 +209,31 @@
     width: 96px; background: rgba(22, 48, 28, .92);
     border-left-color: #7ee787; color: #7ee787;
   }
+  /* Комната ушла из эфира: вместо чёрного поля — её последний кадр с плашкой
+     и временем, как у карточек в правой колонке. Чёрный прямоугольник ничем не
+     отличается от сбоя загрузки, а кадр с подписью прямо говорит, что случилось
+     и когда. */
+  .tile .tshot {
+    position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1;
+    object-fit: contain; background: #000; filter: brightness(.6); cursor: pointer;
+  }
+  .tile .tshot:not([src]) { visibility: hidden; }
+  .tile .offBox {
+    position: absolute; top: 8px; left: 8px; z-index: 3;
+    display: flex; align-items: center; gap: 5px; pointer-events: none;
+  }
+  .tile .off {
+    padding: 3px 7px; border-radius: 5px; background: rgba(181, 55, 44, .92);
+    color: #fff; font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+  }
+  .tile .offAt {
+    padding: 2px 6px; border-radius: 4px;
+    background: rgba(12, 14, 18, .78); color: #e6e8ec; font-size: 11px;
+  }
+  .tile:not(.offline) .tshot, .tile:not(.offline) .offBox { display: none; }
+  .tile.offline .tcap b { color: #98a1b0; }
+  .tile.offline .tbar { display: none; }   /* управлять нечем: потока больше нет */
+
   /* Развёрнутая ячейка растягивается на всю сетку и ложится поверх соседей.
      Отдельного плеера тут нарочно нет: он заново качал бы манифест и первый
      кусок — секунда чёрного экрана на ровном месте. Это та же ячейка, тот же
@@ -266,6 +291,8 @@
   .tile:fullscreen { width: 100vw; height: 100vh; }
   .card[draggable], .item[draggable] { cursor: grab; }
   .tcap {
+    /* Выше кадра ушедшей комнаты: иначе он накрыл бы ник и крестик. */
+    z-index: 2;
     position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
     gap: 6px; padding: 4px 6px; background: linear-gradient(transparent, rgba(0,0,0,.75));
     font-size: 12px; color: #e6e8ec;
@@ -2903,7 +2930,52 @@
     tile.box.classList.add('busy');
   }
 
+  /* Комната ушла: поток гасим, а ячейку не освобождаем — она показывает
+     последний кадр, плашку «нет» и время. Место в составе остаётся за ней,
+     чтобы после перезагрузки было видно, кто именно ушёл, и чтобы ячейку
+     можно было переиспользовать осознанно, а не обнаружить пустой. */
+  async function tileGone(tile) {
+    const { user, edge } = tile;
+    if (!user) return;
+    if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
+    tile.ready = false;
+    tile.video.pause();
+    tile.video.removeAttribute('src');
+    tile.video.load();
+    tile.box.classList.add('offline');
+    tile.box.classList.remove('loud');
+
+    const shot = tile.box.querySelector('.tshot');
+    // Кадр пробуем на своём сервере, а если он уже не отдаёт — на том, что
+    // знает база: комната могла переехать перед самым уходом.
+    for (const at of [edge, known.get(String(user).toLowerCase())]) {
+      if (!at || tile.user !== user) continue;
+      try {
+        const res = await fetch(`${thumbUrl(user, at)}?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const modified = res.headers.get('Last-Modified');
+        tile.goneAt = modified ? new Date(modified).getTime() : Date.now();
+        const url = URL.createObjectURL(await res.blob());
+        if (shot.blobUrl) URL.revokeObjectURL(shot.blobUrl);
+        shot.blobUrl = url;
+        shot.src = url;
+        break;
+      } catch { /* следующий сервер */ }
+    }
+    if (!tile.goneAt) tile.goneAt = Date.now();   // кадра нет — считаем от сейчас
+    paintBar(tile);
+  }
+
+  function tileLive(tile) {
+    tile.goneAt = 0;
+    tile.box.classList.remove('offline');
+    const shot = tile.box.querySelector('.tshot');
+    if (shot.blobUrl) { URL.revokeObjectURL(shot.blobUrl); shot.blobUrl = null; }
+    shot.removeAttribute('src');
+  }
+
   function tileStop(tile) {
+    tileLive(tile);
     tile.asleep = false;
     tile.ready = false;
     if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
@@ -2960,13 +3032,17 @@
     hlsTile.on(Hls.Events.ERROR, async (_, err) => {
       if (!err.fatal) return;
       logEvent('стена', `${user}: ${err.details}`, 'err');
-      if (tile.user !== user || tile.retried) return;
+      if (tile.user !== user) return;
+      // Вторая осечка подряд — сервер тут ни при чём, комната ушла.
+      if (tile.retried) return tileGone(tile);
 
       const row = (liveList || []).find(
         item => String(item[0]).toLowerCase() === user.toLowerCase());
       let fresh = row ? String(row[1]) : '';
       if (!fresh || fresh === String(edge)) fresh = await findEdge(user);
-      if (!fresh || fresh === String(edge) || tile.user !== user) return;
+      if (tile.user !== user) return;
+      // Ни каталог, ни полный обход не нашли живого сервера — значит ушла.
+      if (!fresh || fresh === String(edge)) return tileGone(tile);
 
       logEvent('стена', `${user}: сервер ${edge} молчит, перехожу на ${fresh}`);
       learn(user, fresh);
@@ -3014,6 +3090,11 @@
   function paintBar(tile) {
     const bar = tile.box.querySelector('.tbar');
     if (!bar) return;
+    // «Нет · 7 минут» должно стареть само: панель и так тикает раз в секунду.
+    if (tile.goneAt) {
+      tile.box.querySelector('.offAt').textContent = ageText(tile.goneAt, true);
+      return;
+    }
     const video = tile.video;
     const play = bar.querySelector('.tplay');
     play.textContent = video.paused ? '▶' : '⏸';
@@ -3318,6 +3399,10 @@
     const box = document.createElement('div');
     box.className = 'tile';
     box.innerHTML = '<video muted playsinline></video>' +
+                    '<img class="tshot" alt="" title="Комната ушла из эфира. ' +
+                    'Нажмите, чтобы попробовать снова">' +
+                    '<div class="offBox"><span class="off">нет</span>' +
+                    '<span class="offAt"></span></div>' +
                     '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
                     'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
                     '<div class="tcap"><i class="tnum"></i><b></b>' +
@@ -3431,6 +3516,10 @@
     };
     bar.querySelector('.tzoom').onclick = () =>
       (zoom.tile === tile ? zoomShut() : zoomOpen(tile));
+    // Ушедшую комнату можно попробовать снова: вернулась — играет дальше.
+    box.querySelector('.tshot').onclick = () => {
+      if (tile.user) tilePlay(tile, tile.user, bestEdge(tile.user, tile.edge));
+    };
     // Кнопка PiP есть не везде: в Firefox этого API нет, там у видео своя.
     if (!document.pictureInPictureEnabled || !tile.video.requestPictureInPicture) {
       bar.querySelector('.tpip').hidden = true;
@@ -3639,20 +3728,19 @@
     wallPruned = true;
     const live = new Set(liveList.map(row => String(row[0]).toLowerCase()));
     const gone = [];
-    wallQuiet = true;
     for (const screen of screens) {
       for (const tile of screen.tiles) {
-        if (tile.user && !live.has(tile.user.toLowerCase())) {
-          gone.push(tile.user);
-          tileStop(tile);
-        }
+        if (!tile.user || live.has(tile.user.toLowerCase())) continue;
+        gone.push(tile.user);
+        /* Ячейку не освобождаем, а помечаем ушедшей: место остаётся за
+           комнатой, видно её последний кадр и когда она пропала. Признак
+           попытки ставим сразу — искать сервер тому, кого нет в каталоге,
+           значит запустить сто пять запросов впустую на каждую ячейку. */
+        tile.retried = true;
+        tileGone(tile);
       }
     }
-    wallQuiet = false;
-    if (!gone.length) return;
-    layoutWall();
-    saveWall();
-    say(`Ушли из эфира с прошлого раза: ${gone.join(', ')}. Их ячейки свободны.`, 'ok');
+    if (gone.length) say(`Ушли из эфира: ${gone.join(', ')}.`, 'ok');
   }
 
   function wallOff() {
