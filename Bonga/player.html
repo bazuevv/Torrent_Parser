@@ -1669,7 +1669,7 @@
     const names = { ru: 'Русский', en: 'English', de: 'Deutsch', es: 'Español',
                     fr: 'Français', pl: 'Polski', uk: 'Українська', it: 'Italiano',
                     pt: 'Português', tr: 'Türkçe', nl: 'Nederlands', cs: 'Čeština',
-                    zh: '中文' };
+                    zh: '中文', hi: 'हिन्दी' };
     for (const code of have) {
       if ([...list.options].some(opt => opt.value === code)) continue;
       list.add(new Option(names[code] || code, code));
