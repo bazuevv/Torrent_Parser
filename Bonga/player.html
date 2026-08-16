@@ -3450,23 +3450,35 @@
     const plans = saved.screens.map(rows => {
       const out = [];
       for (const item of rows || []) {
+        if (out.length >= 16) break;
         const key = String(item && item.u || '').toLowerCase();
-        if (!key || seen.has(key) || out.length >= 16) continue;
-        if (live.size && !live.has(key)) continue;
-        seen.add(key);
-        out.push({ u: item.u, e: String(item.e || '') });
+        const alive = key && !seen.has(key) && (!live.size || live.has(key));
+        /* Место занимаем в любом случае, даже если комната ушла из эфира.
+           Раньше такие просто выбрасывались, и весь состав съезжал влево —
+           после перезагрузки ячейки оказывались не на своих местах. Пустое
+           место теперь читается как приглашение: там стоит плюс. */
+        if (alive) seen.add(key);
+        out.push(alive ? { u: item.u, e: String(item.e || '') } : null);
       }
       return out;
     });
     if (!plans.length) plans.push([]);
 
-    // Сперва то, что смотрели: иначе нажатие «Стены» теряло бы текущую комнату.
+    /* То, что смотрели, кладём в первое свободное место, а не в начало:
+       иначе весь сохранённый состав сдвигался бы на одну ячейку при каждом
+       включении стены поверх живой трансляции. Потерять её тоже нельзя —
+       если свободных мест нет, встаёт следом за последней. */
+    const putFree = item => {
+      const free = plans[0].indexOf(null);
+      if (free >= 0) plans[0][free] = item;
+      else if (plans[0].length < 16) plans[0].push(item);
+    };
     if (now && now.u && !seen.has(now.u.toLowerCase())) {
       seen.add(now.u.toLowerCase());
-      plans[0].unshift({ u: now.u, e: now.e });
+      putFree({ u: now.u, e: now.e });
     }
     if (opts.extra && !seen.has(String(opts.extra.user).toLowerCase())) {
-      plans[0].push({ u: opts.extra.user, e: String(opts.extra.edge || '') });
+      putFree({ u: opts.extra.user, e: String(opts.extra.edge || '') });
     }
 
     stopStream();                 // главный поток гасим: ресурсы нужны ячейкам
@@ -3480,8 +3492,11 @@
       screenAt = i;                         // makeTile кладёт ячейку в активный
       tiles = screen.tiles;
       for (let k = 0; k < Math.max(1, plan.length); k++) makeTile();
-      plan.forEach((item, k) =>
-        tilePlay(tiles[k], item.u, known.get(item.u.toLowerCase()) || item.e));
+      // Пустые места пропускаем, но ячейку под них уже создали — так номера
+      // и положение соседей совпадают с тем, что было до перезагрузки.
+      plan.forEach((item, k) => {
+        if (item) tilePlay(tiles[k], item.u, known.get(item.u.toLowerCase()) || item.e);
+      });
     });
     wallQuiet = false;
 
@@ -3491,18 +3506,21 @@
       screen.box.hidden = i !== screenAt;
       if (i !== screenAt) sleepScreen(screen);   // остальные не жгут канал
     });
-    saveWall();
     layoutWall();                 // достроит свободные ячейки до прямоугольника
+    saveWall();                   // пишем уже после подгонки: лишние места убраны
     paintScreens();
 
-    const plan = plans[screenAt];
-    if (tiles[0]) tileLoud(tiles[0]);   // подсветку цели уже поставил layoutWall
+    // Звук достаётся первой ЗАНЯТОЙ ячейке: первая теперь может быть и пустой —
+    // место ушедшей из эфира комнаты сохраняется вместе с остальными.
+    const shown = plans[screenAt].filter(Boolean).length;
+    const loud = tiles.find(tile => tile.user);
+    if (loud) tileLoud(loud);           // подсветку цели уже поставил layoutWall
     // Часы и отставание на панелях: раз в секунду на всю стену. Шестнадцать
     // перерисовок текста в секунду — цена, которой можно пренебречь.
     clearInterval(barTimer);
     barTimer = setInterval(paintBars, 1000);
-    say(plan.length
-      ? `Стена: ${plan.length} трансляций. Клик по карточке кладёт её ` +
+    say(shown
+      ? `Стена: ${shown} трансляций. Клик по карточке кладёт её ` +
         'в последнюю ячейку, перетаскивание — в любую, а полоса у края ' +
         'добавляет ещё одну.'
       : 'Стена пуста. Перетащите сюда карточку из правой колонки.', 'ok');
