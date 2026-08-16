@@ -198,6 +198,14 @@
      деле удаляет трансляцию насовсем. Свернуть можно ⤡ или Esc, а убрать —
      вернувшись в сетку, там крестик снова на месте. */
   .tile.zoomed .tclose { display: none; }
+  /* Ползунок громкости — тоже только у развёрнутой: в ячейке размером с
+     четверть экрана он съел бы половину подписи, а звук на стене всё равно
+     один на всех. */
+  .tcap .tvol { display: none; }
+  .tile.zoomed .tcap .tvol {
+    display: block; flex: 0 0 auto; width: 104px; height: 14px;
+    accent-color: #6ea8fe; cursor: pointer; margin: 0 2px;
+  }
   .card[draggable], .item[draggable] { cursor: grab; }
   .tcap {
     position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
@@ -2683,14 +2691,35 @@
     });
   }
 
+  /* Уровень громкости общий на всю стену и переживает перезагрузку: звук всё
+     равно у одной ячейки за раз, и выставлять его заново при каждом развороте
+     было бы издевательством. */
+  let wallVolume = 1;
+  try {
+    // Пустое хранилище даёт null, а Number(null) — ноль: без проверки на
+    // первом же запуске стена оказалась бы немой.
+    const raw = localStorage.getItem('wallVolume');
+    const saved = Number(raw);
+    if (raw && saved >= 0 && saved <= 1) wallVolume = saved;
+  } catch { /* приватный режим */ }
+
+  // Значок и ползунок показывают одно и то же состояние — рисуем их вместе.
+  function paintSnd(tile) {
+    const icon = tile.box.querySelector('.tsnd');
+    const vol = tile.box.querySelector('.tvol');
+    const off = tile.video.muted || !tile.video.volume;
+    if (icon) icon.textContent = off ? '🔇' : '🔊';
+    if (vol) vol.value = String(off ? 0 : tile.video.volume);
+  }
+
   // Звук — только у одной ячейки: четыре сразу дают кашу, да и браузер не даст.
   function tileLoud(tile) {
     for (const other of tiles) {
       const on = other === tile;
       other.video.muted = !on;
+      if (on) other.video.volume = wallVolume;
       other.box.classList.toggle('loud', on && Boolean(other.user));
-      const icon = other.box.querySelector('.tsnd');
-      if (icon) icon.textContent = on ? '🔊' : '🔇';
+      paintSnd(other);
     }
     if (tile.user) tile.video.play().catch(() => {});
   }
@@ -2907,6 +2936,8 @@
                     '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
                     'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
                     '<div class="tcap"><b></b><span class="tsnd">🔇</span>' +
+                    '<input class="tvol" type="range" min="0" max="1" step="0.02" ' +
+                    'title="Громкость" aria-label="Громкость">' +
                     '<span class="tmain" title="Развернуть поверх остальных">⤢</span>' +
                     '<span class="tclose" title="Убрать ячейку">×</span></div>';
     const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
@@ -2929,7 +2960,23 @@
       // её место определяет layoutWall, и это всегда последняя ячейка.
       tilePlay(tile, room.user, known.get(room.user.toLowerCase()) || room.edge);
     };
-    box.querySelector('.tsnd').onclick = () => tileLoud(tile);
+    /* Значок работает в двух смыслах, и оба нужны: у молчащей ячейки он
+       забирает звук себе, у звучащей — глушит её. */
+    box.querySelector('.tsnd').onclick = () => {
+      if (tile.video.muted) return tileLoud(tile);
+      tile.video.muted = true;
+      paintSnd(tile);
+    };
+    const vol = box.querySelector('.tvol');
+    vol.value = String(wallVolume);
+    vol.oninput = () => {
+      wallVolume = Number(vol.value);
+      try { localStorage.setItem('wallVolume', String(wallVolume)); } catch { /* приватный */ }
+      tile.video.volume = wallVolume;
+      // Сдвинули с нуля — значит звук нужен здесь, даже если ячейка молчала.
+      if (wallVolume > 0 && tile.video.muted) tileLoud(tile);
+      else paintSnd(tile);
+    };
     box.querySelector('.tclose').onclick = () => dropTile(tile);
     box.querySelector('.tmain').onclick = () =>
       (zoom.tile === tile ? zoomShut() : zoomOpen(tile));
