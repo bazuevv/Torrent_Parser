@@ -200,12 +200,24 @@
   .tile.zoomed .tclose { display: none; }
   /* Ползунок громкости — тоже только у развёрнутой: в ячейке размером с
      четверть экрана он съел бы половину подписи, а звук на стене всё равно
-     один на всех. */
+     один на всех. Всплывает над значком по наведению, места в подписи не
+     занимает вовсе. */
+  .tcap .tsndbox { position: relative; flex: 0 0 auto; display: flex;
+                   align-items: center; background: none; padding: 0; }
+  .tcap .tsndbox:hover { background: none; }   /* фон только у самого значка */
   .tcap .tvol { display: none; }
   .tile.zoomed .tcap .tvol {
-    display: block; flex: 0 0 auto; width: 104px; height: 14px;
-    accent-color: #6ea8fe; cursor: pointer; margin: 0 2px;
+    display: block; position: absolute; right: 0; bottom: 100%;
+    width: 118px; height: 14px; margin: 0;
+    /* Отступы — часть самого ползунка, а не зазор: иначе курсор по дороге
+       к нему выходил бы из зоны наведения и панель захлопывалась. */
+    padding: 9px 11px 11px; box-sizing: content-box;
+    background: rgba(20, 23, 30, .94); border-radius: 8px;
+    accent-color: #6ea8fe; cursor: pointer;
+    opacity: 0; visibility: hidden; transition: opacity .12s;
   }
+  .tile.zoomed .tcap .tsndbox:hover .tvol,
+  .tile.zoomed .tcap .tvol:focus { opacity: 1; visibility: visible; }
   .card[draggable], .item[draggable] { cursor: grab; }
   .tcap {
     position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
@@ -2935,9 +2947,10 @@
     box.innerHTML = '<video muted playsinline></video>' +
                     '<div class="empty" title="Свободно. Щёлкните карточку справа — ' +
                     'комната придёт в последнюю ячейку; перетаскиванием можно в любую">＋</div>' +
-                    '<div class="tcap"><b></b><span class="tsnd">🔇</span>' +
+                    '<div class="tcap"><b></b>' +
+                    '<span class="tsndbox"><span class="tsnd">🔇</span>' +
                     '<input class="tvol" type="range" min="0" max="1" step="0.02" ' +
-                    'title="Громкость" aria-label="Громкость">' +
+                    'title="Громкость" aria-label="Громкость"></span>' +
                     '<span class="tmain" title="Развернуть поверх остальных">⤢</span>' +
                     '<span class="tclose" title="Убрать ячейку">×</span></div>';
     const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
