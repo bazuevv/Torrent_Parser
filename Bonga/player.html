@@ -3086,6 +3086,9 @@
     tileLive(tile);
     tile.asleep = false;
     tile.ready = false;
+    tile.rates = null;                 // замеры принадлежали прежней комнате
+    tile.realRate = 0;
+    tile.chunks = [];
     if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
     tile.video.removeAttribute('src');
     tile.video.load();
@@ -3139,6 +3142,37 @@
        это показать. Событие приходит, когда куски новой дорожки уже играют, —
        то есть надпись не забегает вперёд картинки. */
     hlsTile.on(Hls.Events.LEVEL_SWITCHED, () => paintQuality(tile));
+
+    /* Замеренный вес дорожек с сервера: нужен развороту, чтобы выбрать
+       дорожку по настоящему весу, и подписи качества — до того, как наберётся
+       собственный замер. Запрос свой, локальный, единицы миллисекунд. */
+    roomRates(user).then(rates => {
+      if (!rates || tile.user !== user) return;
+      tile.rates = rates;
+      paintQuality(tile);
+    });
+
+    /* Настоящий вес играющей дорожки считаем по кускам, которые ячейка и так
+       скачала: байты уже посчитаны библиотекой, лишних запросов ноль. Это
+       точнее серверного замера — тот есть лишь у сотни комнат из тысячи с
+       лишним, и снят когда-то раньше. Окно короткое, шесть кусков (около
+       двенадцати секунд): длиннее — и подпись перестанет успевать за сценой,
+       короче — запляшет на каждом кадре. */
+    tile.chunks = [];
+    hlsTile.on(Hls.Events.FRAG_BUFFERED, (_, data) => {
+      const frag = data && data.frag;
+      const bytes = (data.stats && data.stats.total)
+        || (frag && frag.stats && frag.stats.total) || 0;
+      if (!frag || !frag.duration || !bytes) return;
+      // Дорожка сменилась — прежние куски к новому весу отношения не имеют.
+      if (tile.chunkLevel !== frag.level) { tile.chunks = []; tile.chunkLevel = frag.level; }
+      tile.chunks.push([bytes, frag.duration]);
+      if (tile.chunks.length > 6) tile.chunks.shift();
+      const size = tile.chunks.reduce((sum, item) => sum + item[0], 0);
+      const secs = tile.chunks.reduce((sum, item) => sum + item[1], 0);
+      tile.realRate = secs ? size * 8 / secs : 0;
+      paintQuality(tile);
+    });
     /* Ячейка сама ищет сервер, если сохранённый больше не отвечает. Раньше
        поиска у неё не было — в отличие от главного плеера, — и комната,
        переехавшая на другой edge, молчала в ячейке навсегда, хотя в эфире
@@ -3216,8 +3250,19 @@
       return;
     }
     badge.textContent = `${lvl.height}p`;
-    badge.title = `${lvl.width}×${lvl.height}` +
-      (lvl.bitrate ? `, заявлено ${(lvl.bitrate / 1e6).toFixed(2)} Мбит/с` : '');
+    /* В подсказке — замеренный вес, как в меню качества главного плеера.
+       Заявленному верить нельзя: у zury-moon 720p объявляет 3.4 Мбит/с при
+       настоящих 0.65. Пока замера нет, честно говорим, что число заявленное. */
+    /* По убыванию доверия: собственный замер по скачанным кускам, замер с
+       сервера, и лишь затем заявленное — оно врёт. У zury-moon 720p объявляет
+       3.4 Мбит/с при настоящих 0.65, так что подписывать его без оговорки
+       нельзя. */
+    const mine = tile.realRate;
+    const saved = tile.rates && tile.rates[`${lvl.width}x${lvl.height}`];
+    const rate = mine || saved || 0;
+    badge.title = `${lvl.width}×${lvl.height}` + (rate
+      ? `, ${(rate / 1e6).toFixed(2)} Мбит/с${mine ? '' : ' по замеру сервера'}`
+      : lvl.bitrate ? `, заявлено ${(lvl.bitrate / 1e6).toFixed(2)} Мбит/с — замера ещё нет` : '');
   }
 
   function paintBar(tile) {
@@ -3315,7 +3360,7 @@
   /* Замеры дорожек этой комнаты берём с сервера отдельным запросом: глобальная
      ladderRates принадлежит главному плееру, и затирать её нельзя — он по ней
      держит потолок качества у своего потока. */
-  async function zoomRates(user) {
+  async function roomRates(user) {
     try {
       const res = await fetch(`api/ladder?user=${encodeURIComponent(user)}`,
                               { cache: 'no-store' });
@@ -3373,7 +3418,7 @@
      второй сбрасывает буфер — ровно тот чёрный экран, от которого уходим. */
   async function zoomQuality(tile) {
     if (!tile.hls) return;
-    const rates = await zoomRates(tile.user);
+    const rates = tile.rates || await roomRates(tile.user);
     if (zoom.tile !== tile || !tile.hls || !tile.hls.levels) return;   // успели свернуть
     tile.hls.nextLevel = zoomPick(tile.hls.levels, rates);
   }
