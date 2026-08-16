@@ -148,7 +148,6 @@
  "настройки.ladder.подпись": "İzlerin bit hızları",
  "настройки.ladder.пояснение": "Sunucu, geçmişteki odaların izlerini önceden tartar ve sonucu saklar; böylece oynatıcı daha ilk saniyeden gerçek sayılara göre kalite seçer. Bu olmadan ilk birkaç saniye, bildirimde yazana göre kararlaştırılır; orada 720p kimi zaman gerçekte 0.65 iken 3.4 Mbit/sn ilan eder — ve seçici kaliteyi düşürmeye vakit bulur, özellikle sayfa yeniden yüklendikten sonraki ilk odada. Değer, bir ölçümün geçerlilik süresini belirler; denetim dakikada bir geçtiği için geçmişteki yeni bir oda hemen ölçülür.",
  "настройки.lang.вариант.auto": "tarayıcıdaki gibi",
- "настройки.lang.вариант.ru": "Русский",
  "настройки.lang.подпись": "Arayüz dili",
  "настройки.lang.пояснение": "«Tarayıcıdaki gibi», dili tarayıcının ayarlarından alır — o dil için bir sözlük varsa; yoksa Rusça kalır. Elle seçilen dil daha ağır basar: sistem yerelini değiştirmek onu ezmez. Liste kendiliğinden büyür — sözlükler, sunucunun yanındaki lang klasöründe dosya olarak durur ve bir dil eklemek ne sayfada ne sunucuda değişiklik gerektirir.",
  "настройки.libDir.подпись": "Video klasörü",

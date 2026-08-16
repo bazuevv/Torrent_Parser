@@ -60,25 +60,24 @@ def slots(line):
     return set(re.findall(r'\{([^{}\s]+)\}', line))
 
 
-# Знаки, которым в переводе взяться неоткуда: кириллица (кроме русского и
-# украинского) и иероглифы — их ни один из наших языков не использует. Появиться
-# они могут только по недосмотру, и глазами такое не находится: одна опечатка
-# посреди двадцати трёх тысяч знаков.
+# Знаки, которым в конкретном переводе взяться неоткуда. Появиться они могут
+# только по недосмотру, и глазами такое не находится: одна опечатка посреди
+# двадцати трёх тысяч знаков. Прецедент — иероглиф, заехавший во французское
+# «Son活/arrêt»: ключи на месте, подстановки совпали, сверка молчала.
 CYRILLIC = re.compile(r'[А-Яа-яЁёІіЇїЄєҐґ]')
 CJK = re.compile(r'[　-鿿가-힯]')
-# Названия языков пишутся на них самих и в переводе не меняются: в английском
-# списке тоже стоит «Русский», а не «Russian».
-ENDONYMS = {'настройки.lang.вариант.ru'}
+WRITES_CYRILLIC = ('ru', 'uk')
+WRITES_CJK = ('zh', 'ja', 'ko')
 
 
-def strays(code, key, line):
+def strays(code, line):
     """Посторонние знаки — но вне {подстановок}: имена там русские всегда."""
-    if key in ENDONYMS:
-        return set()
     bare = re.sub(r'\{[^{}\s]+\}', '', line)
-    found = set(CJK.findall(bare))
-    if code not in ('ru', 'uk'):
+    found = set()
+    if code not in WRITES_CYRILLIC:
         found |= set(CYRILLIC.findall(bare))
+    if code not in WRITES_CJK:
+        found |= set(CJK.findall(bare))
     return found
 
 
@@ -90,8 +89,8 @@ def check(code, ru):
     extra = [k for k in words if k not in ru]
     broken = [(k, slots(ru[k]), slots(words[k]))
               for k in words if k in ru and slots(ru[k]) != slots(words[k])]
-    dirty = [(k, sorted(strays(code, k, words[k]))) for k in words
-             if strays(code, k, words[k])]
+    dirty = [(k, sorted(strays(code, words[k]))) for k in words
+             if strays(code, words[k])]
 
     done = len(ru) - len(missing)
     print(f'{code}: переведено {done} из {len(ru)} ({done * 100 // len(ru)}%)')

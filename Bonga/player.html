@@ -884,8 +884,9 @@
     <div class="row">
       <label for="lang" data-i18n="настройки.lang.подпись"></label>
       <select id="lang">
+        <!-- Остальные пункты добавляет fillLangs по тому, что реально лежит
+             в папке словарей; подписи там же, на самих языках. -->
         <option value="auto" data-i18n="настройки.lang.вариант.auto"></option>
-        <option value="ru" data-i18n="настройки.lang.вариант.ru"></option>
       </select>
       <i class="tip" data-hint="lang" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
@@ -1516,13 +1517,19 @@
 
   /* --- язык интерфейса ------------------------------------------------------
      Словари лежат файлами в lang/<код>.json, включая русский: все языки равны,
-     и папка показывает настоящую картину. Мигания ключами при загрузке это не
-     даёт — русский текст написан прямо в разметке, словарь лишь подменяет его
-     при другом языке. Пока словарь не пришёл, страница выглядит по-русски, а
-     это для запасного варианта ровно то, что нужно. */
-  let base = {};                     // русский: он же запасной для всех прочих
+     и папка показывает настоящую картину. В разметке и в коде остались одни
+     ключи, поэтому до прихода словаря страница спрятана (класс i18n-wait).
+
+     Запасной язык — английский. Он подставляется дважды: когда у языка
+     браузера словаря нет вовсе и когда в выбранном словаре не хватает
+     отдельного ключа (перевод всегда отстаёт от страницы). Русский на этом
+     месте означал бы кириллицу человеку, который её не читает; английский
+     хоть как-то понятен почти всем, кто сюда дойдёт. Образцом для сверки
+     ru.json при этом быть не перестал — там пишется исходный текст. */
+  const FALLBACK = 'en';
+  let base = {};                     // английский: он же запасной для всех прочих
   let words = base;                  // словарь текущего языка
-  let langNow = 'ru';
+  let langNow = FALLBACK;
 
   /* Подстановки — по именам: t('стена.ушли', { кто: 'Аня' }). Позиционные
      номера в переводе путаются местами, имена переживают перестановку. */
@@ -1595,14 +1602,18 @@
   setTimeout(showPage, 1000);
 
   /* Какой язык показывать. «Авто» — язык браузера, если для него есть словарь;
-     иначе русский. Настройка сильнее браузера: человек, выбравший язык руками,
-     не должен получать другой при смене системной локали. */
+     иначе английский. Настройка сильнее браузера: человек, выбравший язык
+     руками, не должен получать другой при смене системной локали.
+
+     Перебираем весь navigator.languages, а не только первый: у человека там
+     обычно список предпочтений, и если словаря под самый желанный язык нет,
+     второй в списке подойдёт куда лучше запасного. */
   function wantLang(have) {
     const want = String(cfg('lang') || 'auto');
     if (want !== 'auto') return want;
-    const list = (navigator.languages || [navigator.language || 'ru'])
+    const list = (navigator.languages || [navigator.language || FALLBACK])
       .map(item => String(item).toLowerCase().split('-')[0]);
-    return list.find(item => have.includes(item)) || 'ru';
+    return list.find(item => have.includes(item)) || FALLBACK;
   }
 
   /* Порядок загрузки языка. Сперва кэш — он в памяти браузера и читается
@@ -1617,12 +1628,12 @@
     } catch { /* пусто */ }
 
     // Быстрый путь: язык и словари уже лежат в кэше
-    const guess = wantLang(have.length ? have : ['ru']);
-    const cachedRu = cachedLang('ru');
-    const cachedNow = guess === 'ru' ? cachedRu : cachedLang(guess);
-    if (cachedRu && cachedNow) {
-      base = cachedRu;
-      words = guess === 'ru' ? base : { ...base, ...cachedNow };
+    const guess = wantLang(have.length ? have : [FALLBACK]);
+    const cachedBase = cachedLang(FALLBACK);
+    const cachedNow = guess === FALLBACK ? cachedBase : cachedLang(guess);
+    if (cachedBase && cachedNow) {
+      base = cachedBase;
+      words = guess === FALLBACK ? base : { ...base, ...cachedNow };
       langNow = guess;
       applyLang();
       showPage();
@@ -1636,7 +1647,7 @@
     } catch { /* сервер молчит — остаёмся на том, что в кэше */ }
 
     const code = wantLang(have);
-    const fresh = await fetchLang('ru');
+    const fresh = await fetchLang(FALLBACK);
     if (fresh) base = fresh;
     await useLang(code);
     showPage();
@@ -1666,7 +1677,7 @@
 
   async function useLang(code) {
     langNow = code;
-    if (code === 'ru') {                  // русский освежает сам pickLang
+    if (code === FALLBACK) {              // запасной освежает сам pickLang
       words = base;
       applyLang();
       return;

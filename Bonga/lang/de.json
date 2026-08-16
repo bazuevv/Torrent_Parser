@@ -148,7 +148,6 @@
  "настройки.ladder.подпись": "Bitraten der Spuren",
  "настройки.ladder.пояснение": "Der Server wiegt die Spuren der Räume aus dem Verlauf im Voraus und bewahrt das Ergebnis auf, damit der Abspieler die Qualität von der ersten Sekunde an nach echten Zahlen wählt. Ohne das entscheiden die ersten paar Sekunden nach dem, was das Manifest angibt, wo 720p mitunter 3.4 Mbit/s behauptet bei echten 0.65 — und die Auswahl schafft es, die Qualität zu senken, besonders im ersten Raum nach dem Neuladen der Seite. Der Wert legt die Haltbarkeit einer Messung fest; geprüft wird jede Minute, deshalb wird ein neuer Raum im Verlauf sofort gemessen.",
  "настройки.lang.вариант.auto": "wie im Browser",
- "настройки.lang.вариант.ru": "Русский",
  "настройки.lang.подпись": "Sprache der Oberfläche",
  "настройки.lang.пояснение": "«Wie im Browser» nimmt die Sprache aus dessen Einstellungen, sofern es dafür ein Wörterbuch gibt, sonst bleibt es bei Russisch. Eine von Hand gewählte Sprache wiegt schwerer: ein Wechsel der Systemsprache überstimmt sie nicht. Die Liste wächst von selbst — die Wörterbücher liegen als Dateien im Ordner lang neben dem Server, und eine Sprache hinzuzufügen erfordert weder an der Seite noch am Server eine Änderung.",
  "настройки.libDir.подпись": "Videoordner",

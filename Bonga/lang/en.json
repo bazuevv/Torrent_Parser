@@ -148,7 +148,6 @@
  "настройки.ladder.подпись": "Track bitrates",
  "настройки.ladder.пояснение": "The server weighs the tracks of the rooms from the history in advance and keeps the result, so that the player picks quality by real numbers from the very first second. Without that, the first couple of seconds are decided by what the manifest declares, where 720p sometimes claims 3.4 Mbit/s at a real 0.65 — and the picker manages to drop the quality, especially on the first room after a page reload. The value sets the shelf life of a measurement; the check runs once a minute, so a new room in the history is measured at once.",
  "настройки.lang.вариант.auto": "same as the browser",
- "настройки.lang.вариант.ru": "Русский",
  "настройки.lang.подпись": "Interface language",
  "настройки.lang.пояснение": "«Same as the browser» takes the language from its settings if a dictionary exists for it, otherwise it leaves Russian. A language picked by hand is stronger: changing the system locale will not override it. The list grows by itself — dictionaries are files in the lang folder next to the server, and adding a language needs no edits either in the page or in the server.",
  "настройки.libDir.подпись": "Video folder",

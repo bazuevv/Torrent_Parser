@@ -148,7 +148,6 @@
  "настройки.ladder.подпись": "Débitos das faixas",
  "настройки.ladder.пояснение": "O servidor pesa de antemão as faixas das salas do histórico e guarda o resultado, para que o leitor escolha a qualidade por números verdadeiros logo no primeiro segundo. Sem isso, os primeiros dois segundos decidem-se pelo que o manifesto declara, onde um 720p às vezes anuncia 3.4 Mbit/s com 0.65 verdadeiros — e a seleção ainda tem tempo de baixar a qualidade, sobretudo na primeira sala depois de recarregar a página. O valor fixa a validade de uma medição; a verificação passa a cada minuto, por isso uma sala nova no histórico é medida logo.",
  "настройки.lang.вариант.auto": "como no navegador",
- "настройки.lang.вариант.ru": "Русский",
  "настройки.lang.подпись": "Língua da interface",
  "настройки.lang.пояснение": "«Como no navegador» retira a língua das definições dele, se houver dicionário para ela; senão fica o russo. Uma língua escolhida à mão pesa mais: mudar a configuração regional do sistema não a substitui. A lista cresce sozinha — os dicionários são ficheiros na pasta lang ao lado do servidor, e acrescentar uma língua não exige mexer nem na página nem no servidor.",
  "настройки.libDir.подпись": "Pasta de vídeo",

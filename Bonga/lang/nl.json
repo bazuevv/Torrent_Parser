@@ -148,7 +148,6 @@
  "настройки.ladder.подпись": "Bitrates van de sporen",
  "настройки.ladder.пояснение": "De server weegt de sporen van de kamers uit de geschiedenis vooraf en bewaart de uitslag, zodat de speler de kwaliteit vanaf de eerste seconde op echte getallen kiest. Zonder dat worden de eerste paar seconden beslist op wat het manifest opgeeft, waar 720p soms 3.4 Mbit/s beweert bij een echte 0.65 — en de keuze krijgt de tijd om de kwaliteit te laten zakken, vooral in de eerste kamer na het herladen van de pagina. De waarde bepaalt de houdbaarheid van een meting; de controle loopt elke minuut, dus een nieuwe kamer in de geschiedenis wordt meteen gemeten.",
  "настройки.lang.вариант.auto": "zoals in de browser",
- "настройки.lang.вариант.ru": "Русский",
  "настройки.lang.подпись": "Taal van de bediening",
  "настройки.lang.пояснение": "«Zoals in de browser» neemt de taal uit diens instellingen, als er een woordenboek voor is; anders blijft het Russisch. Een met de hand gekozen taal weegt zwaarder: het wisselen van de systeemtaal overstemt haar niet. De lijst groeit vanzelf — de woordenboeken liggen als bestanden in de map lang naast de server, en een taal toevoegen vraagt geen wijziging in de pagina noch in de server.",
  "настройки.libDir.подпись": "Videomap",

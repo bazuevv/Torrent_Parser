@@ -148,7 +148,6 @@
  "настройки.ladder.подпись": "Bitrates de las pistas",
  "настройки.ladder.пояснение": "El servidor pesa de antemano las pistas de las salas del historial y guarda el resultado, para que el reproductor elija la calidad con números reales desde el primer segundo. Sin eso, los primeros dos segundos se deciden con lo declarado en el manifiesto, donde un 720p a veces anuncia 3.4 Mbit/s con 0.65 reales, y al selector le da tiempo a bajar la calidad, sobre todo en la primera sala tras recargar la página. El valor fija la caducidad de la medición; la revisión va cada minuto, así que una sala nueva en el historial se mide en seguida.",
  "настройки.lang.вариант.auto": "como en el navegador",
- "настройки.lang.вариант.ru": "Русский",
  "настройки.lang.подпись": "Idioma de la interfaz",
  "настройки.lang.пояснение": "«Como en el navegador» toma el idioma de sus ajustes si hay diccionario para él; si no, deja el ruso. Un idioma elegido a mano manda más: cambiar la configuración regional del sistema no lo pisará. La lista crece sola: los diccionarios son archivos de la carpeta lang junto al servidor, y añadir un idioma no exige tocar ni la página ni el servidor.",
  "настройки.libDir.подпись": "Carpeta de vídeo",

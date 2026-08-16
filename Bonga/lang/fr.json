@@ -148,7 +148,6 @@
  "настройки.ladder.подпись": "Débits des pistes",
  "настройки.ladder.пояснение": "Le serveur pèse à l'avance les pistes des salons de l'historique et garde le résultat, pour que le lecteur choisisse la qualité sur de vrais chiffres dès la première seconde. Sans cela, les deux premières secondes se décident sur ce qu'annonce le manifeste, où un 720p prétend parfois 3.4 Mbit/s pour 0.65 réels — et le sélecteur a le temps de faire chuter la qualité, surtout dans le premier salon après un rechargement de la page. La valeur fixe la durée de validité d'une mesure ; la vérification passe chaque minute, un nouveau salon dans l'historique est donc mesuré tout de suite.",
  "настройки.lang.вариант.auto": "comme dans le navigateur",
- "настройки.lang.вариант.ru": "Русский",
  "настройки.lang.подпись": "Langue de l'interface",
  "настройки.lang.пояснение": "« Comme dans le navigateur » prend la langue de ses réglages s'il existe un dictionnaire pour elle, sinon le russe reste. Une langue choisie à la main l'emporte : changer la locale du système ne la remplacera pas. La liste s'étoffe d'elle-même — les dictionnaires sont des fichiers du dossier lang à côté du serveur, et ajouter une langue ne demande de retoucher ni la page ni le serveur.",
  "настройки.libDir.подпись": "Dossier vidéo",

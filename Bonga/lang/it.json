@@ -148,7 +148,6 @@
  "настройки.ladder.подпись": "Bitrate delle tracce",
  "настройки.ladder.пояснение": "Il server pesa in anticipo le tracce delle stanze della cronologia e conserva il risultato, perché il lettore scelga la qualità su numeri veri fin dal primo secondo. Senza di ciò i primi due secondi si decidono su quanto dichiara il manifesto, dove un 720p talvolta annuncia 3.4 Mbit/s con 0.65 reali — e il selettore fa in tempo ad abbassare la qualità, soprattutto nella prima stanza dopo aver ricaricato la pagina. Il valore fissa la validità di una misura; il controllo passa ogni minuto, perciò una stanza nuova nella cronologia si misura subito.",
  "настройки.lang.вариант.auto": "come nel browser",
- "настройки.lang.вариант.ru": "Русский",
  "настройки.lang.подпись": "Lingua dell'interfaccia",
  "настройки.lang.пояснение": "«Come nel browser» prende la lingua dalle sue impostazioni, se per essa esiste un dizionario, altrimenti resta il russo. Una lingua scelta a mano pesa di più: cambiare la lingua di sistema non la scavalca. L'elenco cresce da sé — i dizionari sono file nella cartella lang accanto al server, e aggiungere una lingua non richiede modifiche né alla pagina né al server.",
  "настройки.libDir.подпись": "Cartella video",

@@ -148,7 +148,6 @@
  "настройки.ladder.подпись": "Bitrate ścieżek",
  "настройки.ladder.пояснение": "Serwer z góry waży ścieżki pokoi z historii i przechowuje wynik, żeby odtwarzacz dobierał jakość według prawdziwych liczb od pierwszej sekundy. Bez tego pierwsze dwie sekundy rozstrzygają się według tego, co deklaruje manifest, gdzie 720p bywa podaje 3.4 Mbit/s przy prawdziwych 0.65 — i dobór zdąży obniżyć jakość, zwłaszcza w pierwszym pokoju po przeładowaniu strony. Wartość ustala termin ważności pomiaru; sprawdzenie idzie raz na minutę, dlatego nowy pokój w historii mierzy się od razu.",
  "настройки.lang.вариант.auto": "jak w przeglądarce",
- "настройки.lang.вариант.ru": "Русский",
  "настройки.lang.подпись": "Język interfejsu",
  "настройки.lang.пояснение": "«Jak w przeglądarce» bierze język z jej ustawień, o ile istnieje dla niego słownik; inaczej zostaje rosyjski. Język wybrany ręcznie waży więcej: zmiana ustawień regionalnych systemu go nie przebije. Lista rośnie sama — słowniki leżą jako pliki w folderze lang obok serwera, a dodanie języka nie wymaga poprawek ani w stronie, ani w serwerze.",
  "настройки.libDir.подпись": "Folder wideo",
