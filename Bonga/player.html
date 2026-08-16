@@ -2751,19 +2751,40 @@
      заново поднимать — это секунды чёрного экрана на каждый, а так переход
      мгновенный, ценой лишь памяти под спящие буферы. */
   function sleepScreen(screen) {
+    const was = wallQuiet;
+    wallQuiet = true;
     for (const tile of screen.tiles) {
+      /* Ячейку, не успевшую разобрать манифест, усыплять нечем: stopLoad до
+         этого мига необратим. Возвращаем её в исходное спящее состояние —
+         плеер сносим, комнату помним, следующий показ поднимет заново. */
+      if (tile.hls && !tile.ready) {
+        const { user, edge } = tile;
+        tileStop(tile);
+        tileHold(tile, user, edge);
+        continue;
+      }
       if (tile.hls) tile.hls.stopLoad();
       tile.video.pause();
       tile.video.muted = true;
       tile.box.classList.remove('loud');
     }
+    wallQuiet = was;
   }
 
   function wakeScreen(screen) {
+    const was = wallQuiet;
+    wallQuiet = true;                            // раскладку пересчитаем разом
     for (const tile of screen.tiles) {
+      // Ячейка, которую ещё ни разу не показывали: плеер поднимаем сейчас.
+      if (tile.asleep && tile.user) {
+        const { user, edge } = tile;
+        tilePlay(tile, user, edge);
+        continue;
+      }
       if (tile.hls) tile.hls.startLoad(-1);      // -1 — снова с живого края
       if (tile.user) tile.video.play().catch(() => {});
     }
+    wallQuiet = was;
     const loud = screen.tiles.find(tile => tile.user);
     if (loud) tileLoud(loud);                    // звук достаётся первой занятой
   }
@@ -2858,7 +2879,24 @@
     return pick;
   }
 
+  /* Ячейка спящего экрана: комнату помним, а плеер не поднимаем вовсе. Раньше
+     он создавался сразу и тут же получал stopLoad — но остановка ДО разбора
+     манифеста необратима: startLoad её не возобновляет, потому что списка
+     дорожек так и не появилось. Отсюда и брались немые ячейки на соседних
+     экранах после перезагрузки. */
+  function tileHold(tile, user, edge) {
+    tile.user = user;
+    tile.edge = String(edge);
+    tile.asleep = true;
+    tile.ready = false;
+    tile.box.querySelector('b').textContent = user;
+    tile.box.querySelector('.empty').hidden = true;
+    tile.box.classList.add('busy');
+  }
+
   function tileStop(tile) {
+    tile.asleep = false;
+    tile.ready = false;
     if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
     tile.video.removeAttribute('src');
     tile.video.load();
@@ -2882,6 +2920,7 @@
 
     tile.user = user;
     tile.edge = String(edge);
+    tile.asleep = false;
     tile.since = Date.now();           // с этого мига считаем время просмотра
     tile.box.querySelector('b').textContent = user;
     tile.box.querySelector('.empty').hidden = true;
@@ -2895,6 +2934,9 @@
     hlsTile.loadSource(playlistUrl(user, edge));
     hlsTile.attachMedia(tile.video);
     hlsTile.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+      // С этого мига загрузку можно останавливать и возобновлять: список
+      // дорожек разобран. До него stopLoad необратим.
+      tile.ready = true;
       hlsTile.currentLevel = wallLevel(data.levels);
       // Комната пришла прямо в развёрнутую ячейку — ей нужно качество покрупнее.
       if (zoom.tile === tile) zoomQuality(tile);
@@ -3067,7 +3109,9 @@
        трогаем — она играет из своего буфера, поэтому картинка не прерывается. */
     for (const other of tiles) {
       if (other === tile || !other.hls) continue;
-      other.hls.stopLoad();
+      // Недозагруженную не трогаем: stopLoad до разбора манифеста необратим,
+      // и ячейка осталась бы мёртвой после возврата из разворота.
+      if (other.ready) other.hls.stopLoad();
       other.video.pause();
     }
     zoomQuality(tile);
@@ -3511,6 +3555,7 @@
     $('wall').classList.add('on');
 
     clearScreens();
+    const want = Math.min(Math.max(0, saved.at), plans.length - 1);
     wallQuiet = true;                       // раскладываем — пишем один раз в конце
     plans.forEach((plan, i) => {
       const screen = makeScreen();
@@ -3520,17 +3565,20 @@
       // Пустые места пропускаем, но ячейку под них уже создали — так номера
       // и положение соседей совпадают с тем, что было до перезагрузки.
       plan.forEach((item, k) => {
-        if (item) tilePlay(tiles[k], item.u, known.get(item.u.toLowerCase()) || item.e);
+        if (!item) return;
+        const edge = known.get(item.u.toLowerCase()) || item.e;
+        // Плееры поднимаем только у видимого экрана. Прочие ждут показа:
+        // тридцать два манифеста разом — это и лишний трафик, и остановка
+        // загрузки на полпути, от которой ячейка уже не оживает.
+        if (i === want) tilePlay(tiles[k], item.u, edge);
+        else tileHold(tiles[k], item.u, edge);
       });
     });
     wallQuiet = false;
 
-    screenAt = Math.min(Math.max(0, saved.at), screens.length - 1);
+    screenAt = want;
     tiles = screens[screenAt].tiles;
-    screens.forEach((screen, i) => {
-      screen.box.hidden = i !== screenAt;
-      if (i !== screenAt) sleepScreen(screen);   // остальные не жгут канал
-    });
+    screens.forEach((screen, i) => { screen.box.hidden = i !== screenAt; });
     layoutWall();                 // достроит свободные ячейки до прямоугольника
     saveWall();                   // пишем уже после подгонки: лишние места убраны
     paintScreens();
