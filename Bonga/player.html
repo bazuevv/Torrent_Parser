@@ -210,6 +210,13 @@
   .tile.picked { box-shadow: inset 0 0 0 2px #6ea8fe; }
   /* Ячейка под перетаскиваемой карточкой. */
   .tile.drop { box-shadow: inset 0 0 0 3px #7ee787; background: #16301c; }
+  /* Комнату попытались добавить второй раз: подсвечиваем ту ячейку, где она
+     уже стоит. Три вспышки по секунде — заметно, но не назойливо. */
+  .tile.flash { animation: tileFlash 1s ease-in-out 3; }
+  @keyframes tileFlash {
+    0%, 100% { box-shadow: inset 0 0 0 3px rgba(126, 231, 135, 0); }
+    50% { box-shadow: inset 0 0 0 3px #7ee787; }
+  }
   /* Ячейка под другой ячейкой: не добавление, а обмен местами — и цвет
      другой, чтобы жесты не путались. */
   .tile.swap { box-shadow: inset 0 0 0 3px #6ea8fe; background: #16223a; }
@@ -3330,8 +3337,45 @@
     return tiles.length - 1;
   }
 
+  /* Одна комната — одна ячейка. Второй раз открывать ту же трансляцию незачем:
+     это двойной трафик и путаница в номерах. Ищем по всем экранам, а не только
+     по видимому: невидимый повтор тем более бесполезен. */
+  function haveRoom(user) {
+    const key = String(user || '').toLowerCase();
+    if (!key) return null;
+    for (let i = 0; i < screens.length; i++) {
+      const tile = screens[i].tiles.find(
+        item => item.user && item.user.toLowerCase() === key);
+      if (tile) return { at: i, tile };
+    }
+    return null;
+  }
+
+  function flashTile(tile) {
+    tile.box.classList.remove('flash');
+    void tile.box.offsetWidth;          // перезапуск анимации, иначе не мигнёт дважды
+    tile.box.classList.add('flash');
+    clearTimeout(tile.flashTimer);
+    tile.flashTimer = setTimeout(() => tile.box.classList.remove('flash'), 3000);
+  }
+
+  /* Показываем, где комната уже стоит. Если на другом экране — переходим туда:
+     подсветка на невидимом экране никому не поможет. Ушедшую заодно пробуем
+     запустить снова: щелчок по карточке — это просьба смотреть, а не сообщение
+     «я знаю, что она была». */
+  function showRoom(found, edge) {
+    if (found.at !== screenAt) useScreen(found.at);
+    const tile = found.tile;
+    const at = screens[found.at].tiles.indexOf(tile) + 1;
+    if (tile.goneAt) tilePlay(tile, tile.user, bestEdge(tile.user, edge || tile.edge));
+    flashTile(tile);
+    say(`${tile.user} уже на стене — экран ${found.at + 1}, ячейка ${at}.`, 'ok');
+  }
+
   function wallAssign(user, edge) {
     if (!tiles.length) return false;
+    const found = haveRoom(user);
+    if (found) { showRoom(found, edge); return true; }
     const tile = tiles[nextSlot()];
     tilePlay(tile, user, edge);
     /* Пока одна ячейка развёрнута, комната приходит сразу в неё: положить её
@@ -3493,9 +3537,13 @@
       if (from !== '') return swapTiles(Number(from), tiles.indexOf(tile));
       const room = dragRoom(e);
       if (!room) return;
+      // Комната уже на стене — вторую копию не заводим даже по прямому броску:
+      // показываем ту ячейку, где она стоит.
+      const found = haveRoom(room.user);
+      if (found && found.tile !== tile) return showRoom(found, room.edge);
       // Перетаскивание само говорит, куда класть, — подсветку не трогаем:
       // её место определяет layoutWall, и это всегда последняя ячейка.
-      tilePlay(tile, room.user, known.get(room.user.toLowerCase()) || room.edge);
+      tilePlay(tile, room.user, bestEdge(room.user, room.edge));
     };
     /* Уровень громкости запоминаем. Глушение уровень не меняет, поэтому такие
        события пропускаем: иначе tileLoud, глуша соседей, обнулял бы
@@ -3600,6 +3648,9 @@
   }
 
   function addTile(user, edge) {
+    // Уже на стене — показываем ту ячейку вместо новой.
+    const found = user && haveRoom(user);
+    if (found) { showRoom(found, edge); return found.tile; }
     // Свободная ячейка с плюсом уже ждёт — занимаем её, а не плодим новую.
     let tile = tiles.find(item => !item.user);
     if (!tile) {
