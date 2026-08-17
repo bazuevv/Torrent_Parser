@@ -4937,9 +4937,17 @@
     return null;
   }
 
-  function pickSessionId(obj) {
-    if (!obj || typeof obj !== 'object') return null;
-    var v = obj.sessionId;
+  // Имена пропсов, под которыми лежит объект сессии. В бандле это
+  // экземпляр класса с полями-сигналами (`sessionId`, `summary`,
+  // `busy`), а вкладки живут внутри одного webview — какая активна,
+  // знает `activeSession`.
+  var HOLDER_KEYS = ['session', 'activeSession', 'currentSession', 'conversation'];
+
+  /** Достаёт UUID из объекта-держателя сессии (поле или сигнал). */
+  function idFromHolder(h) {
+    if (!h || typeof h !== 'object') return null;
+    var v;
+    try { v = h.sessionId; } catch (e) { return null; }
     if (typeof v === 'string' && UUID_RE.test(v)) return v;
     if (v && typeof v === 'object' && typeof v.value === 'string'
         && UUID_RE.test(v.value)) {
@@ -4948,35 +4956,107 @@
     return null;
   }
 
+  /** Разворачивает сигнал: у Preact значение лежит в `.value`. */
+  function unwrap(v) {
+    if (v && typeof v === 'object' && v.value && typeof v.value === 'object') {
+      return v.value;
+    }
+    return v;
+  }
+
+  /**
+   * Ищет id в объекте пропсов/состояния.
+   *
+   * Плоской проверки `obj.sessionId` не хватает: в пропсы приходит
+   * не id, а сам объект сессии (`props.session.sessionId.value`) или
+   * стор с активной вкладкой (`props.activeSession.value.sessionId.value`).
+   * Поэтому смотрим на уровень глубже — сперва по известным именам,
+   * потом общим перебором, на случай другого имени пропса.
+   */
+  function pickSessionId(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    var direct = idFromHolder(obj);
+    if (direct) return direct;
+
+    var i, got;
+    for (i = 0; i < HOLDER_KEYS.length; i++) {
+      var h = obj[HOLDER_KEYS[i]];
+      if (!h || typeof h !== 'object') continue;
+      got = idFromHolder(h) || idFromHolder(unwrap(h));
+      if (got) return got;
+    }
+
+    var keys;
+    try { keys = Object.keys(obj); } catch (e) { return null; }
+    for (i = 0; i < keys.length && i < 30; i++) {
+      var c;
+      try { c = obj[keys[i]]; } catch (e) { continue; }
+      if (!c || typeof c !== 'object') continue;
+      got = idFromHolder(c) || idFromHolder(unwrap(c));
+      if (got) return got;
+    }
+    return null;
+  }
+
+  /**
+   * Состояние функционального компонента — не объект, а связный список
+   * хуков: значение каждого лежит в `.memoizedState`, следующий в
+   * `.next`. Прямая проверка fiber.memoizedState видит только первый
+   * хук (а чаще вообще служебную структуру), поэтому идём по цепочке.
+   */
+  function pickFromHooks(state) {
+    var hook = state;
+    var n = 0;
+    while (hook && typeof hook === 'object' && n < 40) {
+      var got = pickSessionId(hook.memoizedState);
+      if (got) return got;
+      hook = hook.next;
+      n++;
+    }
+    return null;
+  }
+
+  function pickFromFiber(f) {
+    if (!f) return null;
+    return pickSessionId(f.memoizedProps)
+      || pickSessionId(f.memoizedState)
+      || pickFromHooks(f.memoizedState);
+  }
+
   function findSessionId() {
     var anchor = document.querySelector('[class*="inputContainer_"]')
       || document.getElementById('root')
       || document.body;
     var fiber = fiberOf(anchor);
     var hops = 0;
-    while (fiber && hops < 60) {
-      var id = pickSessionId(fiber.memoizedProps)
-        || pickSessionId(fiber.memoizedState);
-      if (id) return id;
+    while (fiber && hops < 80) {
+      var id = pickFromFiber(fiber);
+      if (id) {
+        logInfo('id найден подъёмом, шагов:', hops);
+        return id;
+      }
       fiber = fiber.return;
       hops++;
     }
-    // Подъём не помог (перестроили дерево) — обходим вниз от корня.
-    // Очередь ограничена: панель открывается по клику, но подвесить
-    // webview обходом на десятки тысяч узлов всё равно нельзя.
+    // Подъём не помог — обходим вниз от корня. Очередь ограничена:
+    // панель открывается по клику, но подвесить webview обходом
+    // на десятки тысяч узлов всё равно нельзя.
     var root = fiberOf(document.getElementById('root') || document.body);
     var queue = root ? [root] : [];
     var seen = 0;
-    while (queue.length && seen < 8000) {
+    while (queue.length && seen < 12000) {
       var f = queue.shift();
       seen++;
       if (!f) continue;
-      var found = pickSessionId(f.memoizedProps)
-        || pickSessionId(f.memoizedState);
-      if (found) return found;
+      var found = pickFromFiber(f);
+      if (found) {
+        logInfo('id найден обходом вниз, узлов просмотрено:', seen);
+        return found;
+      }
       if (f.child) queue.push(f.child);
       if (f.sibling) queue.push(f.sibling);
     }
+    logInfo('id не найден: подъём', hops, 'шагов, обход', seen, 'узлов');
     return null;
   }
 
