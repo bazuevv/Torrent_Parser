@@ -4864,12 +4864,15 @@
 /* ============================================================
  * CACHE USAGE BUTTON
  *
- * Кнопка «Cache» в футере поля ввода, слева от «Править
+ * Кнопка «Usage» в футере поля ввода, слева от «Править
  * автоматически». По клику открывается панель со статистикой
  * prompt-кэша текущей сессии: размер контекста, вердикт последнего
  * хода (попадание/промах и пауза до него), суммы чтений и записей,
  * оценка стоимости против варианта без кэша и список последних
  * промахов с длиной паузы.
+ *
+ * Не путать с соседней кнопкой «Cache» (модуль CACHE KEEPALIVE):
+ * эта показывает статистику, та поддерживает кэш живым.
  *
  * Данные берёт GET http://localhost:18923/cache-usage — там
  * http-server.py разбирает JSONL-транскрипт сессии (модуль
@@ -4880,7 +4883,7 @@
  * Почему кнопка, а не инжект в каждое сообщение: статистика нужна
  * изредка, а строка в шапке каждого ответа быстро превращается в шум.
  *
- * Управление: `cacheButton` в claude-custom-config.toml.
+ * Управление: `usageButton` в claude-custom-config.toml.
  * ============================================================ */
 (function () {
   if (window.__claudeCacheButtonInstalled) return;
@@ -4889,8 +4892,8 @@
   var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
 
   var API_URL = 'http://localhost:18923/cache-usage';
-  var BTN_CLASS = 'claude-cache-btn';
-  var BARE_CLASS = 'claude-cache-btn-bare';  // без донора стиля
+  var BTN_CLASS = 'claude-usage-btn';
+  var BARE_CLASS = 'claude-usage-btn-bare';  // без донора стиля
   var PANEL_ID = 'claude-cache-panel';
   var SCAN_INTERVAL_MS = 3000;
 
@@ -5059,13 +5062,13 @@
     return null;
   }
 
-  // Резолвер — общая зависимость: им же пользуется кнопка ByPass,
-  // чтобы ставить marker именно своей вкладке. Регистрируем ДО
-  // проверки флага, иначе выключенный cacheButton утащил бы за собой
-  // и соседний модуль (тот же приём, что с __claudeEmojiCatalog).
+  // Резолвер — общая зависимость: им же пользуются кнопки ByPass
+  // и Cache, чтобы работать именно со своей вкладкой. Регистрируем ДО
+  // проверки флага, иначе выключенный usageButton утащил бы за собой
+  // и соседние модули (тот же приём, что с __claudeEmojiCatalog).
   window.__claudeSessionId = findSessionId;
 
-  if (cfg.cacheButton !== true) return;
+  if (cfg.usageButton !== true) return;
 
   /* ---------- форматирование ---------- */
 
@@ -5352,7 +5355,7 @@
     btn.title = 'Статистика prompt-кэша сессии';
     btn.appendChild(cacheIcon());
     var label = document.createElement('span');
-    label.textContent = 'Cache';
+    label.textContent = 'Usage';
     btn.appendChild(label);
     // Без preventDefault фокус уходит из composer'а: пользователь
     // теряет позицию каретки просто посмотрев статистику.

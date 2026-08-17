@@ -505,17 +505,17 @@
  * даром. Здесь — только приглушение до наведения, как у 😀.
  * Ничего не сбрасываем: этот файл грузится ПОСЛЕ стилей расширения,
  * и любой background/border здесь перекрыл бы родной hover. */
-.claude-cache-btn {
+.claude-usage-btn {
   opacity: 0.75;
 }
-.claude-cache-btn:hover {
+.claude-usage-btn:hover {
   opacity: 1;
 }
 /* Подпись жирнее соседних: кнопка открывает панель, а не переключает
  * режим, и должна читаться как отдельное действие. Правило адресует
  * <span> внутри — сама кнопка носит класс штатной footerButton_,
  * и font-weight на ней сбил бы наследование от неё. */
-.claude-cache-btn > span {
+.claude-usage-btn > span {
   font-weight: 600;
 }
 
@@ -524,7 +524,7 @@
  * серая плашка с рамкой, которая в футере смотрится чужеродно.
  * Класс навешивает JS: отличить случай селектором нельзя,
  * `:has()` в этом webview не отрабатывает. */
-.claude-cache-btn-bare {
+.claude-usage-btn-bare {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -537,12 +537,12 @@
   line-height: 1.2;
   cursor: pointer;
 }
-.claude-cache-btn-bare:hover {
+.claude-usage-btn-bare:hover {
   background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
 }
 /* Иконка отдана в 20×20 (как штатные), масштаб задаёт footerButton_.
  * В запасном виде этого класса нет — размер приходится ставить самим. */
-.claude-cache-btn-bare svg {
+.claude-usage-btn-bare svg {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
@@ -668,7 +668,7 @@
   color: #fff;
 }
 
-/* Запасной вид, когда донора стиля не нашлось (см. claude-cache-btn-bare). */
+/* Запасной вид, когда донора стиля не нашлось (см. claude-usage-btn-bare). */
 .claude-bypass-btn-bare {
   display: inline-flex;
   align-items: center;

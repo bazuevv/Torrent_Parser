@@ -124,7 +124,7 @@ REQUIRED_PARAMS = [
         "должен быть true или false",
     ),
     (
-        "cacheButton",
+        "usageButton",
         lambda v: isinstance(v, bool),
         "должен быть true или false",
     ),
