@@ -30,6 +30,11 @@ import time
 import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+# cache_usage лежит рядом; при запуске скриптом sys.path[0] — эта папка,
+# но вставляем явно, чтобы импорт не зависел от способа запуска.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cache_usage  # noqa: E402
+
 PORT = int(os.environ.get("CLAUDE_HTTP_PORT", "18923"))
 PROJECT_DIR = os.environ.get("CLAUDE_PROJECT_DIR", "")
 LOGS_DIR = os.path.join(PROJECT_DIR, ".claude", "hooks-runtime") if PROJECT_DIR else ""
@@ -257,8 +262,94 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_vscode_settings()
             return
 
+        if self.path.split("?", 1)[0] == "/cache-usage":
+            self._handle_cache_usage()
+            return
+
         self.send_response(404)
         self.end_headers()
+
+    def _handle_cache_usage(self) -> None:
+        """Статистика prompt-кэша сессии для кнопки Cache в футере.
+
+        Сессия определяется по самому свежему .jsonl в папке проекта
+        (~/.claude/projects/<кодированный cwd>/) — webview собственного
+        session_id не знает, а свежий файл почти всегда и есть текущая
+        сессия. Явный ?session=<uuid> перекрывает автоопределение:
+        нужно, чтобы посмотреть уже закрытую сессию.
+
+        Разбор инкрементальный, состояние — в hooks-runtime, поэтому
+        повторные нажатия кнопки почти бесплатны даже на транскрипте
+        в десятки мегабайт.
+        """
+        if not PROJECT_DIR:
+            self._json_response(500, {
+                "ok": False, "error": "CLAUDE_PROJECT_DIR не задан",
+            })
+            return
+
+        requested = ""
+        if "?" in self.path:
+            for part in self.path.split("?", 1)[1].split("&"):
+                if part.startswith("session="):
+                    requested = part[len("session="):]
+
+        project_dir = os.path.join(
+            CLAUDE_PROJECTS_DIR, encode_project_path(PROJECT_DIR)
+        )
+        if not os.path.isdir(project_dir):
+            self._json_response(404, {
+                "ok": False, "error": "папка проекта не найдена",
+            })
+            return
+
+        if requested:
+            # SESSION_ID_RE — защита от directory traversal в имени файла.
+            if not SESSION_ID_RE.match(requested):
+                self._json_response(400, {
+                    "ok": False, "error": "некорректный session id",
+                })
+                return
+            transcript = os.path.join(project_dir, requested + ".jsonl")
+            if not os.path.isfile(transcript):
+                self._json_response(404, {
+                    "ok": False, "error": "сессия не найдена",
+                })
+                return
+        else:
+            transcript = ""
+            newest = -1.0
+            try:
+                entries = os.listdir(project_dir)
+            except OSError as exc:
+                self._json_response(500, {
+                    "ok": False, "error": f"listdir failed: {exc}",
+                })
+                return
+            for entry in entries:
+                if not entry.endswith(".jsonl"):
+                    continue
+                full = os.path.join(project_dir, entry)
+                try:
+                    mtime = os.path.getmtime(full)
+                except OSError:
+                    continue
+                if mtime > newest:
+                    newest, transcript = mtime, full
+            if not transcript:
+                self._json_response(404, {
+                    "ok": False, "error": "в проекте нет сессий",
+                })
+                return
+
+        state_dir = LOGS_DIR or os.path.join(PROJECT_DIR, ".claude", "hooks-runtime")
+        try:
+            stats = cache_usage.collect(transcript, state_dir=state_dir)
+        except Exception as exc:
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+
+        self._json_response(200 if stats.get("ok") else 404, stats)
 
     def _handle_vscode_settings(self) -> None:
         """Отдаёт webview'у актуальные значения настроек из VSCode
