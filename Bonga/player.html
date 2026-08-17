@@ -1388,12 +1388,45 @@
 (() => {
   const $ = id => document.getElementById(id);
 
-  // Русские числительные: 1 минуту, 2 минуты, 5 минут.
-  const plural = (n, one, few, many) => {
+  /* Числительные: 1 минуту, 2 минуты, 5 минут. Форм у нас три — «один,
+     два, много», — но какая из них нужна при данном числе, у каждого
+     языка своё. Раньше здесь стояло русское правило, и оно применялось
+     ко всем: румынскому оно давало форму с «de» уже с пяти, тогда как
+     по-румынски она начинается с двадцати. Теперь решает Intl.PluralRules
+     — правила всех языков лежат в самом браузере, держать их у себя не
+     нужно.
+
+     Категории CLDR ложатся на наши три формы так: one → один; two и few
+     → два; zero, many и other → много. Исключение — арабский: там few
+     это 3–10, то есть обычное множественное, а двойственное приходит
+     категорией two, поэтому few уводим в «много».
+
+     Если Intl не знает язык или его вовсе нет — остаётся прежнее русское
+     правило: для славянских языков оно верное, для прочих не хуже того,
+     что было до этой правки. */
+  const SLOT = { one: 0, two: 1, few: 1, zero: 2, many: 2, other: 2 };
+  const FEW_IS_MANY = new Set(['ar']);
+  const pluralRules = new Map();        // по языку: создавать на каждый вызов дорого
+
+  const slavicSlot = n => {
     const ten = n % 10, hundred = n % 100;
-    if (ten === 1 && hundred !== 11) return one;
-    if (ten >= 2 && ten <= 4 && (hundred < 12 || hundred > 14)) return few;
-    return many;
+    if (ten === 1 && hundred !== 11) return 0;
+    if (ten >= 2 && ten <= 4 && (hundred < 12 || hundred > 14)) return 1;
+    return 2;
+  };
+
+  const plural = (n, one, few, many) => {
+    const forms = [one, few, many];
+    if (typeof Intl === 'undefined' || !Intl.PluralRules) return forms[slavicSlot(n)];
+    let rules = pluralRules.get(langNow);
+    if (rules === undefined) {
+      try { rules = new Intl.PluralRules(langNow); } catch { rules = null; }
+      pluralRules.set(langNow, rules);
+    }
+    if (!rules) return forms[slavicSlot(n)];
+    const kind = rules.select(n);
+    const slot = kind === 'few' && FEW_IS_MANY.has(langNow) ? 2 : SLOT[kind];
+    return forms[slot === undefined ? slavicSlot(n) : slot];
   };
   const video = $('v');
   let hls = null, stallTimer = 0;
