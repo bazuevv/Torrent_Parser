@@ -28,7 +28,13 @@ import shutil
 import sys
 import time
 import uuid
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+
+# Разбор транскрипта — единственная тяжёлая операция сервера (первый
+# проход по файлу в десятки мегабайт занимает около секунды). Лочим её,
+# чтобы параллельные запросы не гонялись за файлом состояния.
+_CACHE_LOCK = threading.Lock()
 
 # cache_usage лежит рядом; при запуске скриптом sys.path[0] — эта папка,
 # но вставляем явно, чтобы импорт не зависел от способа запуска.
@@ -450,7 +456,8 @@ class Handler(BaseHTTPRequestHandler):
 
         state_dir = LOGS_DIR or os.path.join(PROJECT_DIR, ".claude", "hooks-runtime")
         try:
-            stats = cache_usage.collect(transcript, state_dir=state_dir)
+            with _CACHE_LOCK:
+                stats = cache_usage.collect(transcript, state_dir=state_dir)
         except Exception as exc:
             self._json_response(500, {"ok": False, "error": str(exc)})
             return
@@ -1113,7 +1120,13 @@ def main():
     with open(pid_file, "w") as f:
         f.write(str(os.getpid()))
 
-    server = HTTPServer(("127.0.0.1", PORT), Handler)
+    # ThreadingHTTPServer, а не HTTPServer: webview опрашивает сервер
+    # несколькими таймерами (состояние ByPass и настройки — каждые 5 с,
+    # поддержание кэша — раз в минуту), плюс клики по кнопкам. На
+    # однопоточном сервере первый разбор большого транскрипта (~1 с)
+    # блокировал очередь, и опросы отваливались по таймауту — в webview
+    # это выглядело как «http-server.py недоступен».
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

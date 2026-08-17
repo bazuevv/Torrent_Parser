@@ -5974,8 +5974,7 @@
         logInfo('пропуск: модель отвечает');
         return false;
       }
-      var send = container.querySelector('[class*="sendButton_"]');
-      if (!send) continue;
+      if (!container.querySelector('[class*="sendButton_"]')) continue;
 
       el.focus();
       var ok = false;
@@ -5988,11 +5987,48 @@
         logInfo('вставка текста не удалась');
         return false;
       }
-      send.click();
-      logInfo('отправлено сообщение поддержания');
+      clickSendWhenReady(container, 0);
       return true;
     }
     return false;
+  }
+
+  /**
+   * Жмёт кнопку отправки, дождавшись, когда она разблокируется.
+   *
+   * В бандле она `disabled: !busy && !hasContent`, то есть при пустом
+   * поле заблокирована. React обновляет состояние асинхронно: клик
+   * сразу после execCommand приходится на ещё выключенную кнопку и
+   * молча пропадает, а текст остаётся висеть в поле. Вдобавок React
+   * может заменить сам узел, поэтому кнопку каждый раз ищем заново,
+   * а не держим ссылку.
+   *
+   * Если за отведённое время кнопка так и не ожила, убираем свой текст:
+   * оставлять его в поле хуже, чем не отправить — пользователь потом
+   * наткнётся на чужую строку в композере.
+   */
+  function clickSendWhenReady(container, attempt) {
+    var send = container.querySelector('[class*="sendButton_"]');
+    if (send && !send.disabled) {
+      send.click();
+      logInfo('отправлено сообщение поддержания, попыток:', attempt);
+      return;
+    }
+    if (attempt >= 30) {  // 30 × 50 мс = 1.5 с
+      logInfo('кнопка отправки не разблокировалась — убираем текст');
+      var el = composerOf(container);
+      if (el && (el.textContent || '').trim() === MESSAGE.trim()) {
+        el.focus();
+        try {
+          document.execCommand('selectAll', false, null);
+          document.execCommand('delete', false, null);
+        } catch (e) {}
+      }
+      return;
+    }
+    setTimeout(function () {
+      clickSendWhenReady(container, attempt + 1);
+    }, 50);
   }
 
   function tick() {
