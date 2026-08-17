@@ -126,6 +126,11 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, bool),
         "должен быть true или false",
     ),
+    (
+        "bypassButton",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"

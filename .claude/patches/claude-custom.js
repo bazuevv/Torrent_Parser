@@ -4887,7 +4887,6 @@
   window.__claudeCacheButtonInstalled = true;
 
   var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
-  if (cfg.cacheButton !== true) return;
 
   var API_URL = 'http://localhost:18923/cache-usage';
   var BTN_CLASS = 'claude-cache-btn';
@@ -5059,6 +5058,14 @@
     logInfo('id не найден: подъём', hops, 'шагов, обход', seen, 'узлов');
     return null;
   }
+
+  // Резолвер — общая зависимость: им же пользуется кнопка ByPass,
+  // чтобы ставить marker именно своей вкладке. Регистрируем ДО
+  // проверки флага, иначе выключенный cacheButton утащил бы за собой
+  // и соседний модуль (тот же приём, что с __claudeEmojiCatalog).
+  window.__claudeSessionId = findSessionId;
+
+  if (cfg.cacheButton !== true) return;
 
   /* ---------- форматирование ---------- */
 
@@ -5407,6 +5414,249 @@
       });
     } catch (e) {}
     setInterval(scan, SCAN_INTERVAL_MS);
+    logInfo('installed');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+
+/* ============================================================
+ * BYPASS BUTTON
+ *
+ * Кнопка «ByPass» в футере, между Cache и «Править автоматически».
+ * Ручной вход в тот же режим, который включает слово `да!`: пока он
+ * активен, PreToolUse хук bypass-check.sh отвечает harness'у
+ * permissionDecision=allow, и окна подтверждения не появляются.
+ *
+ * Механизм один и тот же — marker-файл .claude/hooks-runtime/<session_id>.
+ * bypass-magic-word.py ставит его по слову, эта кнопка — через
+ * POST /bypass. Поэтому состояние общее: включив режим словом, увидишь
+ * кнопку активной, и наоборот. Выключить кнопкой можно, словом — нет
+ * (магическое слово только включает).
+ *
+ * В отличие от слова, кнопка умеет и снимать marker, так что это ещё
+ * и единственный способ выйти из режима, не закрывая сессию.
+ *
+ * Состояние опрашивается раз в BYPASS_POLL_MS: режим могли включить
+ * словом в этой же вкладке, и кнопка обязана это отразить.
+ *
+ * Управление: `bypassButton` в claude-custom-config.toml.
+ * ============================================================ */
+(function () {
+  if (window.__claudeBypassButtonInstalled) return;
+  window.__claudeBypassButtonInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (cfg.bypassButton !== true) return;
+
+  var API_URL = 'http://localhost:18923/bypass';
+  var BTN_CLASS = 'claude-bypass-btn';
+  var BARE_CLASS = 'claude-bypass-btn-bare';
+  var ON_CLASS = 'claude-bypass-on';
+  var SCAN_INTERVAL_MS = 3000;
+  var BYPASS_POLL_MS = 5000;
+  var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
+
+  var active = false;
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[bypass-btn]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  function sessionId() {
+    var fn = window.__claudeSessionId;
+    return typeof fn === 'function' ? fn() : null;
+  }
+
+  /* ---------- иконка ---------- */
+
+  function boltIcon() {
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '20');
+    svg.setAttribute('height', '20');
+    svg.setAttribute('viewBox', '0 0 20 20');
+    svg.setAttribute('fill', 'none');
+    var path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', 'M11.5 2.5L5 11h3.5L8 17.5L15 9h-3.5z');
+    path.setAttribute('fill', 'currentColor');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  /* ---------- состояние ---------- */
+
+  /**
+   * Штатный «выключенный» вид берём у самого расширения: в CSS-модуле
+   * футера рядом с footerButton_<hash> лежит footerButtonInactive_<hash>
+   * с тем же хешем. Достраиваем имя из класса донора — так приглушённая
+   * кнопка выглядит ровно как неактивная штатная.
+   */
+  function inactiveClassFrom(donorClass) {
+    var m = /(?:^|\s)footerButton_(\w+)(?:\s|$)/.exec(donorClass || '');
+    return m ? 'footerButtonInactive_' + m[1] : '';
+  }
+
+  function applyState(btn) {
+    var inactive = btn.getAttribute('data-inactive-class') || '';
+    if (inactive) {
+      if (active) btn.classList.remove(inactive);
+      else btn.classList.add(inactive);
+    }
+    if (active) btn.classList.add(ON_CLASS);
+    else btn.classList.remove(ON_CLASS);
+    btn.title = active
+      ? 'Bypass включён: tool-вызовы идут без подтверждения. Клик — выключить.'
+      : 'Bypass выключен. Клик — пропускать tool-вызовы без подтверждения '
+        + 'до конца сессии (то же, что слово «да!»).';
+  }
+
+  function applyStateAll() {
+    var nodes = document.querySelectorAll('.' + BTN_CLASS);
+    for (var i = 0; i < nodes.length; i++) applyState(nodes[i]);
+  }
+
+  function refresh() {
+    var sid = sessionId();
+    if (!sid) return;
+    fetch(API_URL + '?session=' + encodeURIComponent(sid), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) return;
+        if (d.active !== active) {
+          active = !!d.active;
+          applyStateAll();
+          logInfo('состояние обновлено:', active ? 'включён' : 'выключен');
+        }
+      })
+      .catch(function () {});
+  }
+
+  function toggle(btn) {
+    var sid = sessionId();
+    if (!sid) {
+      logInfo('session id не определён — переключать нечего');
+      btn.title = 'Не удалось определить сессию вкладки';
+      return;
+    }
+    var want = !active;
+    fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: sid, active: want }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) throw new Error((d && d.error) || 'отказ сервера');
+        active = !!d.active;
+        applyStateAll();
+        logInfo(active ? 'включён' : 'выключен');
+      })
+      .catch(function (err) {
+        logInfo('переключение не удалось', err);
+        btn.title = 'http-server.py недоступен (порт 18923)';
+      });
+  }
+
+  /* ---------- встраивание ---------- */
+
+  function findAnchor(footer) {
+    var buttons = footer.querySelectorAll('button');
+    var match = null;
+    for (var i = 0; i < buttons.length; i++) {
+      if (AUTO_EDIT_RE.test(buttons[i].textContent || '')) {
+        match = buttons[i];
+        break;
+      }
+    }
+    if (match) {
+      var node = match;
+      while (node.parentNode && node.parentNode !== footer) node = node.parentNode;
+      return {
+        before: node.parentNode === footer ? node : null,
+        donor: match,
+      };
+    }
+    return {
+      before: null,
+      donor: footer.querySelector('[class*="footerButton_"]')
+        || footer.querySelector('button'),
+    };
+  }
+
+  function createButton(donor) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    var donorClass = donor && typeof donor.className === 'string'
+      ? donor.className : '';
+    if (donorClass) {
+      btn.className = donorClass + ' ' + BTN_CLASS;
+      var inactive = inactiveClassFrom(donorClass);
+      if (inactive) btn.setAttribute('data-inactive-class', inactive);
+    } else {
+      btn.className = BTN_CLASS + ' ' + BARE_CLASS;
+    }
+    btn.appendChild(boltIcon());
+    var label = document.createElement('span');
+    label.textContent = 'ByPass';
+    btn.appendChild(label);
+    applyState(btn);
+    btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggle(btn);
+    });
+    return btn;
+  }
+
+  function mount(container) {
+    var footer = container.querySelector('[class*="inputFooter_"]');
+    if (!footer) return false;
+    var anchor = findAnchor(footer);
+    var btn = createButton(anchor.donor);
+    // Вставка перед обёрткой автоправок: кнопка Cache уже стоит там же,
+    // поэтому ByPass оказывается ровно между ними.
+    if (anchor.before) {
+      footer.insertBefore(btn, anchor.before);
+    } else {
+      var spacer = footer.querySelector('[class*="spacer_"]');
+      if (spacer && spacer.parentNode === footer) {
+        footer.insertBefore(btn, spacer.nextSibling);
+      } else {
+        footer.appendChild(btn);
+      }
+    }
+    return true;
+  }
+
+  function scan() {
+    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+    for (var i = 0; i < containers.length; i++) {
+      if (containers[i].querySelector('.' + BTN_CLASS)) continue;
+      if (!containers[i].querySelector('[role="textbox"][contenteditable]')) continue;
+      mount(containers[i]);
+    }
+  }
+
+  function init() {
+    scan();
+    refresh();
+    try {
+      new MutationObserver(function () { scan(); }).observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    } catch (e) {}
+    setInterval(scan, SCAN_INTERVAL_MS);
+    setInterval(refresh, BYPASS_POLL_MS);
     logInfo('installed');
   }
 

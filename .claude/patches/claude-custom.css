@@ -634,6 +634,52 @@
   opacity: 0.7;
 }
 
+/* ============================================================
+ * BYPASS BUTTON — модуль BYPASS BUTTON в claude-custom.js.
+ * Кнопка «ByPass» между Cache и «Править автоматически».
+ * Включается параметром bypassButton в claude-custom-config.toml.
+ * ============================================================ */
+
+.claude-bypass-btn {
+  opacity: 0.75;
+}
+.claude-bypass-btn:hover {
+  opacity: 1;
+}
+.claude-bypass-btn > span {
+  font-weight: 600;
+}
+
+/* Включённый режим — предупреждающий цвет: подтверждения отключены,
+ * и это должно быть заметно, а не спрятано в оттенке прозрачности. */
+.claude-bypass-btn.claude-bypass-on {
+  opacity: 1;
+  color: var(--vscode-charts-yellow, #e2c08d);
+}
+
+/* Запасной вид, когда донора стиля не нашлось (см. claude-cache-btn-bare). */
+.claude-bypass-btn-bare {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.claude-bypass-btn-bare:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+.claude-bypass-btn-bare svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 /* Подпись «чья это статистика» — мелко и тихо, но всегда на виду:
  * при промахе автоопределения панель обязана честно сказать, что
  * показывает не эту вкладку. */

@@ -266,8 +266,90 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_cache_usage()
             return
 
+        if self.path.split("?", 1)[0] == "/bypass":
+            self._handle_bypass_get()
+            return
+
         self.send_response(404)
         self.end_headers()
+
+    # --- bypass-режим ---------------------------------------------------
+    #
+    # Ровно тот же marker-файл, что ставит bypass-magic-word.py по слову
+    # `да!`: .claude/hooks-runtime/<session_id> с меткой времени внутри.
+    # PreToolUse хук bypass-check.sh проверяет только факт существования
+    # файла, поэтому кнопка в футере и магическое слово — два входа
+    # в один механизм, а не два независимых состояния.
+
+    def _bypass_marker(self, session_id: str) -> str:
+        base = LOGS_DIR or os.path.join(PROJECT_DIR, ".claude", "hooks-runtime")
+        return os.path.join(base, session_id)
+
+    def _bypass_session_arg(self, source: str) -> str | None:
+        """Достаёт и валидирует session id. None — ответ уже отправлен."""
+        if not PROJECT_DIR:
+            self._json_response(500, {"ok": False, "error": "CLAUDE_PROJECT_DIR не задан"})
+            return None
+        if not source or not SESSION_ID_RE.match(source):
+            self._json_response(400, {"ok": False, "error": "некорректный session id"})
+            return None
+        return source
+
+    def _handle_bypass_get(self) -> None:
+        requested = ""
+        if "?" in self.path:
+            for part in self.path.split("?", 1)[1].split("&"):
+                if part.startswith("session="):
+                    requested = part[len("session="):]
+        session_id = self._bypass_session_arg(requested)
+        if session_id is None:
+            return
+
+        marker = self._bypass_marker(session_id)
+        since = None
+        if os.path.isfile(marker):
+            try:
+                with open(marker, encoding="utf-8") as fh:
+                    since = float(fh.read().strip() or 0) or None
+            except (OSError, ValueError):
+                since = None
+        self._json_response(200, {
+            "ok": True,
+            "active": os.path.isfile(marker),
+            "since": since,
+        })
+
+    def _handle_bypass_post(self) -> None:
+        body = self._read_body()
+        if body is None:
+            return
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except Exception:
+            self._json_response(400, {"ok": False, "error": "тело не JSON"})
+            return
+        if not isinstance(payload, dict):
+            self._json_response(400, {"ok": False, "error": "ожидался объект"})
+            return
+
+        session_id = self._bypass_session_arg(str(payload.get("session") or ""))
+        if session_id is None:
+            return
+
+        marker = self._bypass_marker(session_id)
+        want = bool(payload.get("active"))
+        try:
+            if want:
+                os.makedirs(os.path.dirname(marker), exist_ok=True)
+                with open(marker, "w", encoding="utf-8") as fh:
+                    fh.write(f"{time.time()}\n")
+            elif os.path.isfile(marker):
+                os.remove(marker)
+        except OSError as exc:
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+
+        self._json_response(200, {"ok": True, "active": os.path.isfile(marker)})
 
     def _handle_cache_usage(self) -> None:
         """Статистика prompt-кэша сессии для кнопки Cache в футере.
@@ -440,6 +522,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(payload, ensure_ascii=False).encode())
 
     def do_POST(self):
+        if self.path == "/bypass":
+            self._handle_bypass_post()
+            return
+
         if self.path == "/save-log":
             raw = self._read_body()
             if raw is None:
