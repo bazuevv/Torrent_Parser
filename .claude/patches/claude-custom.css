@@ -720,8 +720,12 @@
 .claude-keepalive-btn.claude-keepalive-on svg {
   color: #51e00e;
 }
+/* Именно #fff, а не --app-primary-foreground: штатная кнопка футера
+ * красится в --app-secondary-foreground (приглушённый), и «первичный»
+ * поверх него всё равно читается мягче, чем цветная подпись соседа.
+ * Чистый белый уравнивает Cache с ByPass по яркости. */
 .claude-keepalive-btn.claude-keepalive-on > span {
-  color: var(--app-primary-foreground, #fff);
+  color: #fff;
 }
 
 .claude-keepalive-btn-bare {
