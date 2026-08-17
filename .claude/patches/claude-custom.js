@@ -4860,3 +4860,314 @@
     init();
   }
 })();
+
+/* ============================================================
+ * CACHE USAGE BUTTON
+ *
+ * Кнопка «Cache» в футере поля ввода, слева от «Править
+ * автоматически». По клику открывается панель со статистикой
+ * prompt-кэша текущей сессии: размер контекста, вердикт последнего
+ * хода (попадание/промах и пауза до него), суммы чтений и записей,
+ * оценка стоимости против варианта без кэша и список последних
+ * промахов с длиной паузы.
+ *
+ * Данные берёт GET http://localhost:18923/cache-usage — там
+ * http-server.py разбирает JSONL-транскрипт сессии (модуль
+ * .claude/hooks/cache_usage.py). Ничего не считается в webview:
+ * транскрипты бывают по 70 МБ, разбор инкрементальный и живёт
+ * на стороне сервера.
+ *
+ * Почему кнопка, а не инжект в каждое сообщение: статистика нужна
+ * изредка, а строка в шапке каждого ответа быстро превращается в шум.
+ *
+ * Управление: `cacheButton` в claude-custom-config.toml.
+ * ============================================================ */
+(function () {
+  if (window.__claudeCacheButtonInstalled) return;
+  window.__claudeCacheButtonInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (cfg.cacheButton !== true) return;
+
+  var API_URL = 'http://localhost:18923/cache-usage';
+  var BTN_CLASS = 'claude-cache-btn';
+  var PANEL_ID = 'claude-cache-panel';
+  var SCAN_INTERVAL_MS = 3000;
+
+  // Соседний контрол, слева от которого встаём. Лейбл локализуется,
+  // поэтому ищем оба варианта; при промахе есть запасные якоря.
+  var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
+
+  var panel = null;
+  var anchorBtn = null;
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[cache-usage]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  /* ---------- форматирование ---------- */
+
+  function human(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '—';
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+    return String(Math.round(n));
+  }
+
+  function money(v) {
+    return typeof v === 'number' ? '$' + v.toFixed(2) : '—';
+  }
+
+  function hhmm(iso) {
+    if (typeof iso !== 'string' || iso.length < 16) return '—';
+    // Транскрипт пишет UTC; показываем в локальной зоне пользователя.
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso.slice(11, 16);
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+
+  function gapText(gap) {
+    if (typeof gap !== 'number') return '';
+    if (gap < 1) return Math.round(gap * 60) + ' с';
+    if (gap < 90) return gap.toFixed(1) + ' мин';
+    return (gap / 60).toFixed(1) + ' ч';
+  }
+
+  /* ---------- панель ---------- */
+
+  function closePanel() {
+    if (panel) panel.remove();
+    panel = null;
+    anchorBtn = null;
+    document.removeEventListener('mousedown', onOutside, true);
+    document.removeEventListener('keydown', onKeydown, true);
+  }
+
+  function onOutside(e) {
+    if (!panel) return;
+    if (panel.contains(e.target)) return;
+    if (anchorBtn && anchorBtn.contains(e.target)) return;
+    closePanel();
+  }
+
+  function onKeydown(e) {
+    if (e.key === 'Escape') closePanel();
+  }
+
+  function row(label, value, cls) {
+    var el = document.createElement('div');
+    el.className = 'claude-cache-row' + (cls ? ' ' + cls : '');
+    var l = document.createElement('span');
+    l.className = 'claude-cache-label';
+    l.textContent = label;
+    var v = document.createElement('span');
+    v.className = 'claude-cache-value';
+    v.textContent = value;
+    el.appendChild(l);
+    el.appendChild(v);
+    return el;
+  }
+
+  function renderError(body, text) {
+    var p = document.createElement('div');
+    p.className = 'claude-cache-empty';
+    p.textContent = text;
+    body.appendChild(p);
+  }
+
+  function renderStats(body, d) {
+    var last = d.last || {};
+    var verdict = last.verdict || '—';
+    var gap = gapText(last.gap);
+
+    var head = document.createElement('div');
+    head.className = 'claude-cache-head';
+    head.textContent = 'контекст ' + human(d.context);
+    var sub = document.createElement('span');
+    sub.className = 'claude-cache-sub';
+    sub.textContent = d.model || '';
+    head.appendChild(sub);
+    body.appendChild(head);
+
+    var verdictCls =
+      verdict === 'попадание' ? 'claude-cache-hit' :
+      verdict === 'старт' ? '' : 'claude-cache-miss';
+    body.appendChild(row(
+      'последний ход',
+      verdict + (gap ? ' · пауза ' + gap : ''),
+      verdictCls
+    ));
+    body.appendChild(row(
+      'чтение / запись',
+      human(last.read) + ' / ' + human(last.write)
+    ));
+
+    body.appendChild(document.createElement('hr'));
+
+    body.appendChild(row('запросов', String(d.requests)));
+    body.appendChild(row('прочитано из кэша', human(d.read)));
+    body.appendChild(row('записано в кэш', human(d.write)));
+    body.appendChild(row(
+      'промахов',
+      d.misses + (d.rewritten ? ' · переписано ' + human(d.rewritten) : ''),
+      d.misses ? 'claude-cache-miss' : ''
+    ));
+
+    body.appendChild(document.createElement('hr'));
+
+    body.appendChild(row('с кэшем', money(d.cost)));
+    body.appendChild(row('без кэша было бы', money(d.cost_naive)));
+    body.appendChild(row('экономия', d.ratio + '×', 'claude-cache-hit'));
+    if (d.wasted) {
+      body.appendChild(row('потеряно на промахах', money(d.wasted), 'claude-cache-miss'));
+    }
+
+    if (d.miss_log && d.miss_log.length) {
+      var title = document.createElement('div');
+      title.className = 'claude-cache-head claude-cache-head-sub';
+      title.textContent = 'последние промахи';
+      body.appendChild(title);
+      for (var i = 0; i < d.miss_log.length; i++) {
+        var m = d.miss_log[i];
+        body.appendChild(row(
+          hhmm(m.ts) + '  ·  пауза ' + (gapText(m.gap) || '—'),
+          'переписано ' + human(m.written)
+        ));
+      }
+    }
+  }
+
+  function openPanel(btn) {
+    closePanel();
+    anchorBtn = btn;
+
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.className = 'claude-cache-panel';
+
+    var body = document.createElement('div');
+    body.className = 'claude-cache-body';
+    body.textContent = 'загрузка…';
+    panel.appendChild(body);
+    document.body.appendChild(panel);
+
+    // Футер прижат к низу окна, поэтому раскрываемся вверх от кнопки.
+    var r = btn.getBoundingClientRect();
+    panel.style.bottom = Math.max(8, window.innerHeight - r.top + 6) + 'px';
+    panel.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+
+    document.addEventListener('mousedown', onOutside, true);
+    document.addEventListener('keydown', onKeydown, true);
+
+    fetch(API_URL, { cache: 'no-store' })
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        if (!panel) return;
+        body.textContent = '';
+        if (d && d.ok) renderStats(body, d);
+        else renderError(body, (d && d.error) || 'нет данных');
+        // Высота стала известна только сейчас — переставляем, чтобы
+        // панель не уезжала за верхний край на длинном списке промахов.
+        var rr = btn.getBoundingClientRect();
+        panel.style.bottom = Math.max(8, window.innerHeight - rr.top + 6) + 'px';
+      })
+      .catch(function (err) {
+        if (!panel) return;
+        body.textContent = '';
+        renderError(body, 'http-server.py недоступен (порт 18923)');
+        logInfo('fetch failed', err);
+      });
+  }
+
+  /* ---------- кнопка ---------- */
+
+  /** Ищет контрол «Править автоматически» среди детей футера. */
+  function findAutoEdit(footer) {
+    var kids = footer.children;
+    for (var i = 0; i < kids.length; i++) {
+      var text = kids[i].textContent || '';
+      if (AUTO_EDIT_RE.test(text)) return kids[i];
+    }
+    return null;
+  }
+
+  function createButton(sibling) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    // Наследуем классы соседа, чтобы получить родные размеры, отступы
+    // и hover; своё — только в BTN_CLASS.
+    if (sibling && sibling.className && typeof sibling.className === 'string') {
+      btn.className = sibling.className + ' ';
+    }
+    btn.className += BTN_CLASS;
+    btn.title = 'Статистика prompt-кэша сессии';
+    btn.textContent = 'Cache';
+    // Без preventDefault фокус уходит из composer'а: пользователь
+    // теряет позицию каретки просто посмотрев статистику.
+    btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (panel) closePanel();
+      else openPanel(btn);
+    });
+    return btn;
+  }
+
+  function mount(container) {
+    var footer = container.querySelector('[class*="inputFooter_"]');
+    if (!footer) return false;
+    var autoEdit = findAutoEdit(footer);
+    var btn = createButton(autoEdit);
+    if (autoEdit) {
+      footer.insertBefore(btn, autoEdit);
+    } else {
+      // Автоправки отключены или лейбл сменился — цепляемся за spacer,
+      // он разделяет левую и правую группы футера.
+      var spacer = footer.querySelector('[class*="spacer_"]');
+      if (spacer && spacer.parentNode === footer) {
+        footer.insertBefore(btn, spacer.nextSibling);
+      } else {
+        footer.appendChild(btn);
+      }
+    }
+    logInfo('кнопка встроена', autoEdit ? 'рядом с автоправками' : 'по запасному якорю');
+    return true;
+  }
+
+  function scan() {
+    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+    for (var i = 0; i < containers.length; i++) {
+      // Проверяем по наличию элемента, а не по флагу-атрибуту: React
+      // пересоздаёт поле ввода вместе с нашими атрибутами.
+      if (containers[i].querySelector('.' + BTN_CLASS)) continue;
+      if (!containers[i].querySelector('[role="textbox"][contenteditable]')) continue;
+      mount(containers[i]);
+    }
+    // Панель пережила пересоздание своей кнопки — закрываем, иначе
+    // она повиснет непривязанной.
+    if (panel && anchorBtn && !document.body.contains(anchorBtn)) closePanel();
+  }
+
+  function init() {
+    scan();
+    try {
+      new MutationObserver(function () { scan(); }).observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    } catch (e) {}
+    setInterval(scan, SCAN_INTERVAL_MS);
+    logInfo('installed');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();

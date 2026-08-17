@@ -492,3 +492,107 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* ============================================================
+ * CACHE USAGE BUTTON — модуль CACHE USAGE BUTTON в claude-custom.js.
+ * Кнопка «Cache» в футере слева от «Править автоматически» и панель
+ * со статистикой prompt-кэша сессии. Включается параметром
+ * cacheButton в claude-custom-config.toml.
+ * ============================================================ */
+
+/* Кнопка наследует классы соседа («Править автоматически»), поэтому
+ * размеры и hover достаются даром; здесь только приглушение до
+ * наведения — как у 😀. */
+.claude-cache-btn {
+  opacity: 0.75;
+  font-family: inherit;
+}
+.claude-cache-btn:hover {
+  opacity: 1;
+}
+
+.claude-cache-panel {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 12px));
+  /* Список промахов может быть длинным — ограничиваем высоту и
+   * скроллим внутри, чтобы панель не уезжала за верх окна. */
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-cache-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.claude-cache-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.claude-cache-head-sub {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.claude-cache-sub {
+  font-weight: 400;
+  font-size: 11px;
+  opacity: 0.6;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.claude-cache-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.claude-cache-label {
+  opacity: 0.72;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.claude-cache-value {
+  flex-shrink: 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+/* Смысловая подсветка: попадания и экономия — зелёным, промахи
+ * и потери — красным. Цвета берём из палитры VSCode, чтобы тема
+ * пользователя не спорила с панелью. */
+.claude-cache-hit .claude-cache-value {
+  color: var(--vscode-charts-green, #89d185);
+}
+.claude-cache-miss .claude-cache-value {
+  color: var(--vscode-charts-red, #f14c4c);
+}
+
+.claude-cache-panel hr {
+  width: 100%;
+  margin: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+}
+
+.claude-cache-empty {
+  padding: 6px 0;
+  opacity: 0.7;
+}
