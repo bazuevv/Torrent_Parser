@@ -5401,12 +5401,35 @@
     return true;
   }
 
+  /**
+   * Держит порядок Usage · Cache · ByPass даже если кнопки появились
+   * не в том порядке. Вставка при монтировании этого не гарантирует:
+   * React пересоздаёт футер, модули домонтируются по своим таймерам,
+   * и кто окажется первым — как повезёт.
+   */
+  function ensureOrder(footer) {
+    var me = footer.querySelector('.' + BTN_CLASS);
+    if (!me || me.parentNode !== footer) return;
+    var right = footer.querySelector('.claude-keepalive-btn')
+      || footer.querySelector('.claude-bypass-btn');
+    if (!right || right.parentNode !== footer) return;
+    // DOCUMENT_POSITION_FOLLOWING — сосед идёт ПОСЛЕ нас, всё верно.
+    if (!(me.compareDocumentPosition(right) & 4)) {
+      footer.insertBefore(me, right);
+      logInfo('порядок восстановлен: Usage перед соседями');
+    }
+  }
+
   function scan() {
     var containers = document.querySelectorAll('[class*="inputContainer_"]');
     for (var i = 0; i < containers.length; i++) {
+      var footer = containers[i].querySelector('[class*="inputFooter_"]');
       // Проверяем по наличию элемента, а не по флагу-атрибуту: React
       // пересоздаёт поле ввода вместе с нашими атрибутами.
-      if (containers[i].querySelector('.' + BTN_CLASS)) continue;
+      if (containers[i].querySelector('.' + BTN_CLASS)) {
+        if (footer) ensureOrder(footer);
+        continue;
+      }
       if (!containers[i].querySelector('[role="textbox"][contenteditable]')) continue;
       mount(containers[i]);
     }
@@ -6108,10 +6131,32 @@
     return true;
   }
 
+  /**
+   * Держит порядок Usage · Cache · ByPass даже если кнопки появились
+   * не в том порядке. Вставка при монтировании этого не гарантирует:
+   * React пересоздаёт футер, модули домонтируются по своим таймерам,
+   * и кто окажется первым — как повезёт.
+   */
+  function ensureOrder(footer) {
+    var me = footer.querySelector('.' + BTN_CLASS);
+    var right = footer.querySelector('.claude-bypass-btn');
+    if (!me || !right) return;
+    if (me.parentNode !== footer || right.parentNode !== footer) return;
+    // DOCUMENT_POSITION_FOLLOWING — сосед идёт ПОСЛЕ нас, всё верно.
+    if (!(me.compareDocumentPosition(right) & 4)) {
+      footer.insertBefore(me, right);
+      logInfo('порядок восстановлен: Cache перед ByPass');
+    }
+  }
+
   function scan() {
     var containers = document.querySelectorAll('[class*="inputContainer_"]');
     for (var i = 0; i < containers.length; i++) {
-      if (containers[i].querySelector('.' + BTN_CLASS)) continue;
+      var footer = containers[i].querySelector('[class*="inputFooter_"]');
+      if (containers[i].querySelector('.' + BTN_CLASS)) {
+        if (footer) ensureOrder(footer);
+        continue;
+      }
       if (!containers[i].querySelector('[role="textbox"][contenteditable]')) continue;
       mount(containers[i]);
     }
