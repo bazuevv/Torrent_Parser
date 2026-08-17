@@ -36,6 +36,26 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_usage  # noqa: E402
 
 PORT = int(os.environ.get("CLAUDE_HTTP_PORT", "18923"))
+
+# Время правки исходников на момент старта. Отдаётся в /ping, чтобы
+# patch-claude-webview.py мог отличить «сервер жив» от «сервер жив, но
+# поднят со старой версии кода». Без этого правки в файлах ниже молча
+# не подхватываются до ручного убийства процесса.
+#
+# ВАЖНО: добавил серверу новый локальный импорт — впиши его сюда,
+# иначе изменения в нём не будут поводом для перезапуска.
+def _sources_mtime() -> float:
+    here = os.path.dirname(os.path.abspath(__file__))
+    newest = 0.0
+    for name in ("http-server.py", "cache_usage.py"):
+        try:
+            newest = max(newest, os.path.getmtime(os.path.join(here, name)))
+        except OSError:
+            pass
+    return newest
+
+
+SCRIPT_MTIME = _sources_mtime()
 PROJECT_DIR = os.environ.get("CLAUDE_PROJECT_DIR", "")
 LOGS_DIR = os.path.join(PROJECT_DIR, ".claude", "hooks-runtime") if PROJECT_DIR else ""
 
@@ -251,7 +271,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self._cors_headers()
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "ok"}).encode())
+            self.wfile.write(json.dumps({
+                "status": "ok",
+                "pid": os.getpid(),
+                "script_mtime": SCRIPT_MTIME,
+            }).encode())
             return
 
         if self.path == "/list-projects":

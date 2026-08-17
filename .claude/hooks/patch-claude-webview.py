@@ -28,7 +28,9 @@ import re
 import signal
 import subprocess
 import sys
+import time
 import tomllib
+import urllib.request
 
 HOME = os.path.expanduser("~")
 EXT_GLOB = os.path.join(HOME, ".vscode/extensions/anthropic.claude-code-*-linux-x64")
@@ -412,26 +414,52 @@ def _build_bootstrap(custom_js: str, config: dict) -> str:
     return body
 
 
-def _is_http_server_running() -> bool:
-    """Проверяет, жив ли HTTP-сервер по PID-файлу."""
-    pid_file = os.path.join(PROJECT_DIR, ".claude", "hooks-runtime", "http-server.pid")
-    if not os.path.isfile(pid_file):
-        return False
+def _pid_file_path() -> str:
+    return os.path.join(PROJECT_DIR, ".claude", "hooks-runtime", "http-server.pid")
+
+
+def _http_server_status(timeout: float = 0.4) -> dict | None:
+    """Спрашивает сервер напрямую: `GET /ping`. None — не отвечает.
+
+    Раньше живость определялась по PID-файлу, и это ломалось в обе
+    стороны. Файл устаревал (SIGKILL не даёт отработать finally) —
+    и тогда `os.kill(pid, 0)` мог попасть в чужой процесс с тем же pid.
+    Файл пропадал при живом процессе — и тогда хук пытался поднять
+    второй инстанс, тот не мог занять порт и молча умирал, а правки
+    в http-server.py переставали подхватываться.
+
+    Проверка ответом снимает оба случая сразу: отвечает наш сервер —
+    значит он и работает; на порту чужой процесс — `status` не «ok»,
+    и мы это увидим, а не примем за своего.
+    """
+    url = f"http://127.0.0.1:{HTTP_SERVER_PORT}/ping"
     try:
-        with open(pid_file) as f:
-            pid = int(f.read().strip())
-        os.kill(pid, 0)  # проверка жив ли процесс
-        return True
-    except (OSError, ValueError):
-        return False
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            if resp.status != 200:
+                return None
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict) or data.get("status") != "ok":
+        return None
+    return data
 
 
-def _start_http_server() -> None:
-    """Запускает HTTP-сервер в фоне (если ещё не запущен)."""
-    if _is_http_server_running():
-        return
-    if not os.path.isfile(HTTP_SERVER_SCRIPT):
-        return
+def _server_sources_mtime() -> float:
+    """Свежесть исходников сервера — тот же набор файлов, что считает
+    сам сервер в SCRIPT_MTIME."""
+    here = os.path.dirname(HTTP_SERVER_SCRIPT)
+    newest = 0.0
+    for name in ("http-server.py", "cache_usage.py"):
+        try:
+            newest = max(newest, os.path.getmtime(os.path.join(here, name)))
+        except OSError:
+            pass
+    return newest
+
+
+def _spawn_http_server() -> None:
+    """Просто запускает процесс, без проверок — их делает вызывающий."""
     env = os.environ.copy()
     env["CLAUDE_PROJECT_DIR"] = PROJECT_DIR
     env["CLAUDE_HTTP_PORT"] = str(HTTP_SERVER_PORT)
@@ -444,17 +472,83 @@ def _start_http_server() -> None:
     )
 
 
-def _stop_http_server() -> None:
-    """Останавливает HTTP-сервер по PID-файлу."""
-    pid_file = os.path.join(PROJECT_DIR, ".claude", "hooks-runtime", "http-server.pid")
-    if not os.path.isfile(pid_file):
-        return
-    try:
-        with open(pid_file) as f:
-            pid = int(f.read().strip())
-        os.kill(pid, signal.SIGTERM)
-    except (OSError, ValueError):
-        pass
+def _ensure_http_server() -> list[str]:
+    """Приводит сервер в рабочее состояние. Возвращает список проблем.
+
+    Три случая:
+      1. Отвечает и поднят со свежих исходников — ничего не делаем.
+      2. Отвечает, но исходники новее — гасим и поднимаем заново.
+         Без этого правки в http-server.py живут только до ручного
+         убийства процесса: «жив» не значит «актуален».
+      3. Не отвечает — поднимаем. Если после запуска так и не ответил,
+         порт почти наверняка занят посторонним процессом; молчать тут
+         нельзя, webview потеряет все запросы к серверу.
+    """
+    if not os.path.isfile(HTTP_SERVER_SCRIPT):
+        return []
+
+    status = _http_server_status()
+    if status is not None:
+        running = 0.0
+        try:
+            running = float(status.get("script_mtime") or 0)
+        except (TypeError, ValueError):
+            running = 0.0
+        # Полсекунды запаса: mtime и время старта берутся не атомарно.
+        if running >= _server_sources_mtime() - 0.5:
+            return []
+        _stop_http_server(status)
+
+    _spawn_http_server()
+    for _ in range(30):
+        time.sleep(0.1)
+        if _http_server_status(timeout=0.2) is not None:
+            return []
+    return [
+        f"HTTP-сервер хуков не поднялся на порту {HTTP_SERVER_PORT} за 3 с. "
+        "Скорее всего порт занят посторонним процессом. Пока это так, "
+        "webview остаётся без кнопок Cache и ByPass, пинга 📡 и "
+        "детектора locale-drift."
+    ]
+
+
+def _stop_http_server(status: dict | None = None) -> None:
+    """Останавливает сервер.
+
+    Pid берём из ответа `/ping` — он авторитетнее PID-файла, который
+    остаётся устаревшим после SIGKILL и вовсе пропадает, если прошлая
+    остановка успела его удалить, не добив процесс.
+    """
+    if status is None:
+        status = _http_server_status()
+
+    pid = None
+    if status:
+        try:
+            pid = int(status.get("pid") or 0) or None
+        except (TypeError, ValueError):
+            pid = None
+
+    pid_file = _pid_file_path()
+    if pid is None and os.path.isfile(pid_file):
+        try:
+            with open(pid_file) as f:
+                pid = int(f.read().strip())
+        except (OSError, ValueError):
+            pid = None
+
+    if pid is not None:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+        # Ждём, пока порт освободится: следом почти всегда идёт запуск,
+        # и без ожидания новый инстанс упрётся в занятый порт.
+        for _ in range(20):
+            if _http_server_status(timeout=0.15) is None:
+                break
+            time.sleep(0.1)
+
     try:
         os.remove(pid_file)
     except OSError:
@@ -482,19 +576,32 @@ def _read_hook_event_name() -> str:
     return fallback
 
 
-def _emit_issues(issues: list[str], event_name: str) -> None:
-    """Кладёт предупреждения о конфиге в `additionalContext`. Текст
-    стартует с маркера `[claude-custom-config WARNING]`, чтобы модель
-    узнавала его и обязательно сообщала пользователю в ответе.
+def _emit_issues(config_issues: list[str], server_issues: list[str],
+                 event_name: str) -> None:
+    """Кладёт предупреждения в `additionalContext` под маркерами, по
+    которым модель обязана сообщить пользователю.
+
+    Оба вида уходят одним JSON: harness читает со stdout ровно один
+    объект, и вторым print'ом мы бы сломали разбор.
     """
-    if not issues:
+    if not config_issues and not server_issues:
         return
-    body_lines = [
-        "[claude-custom-config WARNING] Проблемы в "
-        "`.claude/patches/claude-custom-config.toml` — сообщи пользователю:",
-    ]
-    for issue in issues:
-        body_lines.append(f"- {issue}")
+    body_lines = []
+    if config_issues:
+        body_lines.append(
+            "[claude-custom-config WARNING] Проблемы в "
+            "`.claude/patches/claude-custom-config.toml` — сообщи пользователю:"
+        )
+        for issue in config_issues:
+            body_lines.append(f"- {issue}")
+    if server_issues:
+        if body_lines:
+            body_lines.append("")
+        body_lines.append(
+            "[http-server WARNING] Локальный сервер хуков — сообщи пользователю:"
+        )
+        for issue in server_issues:
+            body_lines.append(f"- {issue}")
     output = {
         "hookSpecificOutput": {
             "hookEventName": event_name,
@@ -542,20 +649,20 @@ def main() -> int:
             except OSError:
                 pass
 
-    # 4. Если в конфиге есть проблемы — кладём предупреждение в
-    #    additionalContext. Модель увидит маркер `[claude-custom-config WARNING]`
-    #    и сообщит пользователю в чате.
-    _emit_issues(config_issues, event_name)
-
-    # 5. HTTP-сервер: запуск на SessionStart, остановка на SessionEnd
-    if event_name == "SessionStart":
-        _start_http_server()
+    # 4. HTTP-сервер: поднимаем на SessionStart и UserPromptSubmit,
+    #    гасим на SessionEnd. _ensure_http_server сам решает, нужен ли
+    #    перезапуск (сервер жив, но поднят со старых исходников) и
+    #    возвращает проблемы, если поднять не удалось.
+    server_issues: list[str] = []
+    if event_name in ("SessionStart", "UserPromptSubmit"):
+        server_issues = _ensure_http_server()
     elif event_name == "SessionEnd":
         _stop_http_server()
-    # На UserPromptSubmit: проверяем, жив ли сервер, перезапускаем если нет
-    elif event_name == "UserPromptSubmit":
-        if not _is_http_server_running():
-            _start_http_server()
+
+    # 5. Предупреждения уходят последними и одним объектом: модель
+    #    увидит маркеры `[claude-custom-config WARNING]` и
+    #    `[http-server WARNING]` и сообщит пользователю в чате.
+    _emit_issues(config_issues, server_issues, event_name)
 
     return 0
 
