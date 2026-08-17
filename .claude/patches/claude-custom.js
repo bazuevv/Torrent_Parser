@@ -5374,7 +5374,14 @@
     if (!footer) return false;
     var anchor = findAnchor(footer);
     var btn = createButton(anchor.donor);
-    if (anchor.before) {
+    // Порядок в футере: Usage · Cache · ByPass · автоправки. Ищем
+    // самого левого из уже вставленных соседей — так позиция не зависит
+    // от того, какой модуль смонтировался первым.
+    var neighbour = footer.querySelector('.claude-keepalive-btn')
+      || footer.querySelector('.claude-bypass-btn');
+    if (neighbour && neighbour.parentNode === footer) {
+      footer.insertBefore(btn, neighbour);
+    } else if (anchor.before) {
       footer.insertBefore(btn, anchor.before);
     } else {
       // Лейбл не найден — цепляемся за spacer, он разделяет левую
@@ -5625,8 +5632,9 @@
     if (!footer) return false;
     var anchor = findAnchor(footer);
     var btn = createButton(anchor.donor);
-    // Вставка перед обёрткой автоправок: кнопка Cache уже стоит там же,
-    // поэтому ByPass оказывается ровно между ними.
+    // Порядок в футере: Usage · Cache · ByPass · автоправки. ByPass —
+    // самый правый из наших, поэтому просто встаёт перед обёрткой
+    // автоправок; соседи слева ориентируются уже на него.
     if (anchor.before) {
       footer.insertBefore(btn, anchor.before);
     } else {
@@ -6079,9 +6087,15 @@
     if (!footer) return false;
     var anchor = findAnchor(footer);
     var btn = createButton(anchor.donor);
-    // Перед обёрткой автоправок: Usage и ByPass уже там, порядок
-    // вставки определяется порядком инициализации модулей.
-    if (anchor.before) {
+    // Порядок в футере: Usage · Cache · ByPass · автоправки. Опираемся
+    // на соседа, а не на порядок инициализации модулей: React
+    // пересоздаёт футер, и кто смонтируется первым — не гарантировано.
+    // Встаём перед ByPass, если он уже есть, иначе перед автоправками
+    // (тогда ByPass позже встанет справа от нас сам).
+    var neighbour = footer.querySelector('.claude-bypass-btn');
+    if (neighbour && neighbour.parentNode === footer) {
+      footer.insertBefore(btn, neighbour);
+    } else if (anchor.before) {
       footer.insertBefore(btn, anchor.before);
     } else {
       var spacer = footer.querySelector('[class*="spacer_"]');
