@@ -707,13 +707,21 @@
   font-weight: 600;
 }
 
-/* Включённое поддержание — яркий зелёный, тот же, что у меток времени
- * (.claude-ts-line): это «наш» цвет в проекте. Палитровый
- * --vscode-charts-green (#89d185) для подписи в футере слишком тусклый,
- * поэтому берём значение напрямую. */
+/* Включённое поддержание. Цвет адресован ИКОНКЕ, а не всей кнопке:
+ * иначе он наследуется подписью, и слово «Cache» красится целиком.
+ * Подпись остаётся светлой — как у ByPass, где цветная только молния.
+ *
+ * Зелёный — #51e00e, тот же, что у меток времени (.claude-ts-line):
+ * это «наш» цвет в проекте. Палитровый --vscode-charts-green (#89d185)
+ * для футера слишком тусклый, поэтому значение задано напрямую. */
 .claude-keepalive-btn.claude-keepalive-on {
   opacity: 1;
+}
+.claude-keepalive-btn.claude-keepalive-on svg {
   color: #51e00e;
+}
+.claude-keepalive-btn.claude-keepalive-on > span {
+  color: var(--app-primary-foreground, #fff);
 }
 
 .claude-keepalive-btn-bare {
