@@ -4899,6 +4899,8 @@
   // поэтому ищем оба варианта; при промахе есть запасные якоря.
   var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
 
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   var panel = null;
   var anchorBtn = null;
 
@@ -4907,6 +4909,75 @@
     try {
       console.log.apply(console, ['[cache-usage]'].concat([].slice.call(arguments)));
     } catch (e) {}
+  }
+
+  /* ---------- какая сессия открыта в этой вкладке ---------- */
+
+  /**
+   * Без session id сервер отдаёт самый свежий .jsonl в папке проекта —
+   * то есть все вкладки показывают одну и ту же сессию, и она ещё
+   * и перескакивает, когда в соседней вкладке появляется новое
+   * сообщение. Поэтому id берём из React-fiber и передаём явно.
+   *
+   * Идём вверх по `.return` от поля ввода: sessionId лежит в пропсах
+   * или состоянии одного из родительских компонентов чата. Значение
+   * бывает и голой строкой, и Preact-сигналом — в бандле поля вида
+   * `session.sessionId.value` встречаются наравне с обычными.
+   *
+   * Существующий getSessionIdFromElement из SESSION MOVER здесь не
+   * годится: он читает React-key элемента списка сессий, а у открытой
+   * вкладки такого элемента нет.
+   */
+  function fiberOf(el) {
+    if (!el) return null;
+    var keys = Object.keys(el);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf('__reactFiber') === 0) return el[keys[i]];
+    }
+    return null;
+  }
+
+  function pickSessionId(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    var v = obj.sessionId;
+    if (typeof v === 'string' && UUID_RE.test(v)) return v;
+    if (v && typeof v === 'object' && typeof v.value === 'string'
+        && UUID_RE.test(v.value)) {
+      return v.value;
+    }
+    return null;
+  }
+
+  function findSessionId() {
+    var anchor = document.querySelector('[class*="inputContainer_"]')
+      || document.getElementById('root')
+      || document.body;
+    var fiber = fiberOf(anchor);
+    var hops = 0;
+    while (fiber && hops < 60) {
+      var id = pickSessionId(fiber.memoizedProps)
+        || pickSessionId(fiber.memoizedState);
+      if (id) return id;
+      fiber = fiber.return;
+      hops++;
+    }
+    // Подъём не помог (перестроили дерево) — обходим вниз от корня.
+    // Очередь ограничена: панель открывается по клику, но подвесить
+    // webview обходом на десятки тысяч узлов всё равно нельзя.
+    var root = fiberOf(document.getElementById('root') || document.body);
+    var queue = root ? [root] : [];
+    var seen = 0;
+    while (queue.length && seen < 8000) {
+      var f = queue.shift();
+      seen++;
+      if (!f) continue;
+      var found = pickSessionId(f.memoizedProps)
+        || pickSessionId(f.memoizedState);
+      if (found) return found;
+      if (f.child) queue.push(f.child);
+      if (f.sibling) queue.push(f.sibling);
+    }
+    return null;
   }
 
   /* ---------- форматирование ---------- */
@@ -4980,7 +5051,7 @@
     body.appendChild(p);
   }
 
-  function renderStats(body, d) {
+  function renderStats(body, d, guessed) {
     var last = d.last || {};
     var verdict = last.verdict || '—';
     var gap = gapText(last.gap);
@@ -5040,6 +5111,15 @@
         ));
       }
     }
+
+    // Показываем, чью статистику видим. Без этого нельзя отличить
+    // «данные моей вкладки» от «данные соседней, попавшей под
+    // автоопределение по свежести файла».
+    var foot = document.createElement('div');
+    foot.className = 'claude-cache-foot';
+    foot.textContent = 'сессия ' + String(d.session || '—').slice(0, 8)
+      + (guessed ? ' · выбрана по свежести файла' : '');
+    body.appendChild(foot);
   }
 
   function openPanel(btn) {
@@ -5064,12 +5144,16 @@
     document.addEventListener('mousedown', onOutside, true);
     document.addEventListener('keydown', onKeydown, true);
 
-    fetch(API_URL, { cache: 'no-store' })
+    var sid = findSessionId();
+    logInfo(sid ? 'session id: ' + sid : 'session id не найден, спрашиваем свежую');
+    var url = sid ? API_URL + '?session=' + encodeURIComponent(sid) : API_URL;
+
+    fetch(url, { cache: 'no-store' })
       .then(function (res) { return res.json(); })
       .then(function (d) {
         if (!panel) return;
         body.textContent = '';
-        if (d && d.ok) renderStats(body, d);
+        if (d && d.ok) renderStats(body, d, !sid);
         else renderError(body, (d && d.error) || 'нет данных');
         // Высота стала известна только сейчас — переставляем, чтобы
         // панель не уезжала за верхний край на длинном списке промахов.

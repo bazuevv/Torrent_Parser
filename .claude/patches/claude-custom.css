@@ -511,6 +511,13 @@
 .claude-cache-btn:hover {
   opacity: 1;
 }
+/* Подпись жирнее соседних: кнопка открывает панель, а не переключает
+ * режим, и должна читаться как отдельное действие. Правило адресует
+ * <span> внутри — сама кнопка носит класс штатной footerButton_,
+ * и font-weight на ней сбил бы наследование от неё. */
+.claude-cache-btn > span {
+  font-weight: 600;
+}
 
 /* Запасной вид: донора стиля не нашлось (футер перестроили или
  * кнопок в нём нет). Без этого проступает UA-оформление <button> —
@@ -625,4 +632,16 @@
 .claude-cache-empty {
   padding: 6px 0;
   opacity: 0.7;
+}
+
+/* Подпись «чья это статистика» — мелко и тихо, но всегда на виду:
+ * при промахе автоопределения панель обязана честно сказать, что
+ * показывает не эту вкладку. */
+.claude-cache-foot {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.55;
 }
