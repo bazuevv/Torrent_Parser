@@ -66,7 +66,7 @@ def slots(line):
 # «Son活/arrêt»: ключи на месте, подстановки совпали, сверка молчала.
 CYRILLIC = re.compile(r'[А-Яа-яЁёІіЇїЄєҐґ]')
 CJK = re.compile(r'[　-鿿가-힯]')
-WRITES_CYRILLIC = ('ru', 'uk')
+WRITES_CYRILLIC = ('ru', 'uk', 'bg', 'sr')
 WRITES_CJK = ('zh', 'ja', 'ko')
 
 
