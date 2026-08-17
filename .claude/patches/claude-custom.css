@@ -533,6 +533,13 @@
 .claude-cache-btn-bare:hover {
   background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
 }
+/* Иконка отдана в 20×20 (как штатные), масштаб задаёт footerButton_.
+ * В запасном виде этого класса нет — размер приходится ставить самим. */
+.claude-cache-btn-bare svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
 
 .claude-cache-panel {
   position: fixed;

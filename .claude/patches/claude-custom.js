@@ -5125,6 +5125,50 @@
     };
   }
 
+  /**
+   * Иконка-цилиндр БД перед подписью.
+   *
+   * Штатные кнопки футера собраны как `<svg 20×20 fill="none">` плюс
+   * голый `<span>` с текстом; размер иконки задаёт сам класс
+   * `footerButton_`, поэтому важно повторить именно эту разметку —
+   * тогда наша иконка отмасштабируется вместе с родными.
+   *
+   * Строим через createElementNS, а не innerHTML: SVG живёт в своём
+   * namespace, а innerHTML в webview может упереться в Trusted Types.
+   */
+  function cacheIcon() {
+    var NS = 'http://www.w3.org/2000/svg';
+    function el(name, attrs) {
+      var node = document.createElementNS(NS, name);
+      for (var k in attrs) {
+        if (Object.prototype.hasOwnProperty.call(attrs, k)) {
+          node.setAttribute(k, attrs[k]);
+        }
+      }
+      return node;
+    }
+    var svg = el('svg', {
+      width: '20', height: '20', viewBox: '0 0 20 20', fill: 'none',
+    });
+    var stroke = {
+      stroke: 'currentColor',
+      'stroke-width': '1.2',
+      'stroke-linecap': 'round',
+    };
+    // Верхний эллипс + бока цилиндра + средняя перемычка.
+    svg.appendChild(el('ellipse', {
+      cx: '10', cy: '5.75', rx: '5.25', ry: '2.25',
+      stroke: 'currentColor', 'stroke-width': '1.2',
+    }));
+    svg.appendChild(el('path', Object.assign({
+      d: 'M4.75 5.75V14.25C4.75 15.49 7.1 16.5 10 16.5C12.9 16.5 15.25 15.49 15.25 14.25V5.75',
+    }, stroke)));
+    svg.appendChild(el('path', Object.assign({
+      d: 'M4.75 10C4.75 11.24 7.1 12.25 10 12.25C12.9 12.25 15.25 11.24 15.25 10',
+    }, stroke)));
+    return svg;
+  }
+
   function createButton(donor) {
     var btn = document.createElement('button');
     btn.type = 'button';
@@ -5135,7 +5179,10 @@
       btn.className = BTN_CLASS + ' ' + BARE_CLASS;
     }
     btn.title = 'Статистика prompt-кэша сессии';
-    btn.textContent = 'Cache';
+    btn.appendChild(cacheIcon());
+    var label = document.createElement('span');
+    label.textContent = 'Cache';
+    btn.appendChild(label);
     // Без preventDefault фокус уходит из composer'а: пользователь
     // теряет позицию каретки просто посмотрев статистику.
     btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
