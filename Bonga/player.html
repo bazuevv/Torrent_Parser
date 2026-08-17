@@ -1671,16 +1671,34 @@
       have = (await res.json()).langs || have;
       keepLang('список', have);
     } catch { /* сервер молчит — остаются встроенные пункты */ }
-    // Подписи — на самих языках: человек ищет своё название, а не перевод.
-    const names = { ru: 'Русский', en: 'English', de: 'Deutsch', es: 'Español',
-                    fr: 'Français', pl: 'Polski', uk: 'Українська', it: 'Italiano',
-                    pt: 'Português', tr: 'Türkçe', nl: 'Nederlands', cs: 'Čeština',
-                    zh: '中文', hi: 'हिन्दी', ar: 'العربية', ja: '日本語',
-                    ko: '한국어', vi: 'Tiếng Việt', id: 'Bahasa Indonesia',
-                    th: 'ไทย', ro: 'Română' };
-    for (const code of have) {
+    /* Подпись — английское название, за ним эндоним: «Czech — Čeština».
+       Английское первым, потому что по нему список и упорядочен: иначе
+       порядок выглядел бы случайным — сортировка по коду ставит рядом
+       языки, которые человеку ничем не родня. Эндоним при этом остаётся
+       на месте: своё название ищут глазами, и оно должно быть видно. */
+    const names = { ru: ['Russian', 'Русский'], en: ['English'],
+                    de: ['German', 'Deutsch'], es: ['Spanish', 'Español'],
+                    fr: ['French', 'Français'], pl: ['Polish', 'Polski'],
+                    uk: ['Ukrainian', 'Українська'], it: ['Italian', 'Italiano'],
+                    pt: ['Portuguese', 'Português'], tr: ['Turkish', 'Türkçe'],
+                    nl: ['Dutch', 'Nederlands'], cs: ['Czech', 'Čeština'],
+                    zh: ['Chinese', '中文'], hi: ['Hindi', 'हिन्दी'],
+                    ar: ['Arabic', 'العربية'], ja: ['Japanese', '日本語'],
+                    ko: ['Korean', '한국어'], vi: ['Vietnamese', 'Tiếng Việt'],
+                    id: ['Indonesian', 'Bahasa Indonesia'], th: ['Thai', 'ไทย'],
+                    ro: ['Romanian', 'Română'] };
+    const label = code => {
+      const pair = names[code];
+      if (!pair) return code;                 // словарь есть, названия нет
+      return pair[1] ? `${pair[0]} — ${pair[1]}` : pair[0];
+    };
+    // Порядок — по английскому названию; неизвестные коды уходят в конец
+    // сами собой, потому что сортируются по самому коду.
+    const order = [...have].sort((a, b) =>
+      ((names[a] || [a])[0]).localeCompare((names[b] || [b])[0], 'en'));
+    for (const code of order) {
       if ([...list.options].some(opt => opt.value === code)) continue;
-      list.add(new Option(names[code] || code, code));
+      list.add(new Option(label(code), code));
     }
     list.value = String(cfg('lang') || 'auto');
   }
