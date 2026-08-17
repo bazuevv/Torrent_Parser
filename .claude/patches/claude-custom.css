@@ -500,15 +500,38 @@
  * cacheButton в claude-custom-config.toml.
  * ============================================================ */
 
-/* Кнопка наследует классы соседа («Править автоматически»), поэтому
- * размеры и hover достаются даром; здесь только приглушение до
- * наведения — как у 😀. */
+/* Кнопка копирует класс соседней штатной `<button>` футера
+ * (`footerButton_<hash>`), поэтому размеры, шрифт и hover достаются
+ * даром. Здесь — только приглушение до наведения, как у 😀.
+ * Ничего не сбрасываем: этот файл грузится ПОСЛЕ стилей расширения,
+ * и любой background/border здесь перекрыл бы родной hover. */
 .claude-cache-btn {
   opacity: 0.75;
-  font-family: inherit;
 }
 .claude-cache-btn:hover {
   opacity: 1;
+}
+
+/* Запасной вид: донора стиля не нашлось (футер перестроили или
+ * кнопок в нём нет). Без этого проступает UA-оформление <button> —
+ * серая плашка с рамкой, которая в футере смотрится чужеродно.
+ * Класс навешивает JS: отличить случай селектором нельзя,
+ * `:has()` в этом webview не отрабатывает. */
+.claude-cache-btn-bare {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.claude-cache-btn-bare:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
 }
 
 .claude-cache-panel {

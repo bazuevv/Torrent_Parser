@@ -4891,6 +4891,7 @@
 
   var API_URL = 'http://localhost:18923/cache-usage';
   var BTN_CLASS = 'claude-cache-btn';
+  var BARE_CLASS = 'claude-cache-btn-bare';  // без донора стиля
   var PANEL_ID = 'claude-cache-panel';
   var SCAN_INTERVAL_MS = 3000;
 
@@ -5085,25 +5086,54 @@
 
   /* ---------- кнопка ---------- */
 
-  /** Ищет контрол «Править автоматически» среди детей футера. */
-  function findAutoEdit(footer) {
-    var kids = footer.children;
-    for (var i = 0; i < kids.length; i++) {
-      var text = kids[i].textContent || '';
-      if (AUTO_EDIT_RE.test(text)) return kids[i];
+  /**
+   * Ищет точку вставки и донора стиля.
+   *
+   * Донор — обязательно сама `<button>`, а не обёртка вокруг неё:
+   * футер собран из CSS-модулей (`footerButton_<hash>`), и весь вид —
+   * размеры, шрифт, hover — висит на кнопке. Копирование класса
+   * с внешнего div'а даёт пустой контейнерный класс, после чего
+   * проступает UA-оформление <button> — серая плашка с рамкой.
+   *
+   * Точка вставки — предок найденной кнопки, лежащий прямо в футере:
+   * контрол режима обёрнут в свой контейнер, и вставлять надо рядом
+   * с обёрткой, иначе кнопка окажется внутри чужого поповера.
+   */
+  function findAnchor(footer) {
+    var buttons = footer.querySelectorAll('button');
+    var match = null;
+    for (var i = 0; i < buttons.length; i++) {
+      if (AUTO_EDIT_RE.test(buttons[i].textContent || '')) {
+        match = buttons[i];
+        break;
+      }
     }
-    return null;
+    if (match) {
+      var node = match;
+      while (node.parentNode && node.parentNode !== footer) node = node.parentNode;
+      return {
+        before: node.parentNode === footer ? node : null,
+        donor: match,
+      };
+    }
+    // Режим переключён на другой (лейбл иной) — донора берём с любой
+    // штатной кнопки футера, чтобы вид всё равно совпал.
+    return {
+      before: null,
+      donor: footer.querySelector('[class*="footerButton_"]')
+        || footer.querySelector('button'),
+    };
   }
 
-  function createButton(sibling) {
+  function createButton(donor) {
     var btn = document.createElement('button');
     btn.type = 'button';
-    // Наследуем классы соседа, чтобы получить родные размеры, отступы
-    // и hover; своё — только в BTN_CLASS.
-    if (sibling && sibling.className && typeof sibling.className === 'string') {
-      btn.className = sibling.className + ' ';
+    if (donor && typeof donor.className === 'string' && donor.className) {
+      btn.className = donor.className + ' ' + BTN_CLASS;
+    } else {
+      // Донора не нашли — гасим UA-оформление своими руками.
+      btn.className = BTN_CLASS + ' ' + BARE_CLASS;
     }
-    btn.className += BTN_CLASS;
     btn.title = 'Статистика prompt-кэша сессии';
     btn.textContent = 'Cache';
     // Без preventDefault фокус уходит из composer'а: пользователь
@@ -5121,13 +5151,13 @@
   function mount(container) {
     var footer = container.querySelector('[class*="inputFooter_"]');
     if (!footer) return false;
-    var autoEdit = findAutoEdit(footer);
-    var btn = createButton(autoEdit);
-    if (autoEdit) {
-      footer.insertBefore(btn, autoEdit);
+    var anchor = findAnchor(footer);
+    var btn = createButton(anchor.donor);
+    if (anchor.before) {
+      footer.insertBefore(btn, anchor.before);
     } else {
-      // Автоправки отключены или лейбл сменился — цепляемся за spacer,
-      // он разделяет левую и правую группы футера.
+      // Лейбл не найден — цепляемся за spacer, он разделяет левую
+      // и правую группы футера.
       var spacer = footer.querySelector('[class*="spacer_"]');
       if (spacer && spacer.parentNode === footer) {
         footer.insertBefore(btn, spacer.nextSibling);
@@ -5135,7 +5165,11 @@
         footer.appendChild(btn);
       }
     }
-    logInfo('кнопка встроена', autoEdit ? 'рядом с автоправками' : 'по запасному якорю');
+    logInfo(
+      'кнопка встроена',
+      anchor.before ? 'рядом с автоправками' : 'по запасному якорю',
+      anchor.donor ? 'стиль от ' + anchor.donor.className : 'без донора стиля'
+    );
     return true;
   }
 
