@@ -736,6 +736,32 @@
   flex-shrink: 0;
 }
 
+/* Уведомление вместо включения, когда контекст ещё мал. Всплывает
+ * над кнопкой, гасится кликом мимо, Escape или по таймауту. */
+.claude-keepalive-note {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(320px, calc(100vw - 12px));
+  padding: 10px 12px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--app-primary-foreground, #ddd);
+}
+.claude-keepalive-note-head {
+  font-weight: 600;
+}
+.claude-keepalive-note-line {
+  opacity: 0.75;
+}
+
 /* Подпись «чья это статистика» — мелко и тихо, но всегда на виду:
  * при промахе автоопределения панель обязана честно сказать, что
  * показывает не эту вкладку. */

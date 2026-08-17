@@ -5720,9 +5720,23 @@
     && cfg.cacheKeepaliveMinutes > 0 ? cfg.cacheKeepaliveMinutes : 55;
   var MESSAGE = typeof cfg.cacheKeepaliveMessage === 'string'
     && cfg.cacheKeepaliveMessage ? cfg.cacheKeepaliveMessage : 'keepalive';
+  var MIN_CONTEXT = typeof cfg.cacheKeepaliveMinContext === 'number'
+    && cfg.cacheKeepaliveMinContext >= 0 ? cfg.cacheKeepaliveMinContext : 50000;
+
+  var NOTE_ID = 'claude-keepalive-note';
+  var NOTE_TIMEOUT_MS = 12000;
 
   var enabled = false;
   var lastIdleMin = null;
+  var noteEl = null;
+  var noteTimer = null;
+
+  function human(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '—';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+    return String(Math.round(n));
+  }
 
   function logInfo() {
     if (!cfg.logs) return;
@@ -5798,11 +5812,80 @@
     return m ? 'footerButtonInactive_' + m[1] : '';
   }
 
+  /* ---------- уведомление при слишком малом контексте ---------- */
+
+  function hideNote() {
+    if (noteTimer) {
+      clearTimeout(noteTimer);
+      noteTimer = null;
+    }
+    if (noteEl) noteEl.remove();
+    noteEl = null;
+    document.removeEventListener('mousedown', onNoteOutside, true);
+    document.removeEventListener('keydown', onNoteKeydown, true);
+  }
+
+  function onNoteOutside(e) {
+    if (noteEl && !noteEl.contains(e.target)) hideNote();
+  }
+
+  function onNoteKeydown(e) {
+    if (e.key === 'Escape') hideNote();
+  }
+
+  function showNote(btn, lines) {
+    hideNote();
+    noteEl = document.createElement('div');
+    noteEl.id = NOTE_ID;
+    noteEl.className = 'claude-keepalive-note';
+    for (var i = 0; i < lines.length; i++) {
+      var p = document.createElement('div');
+      p.className = i === 0
+        ? 'claude-keepalive-note-head'
+        : 'claude-keepalive-note-line';
+      p.textContent = lines[i];
+      noteEl.appendChild(p);
+    }
+    document.body.appendChild(noteEl);
+
+    var r = btn.getBoundingClientRect();
+    noteEl.style.bottom = Math.max(8, window.innerHeight - r.top + 6) + 'px';
+    noteEl.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+
+    document.addEventListener('mousedown', onNoteOutside, true);
+    document.addEventListener('keydown', onNoteKeydown, true);
+    noteTimer = setTimeout(hideNote, NOTE_TIMEOUT_MS);
+  }
+
+  /**
+   * Текст отказа. Считаем то, что реально предотвращается: холодный
+   * старт переписывает весь префикс по ставке записи (2x) вместо
+   * чтения (0.1x), то есть стоит T × 1.9 × ставка_input.
+   *
+   * Отношение цены прогрева к цене холодного старта — ровно 19 и от
+   * размера контекста не зависит (T сокращается). Поэтому порог здесь
+   * не про окупаемость, а про абсолютную величину ставки: на мелком
+   * контексте предотвращать нечего, а сообщение в истории и расход
+   * квоты остаются те же.
+   */
+  function tooSmallLines(d) {
+    var rate = (d.rates && d.rates.input) || 5.0;
+    var avoided = d.context * 1.9 * rate / 1e6;
+    return [
+      'Контекст сессии — ' + human(d.context) + ' токенов.',
+      'Поддержание включается от ' + human(MIN_CONTEXT) + '.',
+      '',
+      'Пока холодный старт обойдётся примерно в $' + avoided.toFixed(2)
+        + ' — дешевле, чем сообщение поддержания в истории и расход квоты '
+        + 'на него. Вернись к кнопке, когда контекст подрастёт.',
+    ];
+  }
+
   function titleFor() {
     if (!enabled) {
       return 'Поддержание кэша выключено. Клик — при простое дольше '
         + IDLE_MINUTES + ' мин отправлять короткое сообщение, чтобы кэш '
-        + 'не истёк.';
+        + 'не истёк (доступно от ' + human(MIN_CONTEXT) + ' токенов контекста).';
     }
     var tail = lastIdleMin === null
       ? ''
@@ -5942,13 +6025,53 @@
     btn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      enabled = !enabled;
-      saveEnabled(enabled);
-      applyStateAll();
-      logInfo(enabled ? 'включено' : 'выключено');
-      if (enabled) tick();
+      hideNote();
+      if (enabled) {
+        setEnabled(false);
+      } else {
+        requestEnable(btn);
+      }
     });
     return btn;
+  }
+
+  function setEnabled(on) {
+    enabled = on;
+    saveEnabled(on);
+    applyStateAll();
+    logInfo(on ? 'включено' : 'выключено');
+    if (on) tick();
+  }
+
+  /**
+   * Включение — только после проверки размера контекста у сервера.
+   * Синхронно решить нельзя: пока тоггл выключен, тики не идут и
+   * свежих данных на руках нет.
+   */
+  function requestEnable(btn) {
+    var sid = sessionId();
+    if (!sid) {
+      showNote(btn, ['Не удалось определить сессию вкладки.']);
+      return;
+    }
+    fetch(USAGE_URL + '?session=' + encodeURIComponent(sid), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          showNote(btn, ['Статистика недоступна: '
+            + ((d && d.error) || 'нет данных') + '.']);
+          return;
+        }
+        if (typeof d.context === 'number' && d.context < MIN_CONTEXT) {
+          logInfo('отказ: контекст', d.context, '<', MIN_CONTEXT);
+          showNote(btn, tooSmallLines(d));
+          return;
+        }
+        setEnabled(true);
+      })
+      .catch(function () {
+        showNote(btn, ['http-server.py недоступен (порт 18923).']);
+      });
   }
 
   function mount(container) {

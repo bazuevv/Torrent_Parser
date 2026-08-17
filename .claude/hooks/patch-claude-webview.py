@@ -148,6 +148,11 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, str) and len(v.strip()) > 0,
         "должен быть непустой строкой",
     ),
+    (
+        "cacheKeepaliveMinContext",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
+        "должен быть неотрицательным целым числом (токенов)",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"
