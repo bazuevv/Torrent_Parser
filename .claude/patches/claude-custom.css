@@ -691,6 +691,51 @@
   flex-shrink: 0;
 }
 
+/* ============================================================
+ * CACHE KEEPALIVE — модуль CACHE KEEPALIVE в claude-custom.js.
+ * Кнопка «Cache» между Usage и ByPass: держит prompt-кэш живым.
+ * Включается параметром cacheKeepalive в claude-custom-config.toml.
+ * ============================================================ */
+
+.claude-keepalive-btn {
+  opacity: 0.75;
+}
+.claude-keepalive-btn:hover {
+  opacity: 1;
+}
+.claude-keepalive-btn > span {
+  font-weight: 600;
+}
+
+/* Включённое поддержание — спокойный зелёный: в отличие от ByPass это
+ * не снятие защиты, а фоновая работа, и пугать цветом не за что. */
+.claude-keepalive-btn.claude-keepalive-on {
+  opacity: 1;
+  color: var(--vscode-charts-green, #89d185);
+}
+
+.claude-keepalive-btn-bare {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.claude-keepalive-btn-bare:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+.claude-keepalive-btn-bare svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 /* Подпись «чья это статистика» — мелко и тихо, но всегда на виду:
  * при промахе автоопределения панель обязана честно сказать, что
  * показывает не эту вкладку. */

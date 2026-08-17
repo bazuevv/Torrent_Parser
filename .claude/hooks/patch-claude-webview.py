@@ -133,6 +133,21 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, bool),
         "должен быть true или false",
     ),
+    (
+        "cacheKeepalive",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
+    (
+        "cacheKeepaliveMinutes",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
+        "должен быть положительным целым числом (мин)",
+    ),
+    (
+        "cacheKeepaliveMessage",
+        lambda v: isinstance(v, str) and len(v.strip()) > 0,
+        "должен быть непустой строкой",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"

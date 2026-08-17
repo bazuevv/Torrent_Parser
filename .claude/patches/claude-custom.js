@@ -5669,3 +5669,338 @@
     init();
   }
 })();
+
+/* ============================================================
+ * CACHE KEEPALIVE
+ *
+ * Кнопка «Cache» между Usage и ByPass. Включённая — не даёт истечь
+ * prompt-кэшу сессии: при простое дольше cacheKeepaliveMinutes
+ * отправляет в чат короткое сообщение, и попадание в кэш продлевает
+ * его TTL ещё на час (TTL обновляется при каждом использовании).
+ *
+ * Почему это модуль webview, а не хук. Хуки Claude Code реактивны:
+ * они отвечают на события, но сами инициировать сообщение не могут.
+ * Отправить его способен только тот, у кого есть поле ввода, то есть
+ * webview. Серверная часть при этом всё равно нужна — именно она
+ * знает, когда был последний ход (GET /cache-usage → last.ts).
+ *
+ * Отправляем не по таймеру вслепую, а по факту простоя: пока идёт
+ * обычная работа, кэш продлевается сам, и лишние сообщения — это
+ * потраченная квота и мусор в истории. Проверка раз в минуту, отправка
+ * только когда простой реально дошёл до порога.
+ *
+ * Три случая, когда ход пропускается:
+ *   - в поле ввода есть черновик — затирать его недопустимо;
+ *   - модель отвечает прямо сейчас (в футере кнопка «стоп»);
+ *   - session id не определился.
+ *
+ * Состояние тоггла хранится в localStorage по session id: у каждой
+ * вкладки своё, и переживает Reload Window.
+ *
+ * Управление: `cacheKeepalive`, `cacheKeepaliveMinutes`,
+ * `cacheKeepaliveMessage` в claude-custom-config.toml.
+ * ============================================================ */
+(function () {
+  if (window.__claudeCacheKeepaliveInstalled) return;
+  window.__claudeCacheKeepaliveInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (cfg.cacheKeepalive !== true) return;
+
+  var USAGE_URL = 'http://localhost:18923/cache-usage';
+  var BTN_CLASS = 'claude-keepalive-btn';
+  var BARE_CLASS = 'claude-keepalive-btn-bare';
+  var ON_CLASS = 'claude-keepalive-on';
+  var STORAGE_KEY = 'claudeCustomCacheKeepalive';
+  var SCAN_INTERVAL_MS = 3000;
+  var TICK_MS = 60000;
+  var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
+
+  var IDLE_MINUTES = typeof cfg.cacheKeepaliveMinutes === 'number'
+    && cfg.cacheKeepaliveMinutes > 0 ? cfg.cacheKeepaliveMinutes : 55;
+  var MESSAGE = typeof cfg.cacheKeepaliveMessage === 'string'
+    && cfg.cacheKeepaliveMessage ? cfg.cacheKeepaliveMessage : 'keepalive';
+
+  var enabled = false;
+  var lastIdleMin = null;
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[keepalive]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  function sessionId() {
+    var fn = window.__claudeSessionId;
+    return typeof fn === 'function' ? fn() : null;
+  }
+
+  /* ---------- хранилище состояния ---------- */
+
+  function readStore() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      var obj = raw ? JSON.parse(raw) : null;
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function loadEnabled() {
+    var sid = sessionId();
+    if (!sid) return false;
+    return readStore()[sid] === true;
+  }
+
+  function saveEnabled(on) {
+    var sid = sessionId();
+    if (!sid) return;
+    var store = readStore();
+    if (on) store[sid] = true;
+    else delete store[sid];
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    } catch (e) {}
+  }
+
+  /* ---------- иконка ---------- */
+
+  function clockIcon() {
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '20');
+    svg.setAttribute('height', '20');
+    svg.setAttribute('viewBox', '0 0 20 20');
+    svg.setAttribute('fill', 'none');
+    var circle = document.createElementNS(NS, 'circle');
+    circle.setAttribute('cx', '10');
+    circle.setAttribute('cy', '10');
+    circle.setAttribute('r', '6.25');
+    circle.setAttribute('stroke', 'currentColor');
+    circle.setAttribute('stroke-width', '1.2');
+    var hands = document.createElementNS(NS, 'path');
+    hands.setAttribute('d', 'M10 6.25V10l2.75 1.6');
+    hands.setAttribute('stroke', 'currentColor');
+    hands.setAttribute('stroke-width', '1.2');
+    hands.setAttribute('stroke-linecap', 'round');
+    hands.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(circle);
+    svg.appendChild(hands);
+    return svg;
+  }
+
+  /* ---------- состояние кнопки ---------- */
+
+  function inactiveClassFrom(donorClass) {
+    var m = /(?:^|\s)footerButton_(\w+)(?:\s|$)/.exec(donorClass || '');
+    return m ? 'footerButtonInactive_' + m[1] : '';
+  }
+
+  function titleFor() {
+    if (!enabled) {
+      return 'Поддержание кэша выключено. Клик — при простое дольше '
+        + IDLE_MINUTES + ' мин отправлять короткое сообщение, чтобы кэш '
+        + 'не истёк.';
+    }
+    var tail = lastIdleMin === null
+      ? ''
+      : ' Простой сейчас: ' + lastIdleMin.toFixed(0) + ' мин из ' + IDLE_MINUTES + '.';
+    return 'Поддержание кэша включено.' + tail + ' Клик — выключить.';
+  }
+
+  function applyState(btn) {
+    var inactive = btn.getAttribute('data-inactive-class') || '';
+    if (inactive) {
+      if (enabled) btn.classList.remove(inactive);
+      else btn.classList.add(inactive);
+    }
+    if (enabled) btn.classList.add(ON_CLASS);
+    else btn.classList.remove(ON_CLASS);
+    btn.title = titleFor();
+  }
+
+  function applyStateAll() {
+    var nodes = document.querySelectorAll('.' + BTN_CLASS);
+    for (var i = 0; i < nodes.length; i++) applyState(nodes[i]);
+  }
+
+  /* ---------- отправка ---------- */
+
+  function composerOf(container) {
+    return container.querySelector('[role="textbox"][contenteditable]');
+  }
+
+  /**
+   * Отправляет сообщение через штатное поле ввода.
+   *
+   * Текст вставляем execCommand'ом: поле React-controlled, прямая
+   * запись в textContent теряется на ближайшем ре-рендере (тот же
+   * приём, что в EMOJI PICKER).
+   *
+   * Отправляем кликом по штатной кнопке, а не синтетическим Enter:
+   * обработчик Enter живёт в React и может меняться между версиями,
+   * а кнопка — стабильная точка входа.
+   */
+  function trySend() {
+    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+    for (var i = 0; i < containers.length; i++) {
+      var container = containers[i];
+      var el = composerOf(container);
+      if (!el) continue;
+
+      if ((el.textContent || '').trim()) {
+        logInfo('пропуск: в поле ввода черновик');
+        return false;
+      }
+      // Кнопка отправки во время генерации превращается в «стоп»:
+      // отличаем по иконке из того же CSS-модуля футера.
+      if (container.querySelector('[class*="stopIcon_"]')) {
+        logInfo('пропуск: модель отвечает');
+        return false;
+      }
+      var send = container.querySelector('[class*="sendButton_"]');
+      if (!send) continue;
+
+      el.focus();
+      var ok = false;
+      try {
+        ok = document.execCommand('insertText', false, MESSAGE);
+      } catch (e) {
+        ok = false;
+      }
+      if (!ok) {
+        logInfo('вставка текста не удалась');
+        return false;
+      }
+      send.click();
+      logInfo('отправлено сообщение поддержания');
+      return true;
+    }
+    return false;
+  }
+
+  function tick() {
+    if (!enabled) return;
+    var sid = sessionId();
+    if (!sid) return;
+    fetch(USAGE_URL + '?session=' + encodeURIComponent(sid), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok || !d.last || !d.last.ts) return;
+        var ts = Date.parse(d.last.ts);
+        if (isNaN(ts)) return;
+        lastIdleMin = (Date.now() - ts) / 60000;
+        applyStateAll();
+        if (lastIdleMin >= IDLE_MINUTES) trySend();
+      })
+      .catch(function () {});
+  }
+
+  /* ---------- встраивание ---------- */
+
+  function findAnchor(footer) {
+    var buttons = footer.querySelectorAll('button');
+    var match = null;
+    for (var i = 0; i < buttons.length; i++) {
+      if (AUTO_EDIT_RE.test(buttons[i].textContent || '')) {
+        match = buttons[i];
+        break;
+      }
+    }
+    if (match) {
+      var node = match;
+      while (node.parentNode && node.parentNode !== footer) node = node.parentNode;
+      return { before: node.parentNode === footer ? node : null, donor: match };
+    }
+    return {
+      before: null,
+      donor: footer.querySelector('[class*="footerButton_"]')
+        || footer.querySelector('button'),
+    };
+  }
+
+  function createButton(donor) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    var donorClass = donor && typeof donor.className === 'string'
+      ? donor.className : '';
+    if (donorClass) {
+      btn.className = donorClass + ' ' + BTN_CLASS;
+      var inactive = inactiveClassFrom(donorClass);
+      if (inactive) btn.setAttribute('data-inactive-class', inactive);
+    } else {
+      btn.className = BTN_CLASS + ' ' + BARE_CLASS;
+    }
+    btn.appendChild(clockIcon());
+    var label = document.createElement('span');
+    label.textContent = 'Cache';
+    btn.appendChild(label);
+    applyState(btn);
+    btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      enabled = !enabled;
+      saveEnabled(enabled);
+      applyStateAll();
+      logInfo(enabled ? 'включено' : 'выключено');
+      if (enabled) tick();
+    });
+    return btn;
+  }
+
+  function mount(container) {
+    var footer = container.querySelector('[class*="inputFooter_"]');
+    if (!footer) return false;
+    var anchor = findAnchor(footer);
+    var btn = createButton(anchor.donor);
+    // Перед обёрткой автоправок: Usage и ByPass уже там, порядок
+    // вставки определяется порядком инициализации модулей.
+    if (anchor.before) {
+      footer.insertBefore(btn, anchor.before);
+    } else {
+      var spacer = footer.querySelector('[class*="spacer_"]');
+      if (spacer && spacer.parentNode === footer) {
+        footer.insertBefore(btn, spacer.nextSibling);
+      } else {
+        footer.appendChild(btn);
+      }
+    }
+    return true;
+  }
+
+  function scan() {
+    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+    for (var i = 0; i < containers.length; i++) {
+      if (containers[i].querySelector('.' + BTN_CLASS)) continue;
+      if (!containers[i].querySelector('[role="textbox"][contenteditable]')) continue;
+      mount(containers[i]);
+    }
+  }
+
+  function init() {
+    // Состояние читается после появления DOM: резолвер session id
+    // работает по React-fiber, до первого рендера его нет.
+    enabled = loadEnabled();
+    scan();
+    applyStateAll();
+    if (enabled) tick();
+    try {
+      new MutationObserver(function () { scan(); }).observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    } catch (e) {}
+    setInterval(scan, SCAN_INTERVAL_MS);
+    setInterval(tick, TICK_MS);
+    logInfo('installed, порог', IDLE_MINUTES, 'мин');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
