@@ -713,6 +713,85 @@
 }
 
 /* ============================================================
+ * FIND IN PAGE — модуль FIND IN PAGE в claude-custom.js.
+ * Кнопка 🔍 рядом с иконкой автосжатия и строка поиска по переписке.
+ * Включается параметром findInPage в claude-custom-config.toml.
+ * ============================================================ */
+
+.claude-find-btn {
+  opacity: 0.75;
+}
+.claude-find-btn:hover {
+  opacity: 1;
+}
+
+/* Подсветка совпадений. ::highlight() рисует поверх текста, не меняя
+ * разметку — потому и выбран Highlight API: переписка React-управляемая,
+ * вставленные <mark> слетали бы на каждом ре-рендере. */
+::highlight(claude-find) {
+  background-color: rgba(255, 214, 0, 0.35);
+  color: inherit;
+}
+::highlight(claude-find-active) {
+  background-color: #ffd600;
+  color: #000;
+}
+
+.claude-find-bar {
+  position: fixed;
+  z-index: 100001;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-find-input {
+  width: 220px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.15));
+  background: var(--app-input-background, rgba(0, 0, 0, 0.25));
+  color: inherit;
+  font: inherit;
+}
+.claude-find-input:focus {
+  outline: 1px solid var(--app-accent-color, #519aba);
+  outline-offset: -1px;
+}
+
+.claude-find-count {
+  min-width: 84px;
+  text-align: right;
+  opacity: 0.7;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+
+.claude-find-nav {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.claude-find-nav:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+/* ============================================================
  * CACHE KEEPALIVE — модуль CACHE KEEPALIVE в claude-custom.js.
  * Кнопка «Cache» между Usage и ByPass: держит prompt-кэш живым.
  * Включается параметром cacheKeepalive в claude-custom-config.toml.

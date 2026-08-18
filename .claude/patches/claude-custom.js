@@ -5769,6 +5769,335 @@
 })();
 
 /* ============================================================
+ * FIND IN PAGE
+ *
+ * Кнопка 🔍 рядом с иконкой автосжатия (`usageButtonV2_*`) в футере.
+ * По клику (или Ctrl+F) открывается строка поиска: подсветка всех
+ * совпадений в переписке, переход по ним, счётчик «текущее/всего».
+ *
+ * Подсветка сделана через CSS Custom Highlight API
+ * (`CSS.highlights` + `::highlight()`), а НЕ обёрткой в <mark>.
+ * Это принципиально: переписка React-управляемая, любая вставка
+ * элементов в неё слетает на ближайшем ре-рендере, а во время
+ * стриминга ответа он происходит непрерывно. Highlight API работает
+ * поверх Range и DOM вообще не трогает — совпадения переживают
+ * перерисовку, пока живы текстовые узлы.
+ *
+ * Область поиска — `messagesContainer_*`; поле ввода исключено
+ * намеренно: там текст прозрачный, а видимую копию рисует зеркало
+ * (см. правило про .mentionMirror_ в claude-custom.css), и подсветка
+ * в нём выглядела бы как совпадение в пустоте.
+ *
+ * Управление: `findInPage` в claude-custom-config.toml.
+ * ============================================================ */
+(function () {
+  if (window.__claudeFindInPageInstalled) return;
+  window.__claudeFindInPageInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (cfg.findInPage !== true) return;
+  // Без Highlight API подсветить нечем, а ломать DOM ради этого нельзя.
+  if (typeof CSS === 'undefined' || !CSS.highlights || typeof Highlight === 'undefined') {
+    return;
+  }
+
+  var BTN_CLASS = 'claude-find-btn';
+  var BAR_ID = 'claude-find-bar';
+  var HL_ALL = 'claude-find';
+  var HL_ACTIVE = 'claude-find-active';
+  var SCAN_INTERVAL_MS = 3000;
+  var DEBOUNCE_MS = 150;
+
+  var bar = null;
+  var input = null;
+  var counter = null;
+  var ranges = [];
+  var index = -1;
+  var debounceTimer = null;
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[find]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  function searchRoot() {
+    return document.querySelector('[class*="messagesContainer_"]') || document.body;
+  }
+
+  /* ---------- поиск ---------- */
+
+  function collectRanges(query) {
+    var found = [];
+    if (!query) return found;
+    var root = searchRoot();
+    var needle = query.toLowerCase();
+
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+        var el = node.parentElement;
+        if (!el) return NodeFilter.FILTER_REJECT;
+        // Своя строка поиска и поле ввода из выдачи исключены.
+        if (el.closest('#' + BAR_ID)) return NodeFilter.FILTER_REJECT;
+        if (el.closest('[class*="inputContainer_"]')) return NodeFilter.FILTER_REJECT;
+        // <script>/<style> попадают в обход TreeWalker'а как текст.
+        var tag = el.tagName;
+        if (tag === 'SCRIPT' || tag === 'STYLE') return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    var node;
+    while ((node = walker.nextNode())) {
+      var text = node.nodeValue.toLowerCase();
+      var from = 0;
+      for (;;) {
+        var at = text.indexOf(needle, from);
+        if (at === -1) break;
+        var r = document.createRange();
+        r.setStart(node, at);
+        r.setEnd(node, at + needle.length);
+        found.push(r);
+        from = at + needle.length;
+        if (found.length > 5000) return found;  // защита от «а» на длинной переписке
+      }
+    }
+    return found;
+  }
+
+  function paint() {
+    try {
+      if (!ranges.length) {
+        CSS.highlights.delete(HL_ALL);
+        CSS.highlights.delete(HL_ACTIVE);
+        return;
+      }
+      // Highlight — Set-подобный объект; добавляем по одному, а не
+      // через spread: совпадений бывают тысячи, и раскладывать их
+      // в аргументы вызова незачем.
+      var all = new Highlight();
+      for (var i = 0; i < ranges.length; i++) all.add(ranges[i]);
+      CSS.highlights.set(HL_ALL, all);
+      var current = ranges[index];
+      if (current) CSS.highlights.set(HL_ACTIVE, new Highlight(current));
+      else CSS.highlights.delete(HL_ACTIVE);
+    } catch (e) {
+      logInfo('подсветка не удалась', e);
+    }
+  }
+
+  function updateCounter() {
+    if (!counter) return;
+    if (!input || !input.value) counter.textContent = '';
+    else if (!ranges.length) counter.textContent = 'нет совпадений';
+    else counter.textContent = (index + 1) + '/' + ranges.length;
+  }
+
+  function scrollToCurrent() {
+    var r = ranges[index];
+    if (!r) return;
+    var el = r.startContainer.parentElement;
+    if (el && el.scrollIntoView) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+
+  function runSearch(keepIndex) {
+    var query = input ? input.value : '';
+    var previous = index;
+    ranges = collectRanges(query);
+    if (!ranges.length) index = -1;
+    else if (keepIndex && previous >= 0) index = Math.min(previous, ranges.length - 1);
+    else index = 0;
+    paint();
+    updateCounter();
+    if (index >= 0 && !keepIndex) scrollToCurrent();
+    logInfo('совпадений:', ranges.length);
+  }
+
+  function step(delta) {
+    if (!ranges.length) return;
+    // Узлы могли исчезнуть при ре-рендере — тогда пересчитываем.
+    var alive = ranges[index] && ranges[index].startContainer.isConnected;
+    if (!alive) {
+      runSearch(true);
+      if (!ranges.length) return;
+    }
+    index = (index + delta + ranges.length) % ranges.length;
+    paint();
+    updateCounter();
+    scrollToCurrent();
+  }
+
+  /* ---------- строка поиска ---------- */
+
+  function closeBar() {
+    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+    if (bar) bar.remove();
+    bar = null;
+    input = null;
+    counter = null;
+    ranges = [];
+    index = -1;
+    try {
+      CSS.highlights.delete(HL_ALL);
+      CSS.highlights.delete(HL_ACTIVE);
+    } catch (e) {}
+  }
+
+  function navButton(label, title, onClick) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'claude-find-nav';
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    b.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      onClick();
+    });
+    return b;
+  }
+
+  function openBar(anchor) {
+    if (bar) { input.focus(); input.select(); return; }
+
+    bar = document.createElement('div');
+    bar.id = BAR_ID;
+    bar.className = 'claude-find-bar';
+
+    input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'claude-find-input';
+    input.placeholder = 'Поиск по переписке';
+    input.addEventListener('input', function () {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function () { runSearch(false); }, DEBOUNCE_MS);
+    });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (!ranges.length) runSearch(false);
+        else step(e.shiftKey ? -1 : 1);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeBar();
+      }
+    });
+
+    counter = document.createElement('span');
+    counter.className = 'claude-find-count';
+
+    bar.appendChild(input);
+    bar.appendChild(counter);
+    bar.appendChild(navButton('↑', 'Предыдущее (Shift+Enter)', function () { step(-1); }));
+    bar.appendChild(navButton('↓', 'Следующее (Enter)', function () { step(1); }));
+    bar.appendChild(navButton('✕', 'Закрыть (Esc)', closeBar));
+    document.body.appendChild(bar);
+
+    var r = anchor.getBoundingClientRect();
+    bar.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
+    bar.style.left = Math.max(8, Math.min(r.left, window.innerWidth - bar.offsetWidth - 8)) + 'px';
+
+    input.focus();
+  }
+
+  /* ---------- кнопка ---------- */
+
+  function lensIcon() {
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '20');
+    svg.setAttribute('height', '20');
+    svg.setAttribute('viewBox', '0 0 20 20');
+    svg.setAttribute('fill', 'none');
+    var circle = document.createElementNS(NS, 'circle');
+    circle.setAttribute('cx', '9');
+    circle.setAttribute('cy', '9');
+    circle.setAttribute('r', '4.75');
+    circle.setAttribute('stroke', 'currentColor');
+    circle.setAttribute('stroke-width', '1.3');
+    var handle = document.createElementNS(NS, 'path');
+    handle.setAttribute('d', 'M12.6 12.6L16 16');
+    handle.setAttribute('stroke', 'currentColor');
+    handle.setAttribute('stroke-width', '1.3');
+    handle.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(circle);
+    svg.appendChild(handle);
+    return svg;
+  }
+
+  function createButton(donor) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    var donorClass = donor && typeof donor.className === 'string' ? donor.className : '';
+    btn.className = (donorClass ? donorClass + ' ' : '') + BTN_CLASS;
+    btn.title = 'Поиск по переписке (Ctrl+F)';
+    btn.appendChild(lensIcon());
+    btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (bar) closeBar();
+      else openBar(btn);
+    });
+    return btn;
+  }
+
+  function mount(footer) {
+    var donor = footer.querySelector('[class*="usageButtonV2_"]');
+    var btn = createButton(donor);
+    if (donor && donor.parentNode === footer) {
+      footer.insertBefore(btn, donor.nextSibling);
+    } else {
+      // Иконка автосжатия появляется не всегда (её показывают при
+      // заметном расходе контекста) — тогда встаём в начало футера.
+      footer.insertBefore(btn, footer.firstChild);
+    }
+    return true;
+  }
+
+  function scan() {
+    var footers = document.querySelectorAll('[class*="inputFooter_"]');
+    for (var i = 0; i < footers.length; i++) {
+      if (footers[i].querySelector('.' + BTN_CLASS)) continue;
+      mount(footers[i]);
+    }
+  }
+
+  function onHotkey(e) {
+    if (!(e.ctrlKey || e.metaKey) || e.key !== 'f') return;
+    var anchor = document.querySelector('.' + BTN_CLASS);
+    if (!anchor) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openBar(anchor);
+  }
+
+  function init() {
+    scan();
+    try {
+      new MutationObserver(function () { scan(); }).observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    } catch (e) {}
+    setInterval(scan, SCAN_INTERVAL_MS);
+    document.addEventListener('keydown', onHotkey, true);
+    logInfo('installed');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+
+/* ============================================================
  * CACHE KEEPALIVE
  *
  * Кнопка «Cache» между Usage и ByPass. Включённая — не даёт истечь
