@@ -6016,15 +6016,37 @@
    * форма растёт вверх и накрывает панель, привязанную к кнопке.
    * Якорь по `inputContainer_` держит строку выше рамки целиком.
    */
+  /**
+   * Контейнер ВИДИМОГО поля ввода.
+   *
+   * Просто `querySelector('[class*="inputContainer_"]')` брал первый
+   * попавшийся узел — а он не обязательно тот, в котором лежит
+   * композер (свои inputContainer_ есть и у скрытых, и у поповерных
+   * форм). Панель из-за этого уезжала к левому краю окна, а не к краю
+   * формы. Идём от самого поля ввода вверх — тот же приём, из-за
+   * отсутствия которого модуль вчера подвесил webview.
+   */
+  function hostElement() {
+    var composer = document.querySelector('[role="textbox"][contenteditable]');
+    if (composer) {
+      var host = composer.closest('[class*="inputContainer_"]');
+      if (host) return host;
+    }
+    return document.querySelector('[class*="inputContainer_"]');
+  }
+
   function placeBar() {
     if (!bar) return;
-    var host = document.querySelector('[class*="inputContainer_"]');
+    var host = hostElement();
     if (!host) return;
     var r = host.getBoundingClientRect();
     bar.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
-    // Выравнивание по ЛЕВОМУ краю формы: кнопка тоже слева, и панель
-    // раскрывается от неё, а не через всю ширину окна.
-    bar.style.left = Math.max(8, r.left) + 'px';
+    // Левый край панели совпадает с левым краем формы — кнопка тоже
+    // слева, и строка раскрывается прямо над ней. Если панель шире
+    // остатка окна, поджимаем, чтобы не уехала за правый край.
+    var width = bar.offsetWidth || 0;
+    var left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    bar.style.left = left + 'px';
     bar.style.right = 'auto';
   }
 
