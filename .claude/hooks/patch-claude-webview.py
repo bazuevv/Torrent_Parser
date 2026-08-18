@@ -168,6 +168,11 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
         "должен быть неотрицательным целым числом (сек), 0 — не следить",
     ),
+    (
+        "buttonStateCarrySec",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
+        "должен быть неотрицательным целым числом (сек), 0 — не переносить",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"

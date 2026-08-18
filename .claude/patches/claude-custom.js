@@ -5493,8 +5493,12 @@
   var SCAN_INTERVAL_MS = 3000;
   var BYPASS_POLL_MS = 5000;
   var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
+  var STORAGE_KEY = 'claudeCustomBypass';
+  var CARRY_MS = (typeof cfg.buttonStateCarrySec === 'number'
+    && cfg.buttonStateCarrySec >= 0 ? cfg.buttonStateCarrySec : 600) * 1000;
 
   var active = false;
+  var carryChecked = false;  // перенос состояния пробовали делать
 
   function logInfo() {
     if (!cfg.logs) return;
@@ -5556,6 +5560,45 @@
     for (var i = 0; i < nodes.length; i++) applyState(nodes[i]);
   }
 
+  /* ---------- перенос состояния между сессиями ---------- */
+
+  /**
+   * Состояние bypass живёт в marker-файле на стороне сервера и привязано
+   * к session id, а перезагрузка окна создаёт новую сессию — плюс
+   * SessionEnd-хук маркер удаляет. Поэтому после перезагрузки режим
+   * честно выключен, и восстановить его можно только поставив маркер
+   * заново.
+   *
+   * Запоминаем последний явный выбор в localStorage и переносим его,
+   * если он свежее CARRY_MS. Окно намеренно короткое: авто-снятие
+   * подтверждений при закрытии сессии — защитное свойство механизма,
+   * и превращать его в бессрочное включение нельзя. Перезагрузка
+   * занимает секунды, так что нескольких минут достаточно.
+   */
+  function readLast() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      var obj = raw ? JSON.parse(raw) : null;
+      return obj && typeof obj === 'object' ? obj : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeLast(on) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        on: !!on, at: Date.now(),
+      }));
+    } catch (e) {}
+  }
+
+  function shouldCarry() {
+    var last = readLast();
+    return !!(last && last.on === true && typeof last.at === 'number'
+      && Date.now() - last.at <= CARRY_MS);
+  }
+
   function refresh() {
     var sid = sessionId();
     if (!sid) return;
@@ -5563,6 +5606,19 @@
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (!d || !d.ok) return;
+
+        // Первый ответ после загрузки страницы: сервер говорит
+        // «выключен», но пользователь включал режим только что —
+        // значит это последствие перезагрузки, а не его решение.
+        if (!carryChecked) {
+          carryChecked = true;
+          if (!d.active && shouldCarry()) {
+            logInfo('переношу включённый режим на новую сессию');
+            send(sid, true);
+            return;
+          }
+        }
+
         if (d.active !== active) {
           active = !!d.active;
           applyStateAll();
@@ -5570,6 +5626,22 @@
         }
       })
       .catch(function () {});
+  }
+
+  /** Ставит или снимает маркер на сервере. */
+  function send(sid, want) {
+    return fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: sid, active: want }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) throw new Error((d && d.error) || 'отказ сервера');
+        active = !!d.active;
+        applyStateAll();
+        return active;
+      });
   }
 
   function toggle(btn) {
@@ -5580,17 +5652,12 @@
       return;
     }
     var want = !active;
-    fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: sid, active: want }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (!d || !d.ok) throw new Error((d && d.error) || 'отказ сервера');
-        active = !!d.active;
-        applyStateAll();
-        logInfo(active ? 'включён' : 'выключен');
+    send(sid, want)
+      .then(function (state) {
+        // Запоминаем именно явный выбор пользователя — на него потом
+        // опирается перенос после перезагрузки.
+        writeLast(state);
+        logInfo(state ? 'включён' : 'выключен');
       })
       .catch(function (err) {
         logInfo('переключение не удалось', err);
@@ -5743,8 +5810,11 @@
   var BARE_CLASS = 'claude-keepalive-btn-bare';
   var ON_CLASS = 'claude-keepalive-on';
   var STORAGE_KEY = 'claudeCustomCacheKeepalive';
+  var LAST_KEY = '__last';
   var SCAN_INTERVAL_MS = 3000;
   var TICK_MS = 60000;
+  var CARRY_MS = (typeof cfg.buttonStateCarrySec === 'number'
+    && cfg.buttonStateCarrySec >= 0 ? cfg.buttonStateCarrySec : 600) * 1000;
   var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
 
   // Стартовые значения — из bootstrap; дальше их обновляет pollConfig().
@@ -5762,6 +5832,7 @@
   var NOTE_TIMEOUT_MS = 12000;
 
   var enabled = false;
+  var stateLoaded = false;   // состояние из localStorage уже прочитано
   var lastIdleMin = null;
   var noteEl = null;
   var noteTimer = null;
@@ -5797,21 +5868,59 @@
     }
   }
 
+  function writeStore(store) {
+    // Записей накапливается по одной на сессию, а сессия создаётся
+    // на каждую перезагрузку окна. Оставляем только свежие, иначе
+    // localStorage растёт без предела.
+    var keys = Object.keys(store).filter(function (k) { return k !== LAST_KEY; });
+    if (keys.length > 30) {
+      keys.slice(0, keys.length - 30).forEach(function (k) { delete store[k]; });
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    } catch (e) {}
+  }
+
+  /**
+   * Возвращает состояние для текущей сессии или null, если session id
+   * ещё не определился (React-дерево не отрисовано).
+   *
+   * Перезагрузка окна создаёт НОВУЮ сессию, поэтому записи под старым
+   * id для неё бесполезны. Чтобы выбор не сбрасывался, переносим его
+   * из последнего явного включения — но только если оно свежее
+   * CARRY_MS. Перезагрузка занимает секунды, так что короткого окна
+   * достаточно; без ограничения включение недельной давности молча
+   * оживало бы в новом разговоре.
+   */
   function loadEnabled() {
     var sid = sessionId();
-    if (!sid) return false;
-    return readStore()[sid] === true;
+    if (!sid) return null;
+    var store = readStore();
+    if (typeof store[sid] === 'boolean') return store[sid];
+
+    var last = store[LAST_KEY];
+    if (last && last.on === true && typeof last.at === 'number'
+        && Date.now() - last.at <= CARRY_MS) {
+      // Переносим в новую сессию и фиксируем, чтобы дальше читалось
+      // напрямую. __last намеренно не трогаем: иначе окно давности
+      // продлевалось бы каждой перезагрузкой и стало бы бессрочным.
+      store[sid] = true;
+      writeStore(store);
+      logInfo('состояние перенесено с прошлой сессии');
+      return true;
+    }
+    return false;
   }
 
   function saveEnabled(on) {
     var sid = sessionId();
     if (!sid) return;
     var store = readStore();
-    if (on) store[sid] = true;
-    else delete store[sid];
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-    } catch (e) {}
+    // Пишем явный false, а не удаляем: иначе выключение выглядело бы
+    // как «выбора не было» и перенос включил бы кнопку обратно.
+    store[sid] = !!on;
+    store[LAST_KEY] = { on: !!on, at: Date.now() };
+    writeStore(store);
   }
 
   /* ---------- иконка ---------- */
@@ -6237,7 +6346,28 @@
     }
   }
 
+  /**
+   * Дочитывает сохранённое состояние, когда session id наконец
+   * определился. При init() его ещё нет: резолвер работает по
+   * React-fiber, а дерево на тот момент не отрисовано — раньше из-за
+   * этого кнопка всегда стартовала выключенной, даже если сохранённое
+   * состояние было.
+   */
+  function loadStateWhenReady() {
+    if (stateLoaded) return;
+    var value = loadEnabled();
+    if (value === null) return;  // session id ещё не резолвится
+    stateLoaded = true;
+    if (value !== enabled) {
+      enabled = value;
+      applyStateAll();
+    }
+    logInfo('состояние восстановлено:', enabled ? 'включено' : 'выключено');
+    if (enabled) tick();
+  }
+
   function scan() {
+    loadStateWhenReady();
     var containers = document.querySelectorAll('[class*="inputContainer_"]');
     for (var i = 0; i < containers.length; i++) {
       var footer = containers[i].querySelector('[class*="inputFooter_"]');
@@ -6251,13 +6381,13 @@
   }
 
   function init() {
-    // Состояние читается после появления DOM: резолвер session id
-    // работает по React-fiber, до первого рендера его нет.
-    enabled = loadEnabled();
+    // Состояние не читаем здесь: резолвер session id работает по
+    // React-fiber, а дерево на этот момент ещё не отрисовано.
+    // Этим занимается loadStateWhenReady() из scan(), как только
+    // id станет доступен.
     scan();
     applyStateAll();
     pollConfig();
-    if (enabled) tick();
     try {
       new MutationObserver(function () { scan(); }).observe(document.body, {
         childList: true,
