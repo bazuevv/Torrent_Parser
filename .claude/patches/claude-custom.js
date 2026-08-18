@@ -5804,6 +5804,12 @@
   var BTN_CLASS = 'claude-find-btn';
   var BARE_CLASS = 'claude-find-btn-bare';  // без донора стиля
   var BAR_ID = 'claude-find-bar';
+  var OBSERVER_THROTTLE_MS = 200;
+
+  var scanning = false;      // защита от повторного входа
+  var disabled = false;      // выключено предохранителем
+  var mounts = 0;            // вставок с прошлой проверки
+  var observerTimer = null;
   var HL_ALL = 'claude-find';
   var HL_ACTIVE = 'claude-find-active';
   var SCAN_INTERVAL_MS = 3000;
@@ -6006,11 +6012,9 @@
   /**
    * Ставит строку над всей формой ввода, а не над кнопкой.
    *
-   * Привязка к кнопке загоняла панель внутрь формы: футер — часть той
-   * же рамки, и при многострочном тексте форма растёт вверх, накрывая
-   * панель. Якорь по `inputContainer_` держит её всегда выше рамки
-   * целиком. Пересчёт идёт из scan() и по resize, поэтому набор новых
-   * строк панель не задевает.
+   * Футер — часть той же рамки, что и поле: при многострочном тексте
+   * форма растёт вверх и накрывает панель, привязанную к кнопке.
+   * Якорь по `inputContainer_` держит строку выше рамки целиком.
    */
   function placeBar() {
     if (!bar) return;
@@ -6070,19 +6074,13 @@
 
   /**
    * Место в правой группе футера: 🔍 · Usage · Cache · ByPass ·
-   * автоправки. Донор стиля берётся у любой штатной кнопки футера —
-   * иконка автосжатия показывается только при заметном расходе
-   * контекста, и полагаться на её присутствие нельзя.
+   * автоправки. Донор стиля — любая штатная кнопка футера: иконку
+   * автосжатия показывают только при заметном расходе контекста,
+   * полагаться на её присутствие нельзя.
    */
   function findSlot(footer) {
-    var usage = footer.querySelector('[class*="usageButtonV2_"]');
-    if (usage && usage.parentNode === footer) {
-      return { before: usage.nextSibling, donor: usage };
-    }
     var donor = footer.querySelector('[class*="footerButton_"]')
       || footer.querySelector('button');
-    // Встаём левее наших кнопок; если их ещё нет — правее разделителя,
-    // который отделяет правую группу от левой.
     var neighbour = footer.querySelector('.claude-usage-btn')
       || footer.querySelector('.claude-keepalive-btn')
       || footer.querySelector('.claude-bypass-btn');
@@ -6101,10 +6099,44 @@
     var btn = createButton(slot.donor);
     if (slot.before) footer.insertBefore(btn, slot.before);
     else footer.appendChild(btn);
+    mounts++;
     return true;
   }
 
-  /** Держит кнопку левее наших, даже если она встала раньше них. */
+  /**
+   * Сканирует ТОЛЬКО настоящее поле ввода.
+   *
+   * Раньше здесь был `querySelectorAll('[class*="inputFooter_"]')`,
+   * и это подвесило webview: свой `inputFooter_` есть у поповера меню
+   * `/` (см. SETTINGS MENU FIX). Кнопка вставлялась и туда, React сносил
+   * её при перерисовке, MutationObserver звал скан заново — цикл
+   * mount → мутация → mount, главный поток вставал, окно переставало
+   * отвечать. Остальные модули не страдали именно потому, что идут
+   * от `inputContainer_` и требуют внутри поле ввода; здесь тот же
+   * фильтр.
+   */
+  function scan() {
+    if (scanning || disabled) return;
+    scanning = true;
+    try {
+      var containers = document.querySelectorAll('[class*="inputContainer_"]');
+      for (var i = 0; i < containers.length; i++) {
+        if (!containers[i].querySelector('[role="textbox"][contenteditable]')) continue;
+        var footer = containers[i].querySelector('[class*="inputFooter_"]');
+        if (!footer) continue;
+        if (footer.querySelector('.' + BTN_CLASS)) {
+          ensureOrder(footer);
+          continue;
+        }
+        mount(footer);
+      }
+      if (bar) placeBar();
+    } finally {
+      scanning = false;
+    }
+  }
+
+  /** Держит кнопку левее наших, если порядок нарушился ре-рендером. */
   function ensureOrder(footer) {
     var me = footer.querySelector('.' + BTN_CLASS);
     if (!me || me.parentNode !== footer) return;
@@ -6115,16 +6147,18 @@
     if (!(me.compareDocumentPosition(right) & 4)) footer.insertBefore(me, right);
   }
 
-  function scan() {
-    var footers = document.querySelectorAll('[class*="inputFooter_"]');
-    for (var i = 0; i < footers.length; i++) {
-      if (footers[i].querySelector('.' + BTN_CLASS)) {
-        ensureOrder(footers[i]);
-        continue;
-      }
-      mount(footers[i]);
+  /**
+   * Предохранитель. Если вставок за минуту оказалось неправдоподобно
+   * много — значит кнопку кто-то сносит и мы попали в цикл. Лучше
+   * выключить поиск, чем подвесить окно: цену такой ошибки я уже
+   * заплатил чужим временем.
+   */
+  function guard() {
+    if (mounts > 200) {
+      disabled = true;
+      logInfo('слишком много вставок за минуту — модуль отключён');
     }
-    if (bar) placeBar();
+    mounts = 0;
   }
 
   function onHotkey(e) {
@@ -6139,12 +6173,19 @@
   function init() {
     scan();
     try {
-      new MutationObserver(function () { scan(); }).observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
+      // Throttle обязателен: во время стриминга ответа мутации идут
+      // непрерывно, и скан на каждую из них — это лишняя работа
+      // в главном потоке при любом раскладе.
+      new MutationObserver(function () {
+        if (observerTimer) return;
+        observerTimer = setTimeout(function () {
+          observerTimer = null;
+          scan();
+        }, OBSERVER_THROTTLE_MS);
+      }).observe(document.body, { childList: true, subtree: true });
     } catch (e) {}
     setInterval(scan, SCAN_INTERVAL_MS);
+    setInterval(guard, 60000);
     document.addEventListener('keydown', onHotkey, true);
     window.addEventListener('resize', placeBar);
     logInfo('installed');
