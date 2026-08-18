@@ -5802,6 +5802,7 @@
   }
 
   var BTN_CLASS = 'claude-find-btn';
+  var BARE_CLASS = 'claude-find-btn-bare';  // без донора стиля
   var BAR_ID = 'claude-find-bar';
   var HL_ALL = 'claude-find';
   var HL_ACTIVE = 'claude-find-active';
@@ -5998,11 +5999,27 @@
     bar.appendChild(navButton('✕', 'Закрыть (Esc)', closeBar));
     document.body.appendChild(bar);
 
-    var r = anchor.getBoundingClientRect();
-    bar.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
-    bar.style.left = Math.max(8, Math.min(r.left, window.innerWidth - bar.offsetWidth - 8)) + 'px';
-
+    placeBar();
     input.focus();
+  }
+
+  /**
+   * Ставит строку над всей формой ввода, а не над кнопкой.
+   *
+   * Привязка к кнопке загоняла панель внутрь формы: футер — часть той
+   * же рамки, и при многострочном тексте форма растёт вверх, накрывая
+   * панель. Якорь по `inputContainer_` держит её всегда выше рамки
+   * целиком. Пересчёт идёт из scan() и по resize, поэтому набор новых
+   * строк панель не задевает.
+   */
+  function placeBar() {
+    if (!bar) return;
+    var host = document.querySelector('[class*="inputContainer_"]');
+    if (!host) return;
+    var r = host.getBoundingClientRect();
+    bar.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
+    bar.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+    bar.style.left = 'auto';
   }
 
   /* ---------- кнопка ---------- */
@@ -6034,7 +6051,11 @@
     var btn = document.createElement('button');
     btn.type = 'button';
     var donorClass = donor && typeof donor.className === 'string' ? donor.className : '';
-    btn.className = (donorClass ? donorClass + ' ' : '') + BTN_CLASS;
+    // Без класса штатной кнопки проступает UA-оформление <button> —
+    // серая плашка с рамкой, чужеродная в футере.
+    btn.className = donorClass
+      ? donorClass + ' ' + BTN_CLASS
+      : BTN_CLASS + ' ' + BARE_CLASS;
     btn.title = 'Поиск по переписке (Ctrl+F)';
     btn.appendChild(lensIcon());
     btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
@@ -6047,25 +6068,63 @@
     return btn;
   }
 
-  function mount(footer) {
-    var donor = footer.querySelector('[class*="usageButtonV2_"]');
-    var btn = createButton(donor);
-    if (donor && donor.parentNode === footer) {
-      footer.insertBefore(btn, donor.nextSibling);
-    } else {
-      // Иконка автосжатия появляется не всегда (её показывают при
-      // заметном расходе контекста) — тогда встаём в начало футера.
-      footer.insertBefore(btn, footer.firstChild);
+  /**
+   * Место в правой группе футера: 🔍 · Usage · Cache · ByPass ·
+   * автоправки. Донор стиля берётся у любой штатной кнопки футера —
+   * иконка автосжатия показывается только при заметном расходе
+   * контекста, и полагаться на её присутствие нельзя.
+   */
+  function findSlot(footer) {
+    var usage = footer.querySelector('[class*="usageButtonV2_"]');
+    if (usage && usage.parentNode === footer) {
+      return { before: usage.nextSibling, donor: usage };
     }
+    var donor = footer.querySelector('[class*="footerButton_"]')
+      || footer.querySelector('button');
+    // Встаём левее наших кнопок; если их ещё нет — правее разделителя,
+    // который отделяет правую группу от левой.
+    var neighbour = footer.querySelector('.claude-usage-btn')
+      || footer.querySelector('.claude-keepalive-btn')
+      || footer.querySelector('.claude-bypass-btn');
+    if (neighbour && neighbour.parentNode === footer) {
+      return { before: neighbour, donor: donor };
+    }
+    var spacer = footer.querySelector('[class*="spacer_"]');
+    if (spacer && spacer.parentNode === footer) {
+      return { before: spacer.nextSibling, donor: donor };
+    }
+    return { before: null, donor: donor };
+  }
+
+  function mount(footer) {
+    var slot = findSlot(footer);
+    var btn = createButton(slot.donor);
+    if (slot.before) footer.insertBefore(btn, slot.before);
+    else footer.appendChild(btn);
     return true;
+  }
+
+  /** Держит кнопку левее наших, даже если она встала раньше них. */
+  function ensureOrder(footer) {
+    var me = footer.querySelector('.' + BTN_CLASS);
+    if (!me || me.parentNode !== footer) return;
+    var right = footer.querySelector('.claude-usage-btn')
+      || footer.querySelector('.claude-keepalive-btn')
+      || footer.querySelector('.claude-bypass-btn');
+    if (!right || right.parentNode !== footer) return;
+    if (!(me.compareDocumentPosition(right) & 4)) footer.insertBefore(me, right);
   }
 
   function scan() {
     var footers = document.querySelectorAll('[class*="inputFooter_"]');
     for (var i = 0; i < footers.length; i++) {
-      if (footers[i].querySelector('.' + BTN_CLASS)) continue;
+      if (footers[i].querySelector('.' + BTN_CLASS)) {
+        ensureOrder(footers[i]);
+        continue;
+      }
       mount(footers[i]);
     }
+    if (bar) placeBar();
   }
 
   function onHotkey(e) {
@@ -6087,6 +6146,7 @@
     } catch (e) {}
     setInterval(scan, SCAN_INTERVAL_MS);
     document.addEventListener('keydown', onHotkey, true);
+    window.addEventListener('resize', placeBar);
     logInfo('installed');
   }
 

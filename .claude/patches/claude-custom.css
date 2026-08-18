@@ -718,11 +718,40 @@
  * Включается параметром findInPage в claude-custom-config.toml.
  * ============================================================ */
 
+/* Кнопка копирует класс штатной кнопки футера, поэтому размеры и hover
+ * достаются даром — здесь только приглушение до наведения. */
 .claude-find-btn {
   opacity: 0.75;
 }
 .claude-find-btn:hover {
   opacity: 1;
+}
+
+/* Запасной вид: донора стиля не нашлось. Иконку автосжатия показывают
+ * только при заметном расходе контекста, так что этот случай штатный,
+ * а не исключительный — без правила проступает UA-оформление <button>
+ * (серая плашка с рамкой), чужеродное в футере. */
+.claude-find-btn-bare {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.claude-find-btn-bare:hover {
+  background: var(--app-ghost-button-hover-background,
+    var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08)));
+}
+.claude-find-btn-bare svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 /* Подсветка совпадений. ::highlight() рисует поверх текста, не меняя
