@@ -5833,6 +5833,7 @@
 
   var enabled = false;
   var stateLoaded = false;   // состояние из localStorage уже прочитано
+  var pendingDraft = null;   // черновик, снятый на время отправки
   var lastIdleMin = null;
   var noteEl = null;
   var noteTimer = null;
@@ -6077,10 +6078,6 @@
       var el = composerOf(container);
       if (!el) continue;
 
-      if ((el.textContent || '').trim()) {
-        logInfo('пропуск: в поле ввода черновик');
-        return false;
-      }
       // Кнопка отправки во время генерации превращается в «стоп»:
       // отличаем по иконке из того же CSS-модуля футера.
       if (container.querySelector('[class*="stopIcon_"]')) {
@@ -6089,7 +6086,23 @@
       }
       if (!container.querySelector('[class*="sendButton_"]')) continue;
 
+      // Черновик не мешает отправке: убираем его, шлём keepalive
+      // и возвращаем обратно. Текст держим в pendingDraft до успешного
+      // возврата — если что-то пойдёт не так, его подберёт scan().
+      var draft = el.textContent || '';
       el.focus();
+      if (draft) {
+        pendingDraft = draft;
+        try {
+          document.execCommand('selectAll', false, null);
+          document.execCommand('delete', false, null);
+        } catch (e) {
+          logInfo('не удалось очистить поле — отправку пропускаю');
+          pendingDraft = null;
+          return false;
+        }
+      }
+
       var ok = false;
       try {
         ok = document.execCommand('insertText', false, MESSAGE);
@@ -6098,12 +6111,46 @@
       }
       if (!ok) {
         logInfo('вставка текста не удалась');
+        restoreDraft(container, 0);
         return false;
       }
       clickSendWhenReady(container, 0);
       return true;
     }
     return false;
+  }
+
+  /**
+   * Возвращает черновик в поле, когда оно освободится.
+   *
+   * Ждём именно пустого поля: сразу после клика там ещё лежит наш
+   * keepalive, а если пользователь начал печатать — затирать его
+   * нельзя. Поэтому при непустом поле просто ждём дальше, а по
+   * истечении попыток оставляем pendingDraft висеть: его подберёт
+   * ближайший scan(), когда поле освободится. Так черновик не теряется
+   * даже при неудачной отправке.
+   *
+   * Позиция каретки внутри черновика не сохраняется — текст
+   * возвращается целиком, каретка встаёт в конец.
+   */
+  function restoreDraft(container, attempt) {
+    if (!pendingDraft) return;
+    var el = composerOf(container);
+    if (!el) return;
+    if ((el.textContent || '') === '') {
+      var text = pendingDraft;
+      pendingDraft = null;
+      el.focus();
+      try {
+        document.execCommand('insertText', false, text);
+        logInfo('черновик возвращён,', text.length, 'символов');
+      } catch (e) {
+        pendingDraft = text;  // не вышло — пусть попробует scan()
+      }
+      return;
+    }
+    if (attempt >= 40) return;  // 40 × 50 мс = 2 с
+    setTimeout(function () { restoreDraft(container, attempt + 1); }, 50);
   }
 
   /**
@@ -6125,6 +6172,7 @@
     if (send && !send.disabled) {
       send.click();
       logInfo('отправлено сообщение поддержания, попыток:', attempt);
+      restoreDraft(container, 0);
       return;
     }
     if (attempt >= 30) {  // 30 × 50 мс = 1.5 с
@@ -6137,6 +6185,7 @@
           document.execCommand('delete', false, null);
         } catch (e) {}
       }
+      restoreDraft(container, 0);
       return;
     }
     setTimeout(function () {
@@ -6370,6 +6419,9 @@
     loadStateWhenReady();
     var containers = document.querySelectorAll('[class*="inputContainer_"]');
     for (var i = 0; i < containers.length; i++) {
+      // Страховка: если возврат черновика не удался с первого раза
+      // (поле было занято, отправка сорвалась), подбираем его здесь.
+      if (pendingDraft) restoreDraft(containers[i], 39);
       var footer = containers[i].querySelector('[class*="inputFooter_"]');
       if (containers[i].querySelector('.' + BTN_CLASS)) {
         if (footer) ensureOrder(footer);
