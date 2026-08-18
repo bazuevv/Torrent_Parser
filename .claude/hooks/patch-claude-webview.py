@@ -521,6 +521,11 @@ def _hlog(message: str) -> None:
 def _ensure_http_server() -> list[str]:
     """Приводит сервер в рабочее состояние. Возвращает список проблем.
 
+    Обёрнуто межпроцессным локом: хуки разных окон срабатывают
+    одновременно, и без него оба увидели бы «сервера нет» и запустили
+    по своему. Второй умрёт на занятом порту, но по дороге успел бы
+    наследить в pid-файле и выдать ложное предупреждение.
+
     Три случая:
       1. Отвечает и поднят со свежих исходников — ничего не делаем.
       2. Отвечает, но исходники новее — гасим и поднимаем заново.
@@ -533,6 +538,61 @@ def _ensure_http_server() -> list[str]:
     if not os.path.isfile(HTTP_SERVER_SCRIPT):
         return []
 
+    lock = _acquire_spawn_lock()
+    if lock is None:
+        # Лок держит соседнее окно — оно прямо сейчас поднимает сервер.
+        # Ждём его результат вместо параллельного запуска.
+        for _ in range(30):
+            time.sleep(0.1)
+            if _http_server_status(timeout=0.2) is not None:
+                return []
+        _hlog("сосед держит лок запуска, но сервер так и не поднялся")
+        return []
+
+    try:
+        return _ensure_http_server_locked()
+    finally:
+        _release_spawn_lock(lock)
+
+
+def _spawn_lock_path() -> str:
+    return os.path.join(PROJECT_DIR, ".claude", "hooks-runtime", "http-server.lock")
+
+
+def _acquire_spawn_lock():
+    """Неблокирующий межпроцессный лок. None — занят кем-то другим.
+
+    На системах без fcntl (Windows) лок не берём: там от дубликата
+    защищает только отказ bind'а, и этого достаточно — проигравший
+    инстанс просто выходит.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        return False  # не None, чтобы вызывающий продолжил работу
+    try:
+        os.makedirs(os.path.dirname(_spawn_lock_path()), exist_ok=True)
+        fh = open(_spawn_lock_path(), "w")
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fh
+    except OSError:
+        try:
+            fh.close()
+        except Exception:
+            pass
+        return None
+
+
+def _release_spawn_lock(lock) -> None:
+    if not lock:
+        return
+    try:
+        lock.close()  # закрытие снимает flock
+    except Exception:
+        pass
+
+
+def _ensure_http_server_locked() -> list[str]:
     status = _http_server_status()
     if status is not None:
         running = 0.0
@@ -714,8 +774,14 @@ def main() -> int:
     if event_name in ("SessionStart", "UserPromptSubmit"):
         server_issues = _ensure_http_server()
     elif event_name == "SessionEnd":
-        _hlog("SessionEnd — гашу сервер (он общий для всех окон!)")
-        _stop_http_server()
+        # Сервер НЕ гасим. Он один на проект и общий для всех окон,
+        # а SessionEnd прилетает от каждого закрытия и от каждого
+        # Reload Window — раньше это роняло сервер у всех остальных,
+        # и до ближайшего сообщения webview получал «недоступен»
+        # (видно в журнале, фаза 21.18). Простаивающий локальный
+        # сервер на 127.0.0.1 ничего не стоит, а при смене исходников
+        # он перезапускается сам.
+        _hlog("SessionEnd — сервер оставляю работать (он общий для окон)")
 
     # 5. Предупреждения уходят последними и одним объектом: модель
     #    увидит маркеры `[claude-custom-config WARNING]` и

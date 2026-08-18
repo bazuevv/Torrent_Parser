@@ -1150,12 +1150,9 @@ def main():
 
     _bootstrap_cwd_markers()
 
-    # Записываем PID для остановки на SessionEnd
     runtime_dir = os.path.join(PROJECT_DIR, ".claude", "hooks-runtime")
     os.makedirs(runtime_dir, exist_ok=True)
     pid_file = os.path.join(runtime_dir, "http-server.pid")
-    with open(pid_file, "w") as f:
-        f.write(str(os.getpid()))
 
     # ThreadingHTTPServer, а не HTTPServer: webview опрашивает сервер
     # несколькими таймерами (состояние ByPass и настройки — каждые 5 с,
@@ -1163,7 +1160,19 @@ def main():
     # однопоточном сервере первый разбор большого транскрипта (~1 с)
     # блокировал очередь, и опросы отваливались по таймауту — в webview
     # это выглядело как «http-server.py недоступен».
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    # Занятый порт — не авария, а нормальный исход гонки: два окна
+    # прислали сообщение одновременно, оба не увидели сервера и оба
+    # его запустили. Победитель уже слушает, проигравший должен тихо
+    # уйти — и, главное, НЕ трогать pid-файл. Поэтому pid пишется
+    # только после успешного bind.
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    except OSError as exc:
+        _log(f"порт {PORT} занят ({exc}) — уже есть живой сервер, выхожу")
+        return
+
+    with open(pid_file, "w") as f:
+        f.write(str(os.getpid()))
 
     # Сигналы логируем ДО выхода: иначе в журнале остаётся только
     # обрыв записей, и не отличить внешний SIGTERM (кто-то погасил)
