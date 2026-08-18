@@ -5747,12 +5747,16 @@
   var TICK_MS = 60000;
   var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
 
+  // Стартовые значения — из bootstrap; дальше их обновляет pollConfig().
   var IDLE_MINUTES = typeof cfg.cacheKeepaliveMinutes === 'number'
     && cfg.cacheKeepaliveMinutes > 0 ? cfg.cacheKeepaliveMinutes : 55;
   var MESSAGE = typeof cfg.cacheKeepaliveMessage === 'string'
     && cfg.cacheKeepaliveMessage ? cfg.cacheKeepaliveMessage : 'keepalive';
   var MIN_CONTEXT = typeof cfg.cacheKeepaliveMinContext === 'number'
     && cfg.cacheKeepaliveMinContext >= 0 ? cfg.cacheKeepaliveMinContext : 50000;
+
+  var CONFIG_URL = 'http://localhost:18923/custom-config';
+  var CONFIG_POLL_MS = 5000;
 
   var NOTE_ID = 'claude-keepalive-note';
   var NOTE_TIMEOUT_MS = 12000;
@@ -6031,6 +6035,54 @@
     }, 50);
   }
 
+  /**
+   * Подтягивает настройки с сервера.
+   *
+   * Значения из bootstrap фиксируются на момент загрузки окна, поэтому
+   * правка TOML не действовала до Reload Window — и порог показывался
+   * старый, хотя в файле стоял новый. Опрос снимает это: тот же приём
+   * уже используется для emojiButtonPlacement.
+   *
+   * Сам флаг cacheKeepalive намеренно не обновляем: модуль либо
+   * установлен со всеми обработчиками, либо нет, и включить его на лету
+   * всё равно нельзя — для этого нужен Reload Window.
+   */
+  function applyLiveConfig(c) {
+    if (!c || typeof c !== 'object') return;
+    var changed = [];
+
+    if (typeof c.cacheKeepaliveMinutes === 'number'
+        && c.cacheKeepaliveMinutes > 0
+        && c.cacheKeepaliveMinutes !== IDLE_MINUTES) {
+      IDLE_MINUTES = c.cacheKeepaliveMinutes;
+      changed.push('порог ' + IDLE_MINUTES + ' мин');
+    }
+    if (typeof c.cacheKeepaliveMessage === 'string'
+        && c.cacheKeepaliveMessage
+        && c.cacheKeepaliveMessage !== MESSAGE) {
+      MESSAGE = c.cacheKeepaliveMessage;
+      changed.push('текст сообщения');
+    }
+    if (typeof c.cacheKeepaliveMinContext === 'number'
+        && c.cacheKeepaliveMinContext >= 0
+        && c.cacheKeepaliveMinContext !== MIN_CONTEXT) {
+      MIN_CONTEXT = c.cacheKeepaliveMinContext;
+      changed.push('порог контекста ' + human(MIN_CONTEXT));
+    }
+
+    if (changed.length) {
+      applyStateAll();  // подсказки пересобираются с новыми значениями
+      logInfo('конфиг обновлён:', changed.join(', '));
+    }
+  }
+
+  function pollConfig() {
+    fetch(CONFIG_URL, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (d && d.ok) applyLiveConfig(d.config); })
+      .catch(function () {});
+  }
+
   function tick() {
     if (!enabled) return;
     var sid = sessionId();
@@ -6204,6 +6256,7 @@
     enabled = loadEnabled();
     scan();
     applyStateAll();
+    pollConfig();
     if (enabled) tick();
     try {
       new MutationObserver(function () { scan(); }).observe(document.body, {
@@ -6213,6 +6266,7 @@
     } catch (e) {}
     setInterval(scan, SCAN_INTERVAL_MS);
     setInterval(tick, TICK_MS);
+    setInterval(pollConfig, CONFIG_POLL_MS);
     logInfo('installed, порог', IDLE_MINUTES, 'мин');
   }
 

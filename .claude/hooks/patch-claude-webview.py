@@ -486,10 +486,9 @@ def _server_sources_mtime() -> float:
             newest = max(newest, os.path.getmtime(os.path.join(here, name)))
         except OSError:
             pass
-    try:
-        newest = max(newest, os.path.getmtime(CANONICAL_CONFIG))
-    except OSError:
-        pass
+    # Конфига здесь намеренно нет — см. комментарий у _sources_mtime()
+    # в http-server.py: его перечитывают на лету, и перезапуск ради
+    # правки настройки только плодит окна недоступности.
     return newest
 
 

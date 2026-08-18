@@ -37,6 +37,15 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 # чтобы параллельные запросы не гонялись за файлом состояния.
 _CACHE_LOCK = threading.Lock()
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    tomllib = None
+
+# Разобранный claude-custom-config.toml, обновляется по mtime.
+_CONFIG_CACHE = {"mtime": 0.0, "data": {}}
+_CONFIG_LOCK = threading.Lock()
+
 # cache_usage лежит рядом; при запуске скриптом sys.path[0] — эта папка,
 # но вставляем явно, чтобы импорт не зависел от способа запуска.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -67,6 +76,11 @@ CONFIG_FILE = os.path.join(
 
 
 def _sources_mtime() -> float:
+    """Только код. Конфиг сюда НЕ входит намеренно: все, кому он нужен,
+    перечитывают его на лету — hook_log на каждую запись, endpoint
+    /custom-config по mtime. Держать конфиг в этом списке значило бы
+    перезапускать сервер на каждую правку настройки, а каждый перезапуск
+    — это окно, в котором webview получает «недоступен»."""
     here = os.path.dirname(os.path.abspath(__file__))
     newest = 0.0
     for name in SOURCE_FILES:
@@ -74,10 +88,6 @@ def _sources_mtime() -> float:
             newest = max(newest, os.path.getmtime(os.path.join(here, name)))
         except OSError:
             pass
-    try:
-        newest = max(newest, os.path.getmtime(CONFIG_FILE))
-    except OSError:
-        pass
     return newest
 
 
@@ -337,8 +347,54 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_bypass_get()
             return
 
+        if self.path.split("?", 1)[0] == "/custom-config":
+            self._handle_custom_config()
+            return
+
         self.send_response(404)
         self.end_headers()
+
+    def _handle_custom_config(self) -> None:
+        """Отдаёт claude-custom-config.toml как JSON.
+
+        Зачем: значения конфига попадают в webview через bootstrap,
+        а тот читается ровно один раз — при загрузке окна. Правка
+        настройки не действовала до Reload Window, и это регулярно
+        сбивало с толку (порог поддержания показывался старый, хотя
+        в файле стоял новый). Тот же приём уже применён для
+        emojiButtonPlacement, здесь он распространён на весь конфиг.
+
+        Разбор кэшируется по mtime: endpoint опрашивают несколько окон
+        раз в несколько секунд, парсить TOML каждый раз незачем.
+        """
+        try:
+            mtime = os.path.getmtime(CONFIG_FILE)
+        except OSError:
+            self._json_response(404, {"ok": False, "error": "конфиг не найден"})
+            return
+
+        with _CONFIG_LOCK:
+            if mtime != _CONFIG_CACHE["mtime"]:
+                if tomllib is None:
+                    self._json_response(500, {
+                        "ok": False, "error": "нужен Python 3.11+ (tomllib)",
+                    })
+                    return
+                try:
+                    with open(CONFIG_FILE, "rb") as fh:
+                        _CONFIG_CACHE["data"] = tomllib.load(fh)
+                except Exception as exc:
+                    # Битый TOML — не повод отдавать мусор: пусть webview
+                    # продолжит жить на значениях из bootstrap.
+                    self._json_response(500, {
+                        "ok": False, "error": f"TOML невалиден: {exc}",
+                    })
+                    return
+                _CONFIG_CACHE["mtime"] = mtime
+                _log(f"конфиг перечитан (mtime={mtime:.3f})")
+            data = dict(_CONFIG_CACHE["data"])
+
+        self._json_response(200, {"ok": True, "mtime": mtime, "config": data})
 
     # --- bypass-режим ---------------------------------------------------
     #
