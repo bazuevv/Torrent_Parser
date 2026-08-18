@@ -154,6 +154,11 @@ REQUIRED_PARAMS = [
         "должен быть неотрицательным целым числом (токенов)",
     ),
     (
+        "cacheKeepaliveTtlMinutes",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
+        "должен быть положительным целым числом (мин)",
+    ),
+    (
         "serverLog",
         lambda v: isinstance(v, bool),
         "должен быть true или false",

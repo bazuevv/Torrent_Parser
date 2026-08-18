@@ -58,6 +58,7 @@ HOT_KEYS = frozenset({
     "cacheKeepaliveMinutes",
     "cacheKeepaliveMessage",
     "cacheKeepaliveMinContext",
+    "cacheKeepaliveTtlMinutes",
     "serverLog",
     "serverLogMaxBytes",
     "serverConfigWatchSec",

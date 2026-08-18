@@ -6250,6 +6250,9 @@
     && cfg.cacheKeepaliveMessage ? cfg.cacheKeepaliveMessage : 'keepalive';
   var MIN_CONTEXT = typeof cfg.cacheKeepaliveMinContext === 'number'
     && cfg.cacheKeepaliveMinContext >= 0 ? cfg.cacheKeepaliveMinContext : 50000;
+  // Верхняя граница окна: TTL кэша. Дольше него поддерживать уже нечего.
+  var TTL_MINUTES = typeof cfg.cacheKeepaliveTtlMinutes === 'number'
+    && cfg.cacheKeepaliveTtlMinutes > 0 ? cfg.cacheKeepaliveTtlMinutes : 60;
 
   var CONFIG_URL = 'http://localhost:18923/custom-config';
   var CONFIG_POLL_MS = 5000;
@@ -6261,6 +6264,7 @@
   var stateLoaded = false;   // состояние из localStorage уже прочитано
   var pendingDraft = null;   // черновик, снятый на время отправки
   var lastIdleMin = null;
+  var cacheLost = false;     // простой перевалил за TTL, поддерживать нечего
   var noteEl = null;
   var noteTimer = null;
 
@@ -6452,16 +6456,38 @@
     ];
   }
 
+  /**
+   * Подсказка описывает три состояния: выключено, сторожит, кэш уже
+   * потерян. Третье важно показывать явно — иначе включённая кнопка,
+   * которая сознательно ничего не делает, выглядит как сломанная.
+   *
+   * Порог и простой подписаны отдельными словами: формулировка
+   * «Простой сейчас: 3 мин из 55» читалась двусмысленно, первое число
+   * принимали за настройку.
+   */
   function titleFor() {
     if (!enabled) {
-      return 'Поддержание кэша выключено. Клик — при простое дольше '
-        + IDLE_MINUTES + ' мин отправлять короткое сообщение, чтобы кэш '
-        + 'не истёк (доступно от ' + human(MIN_CONTEXT) + ' токенов контекста).';
+      return 'Поддержание кэша выключено. Клик — включить: при простое '
+        + 'от ' + IDLE_MINUTES + ' до ' + TTL_MINUTES + ' мин будет '
+        + 'отправлено короткое сообщение, чтобы кэш не истёк. Доступно '
+        + 'от ' + human(MIN_CONTEXT) + ' токенов контекста.';
     }
-    var tail = lastIdleMin === null
-      ? ''
-      : ' Простой сейчас: ' + lastIdleMin.toFixed(0) + ' мин из ' + IDLE_MINUTES + '.';
-    return 'Поддержание кэша включено.' + tail + ' Клик — выключить.';
+    var head = 'Поддержание кэша включено, окно ' + IDLE_MINUTES + '–'
+      + TTL_MINUTES + ' мин.';
+    if (cacheLost) {
+      return head + ' Простой ' + lastIdleMin.toFixed(0) + ' мин — кэш уже '
+        + 'истёк, поддерживать нечего. Возобновлю охрану после твоего '
+        + 'следующего сообщения. Клик — выключить.';
+    }
+    if (lastIdleMin !== null) {
+      var left = IDLE_MINUTES - lastIdleMin;
+      head += left > 0
+        ? ' Простой ' + lastIdleMin.toFixed(0) + ' мин, до отправки около '
+          + Math.round(left) + ' мин.'
+        : ' Простой ' + lastIdleMin.toFixed(0) + ' мин — сообщение уйдёт '
+          + 'при ближайшей проверке.';
+    }
+    return head + ' Клик — выключить.';
   }
 
   function applyState(btn) {
@@ -6653,11 +6679,32 @@
       MIN_CONTEXT = c.cacheKeepaliveMinContext;
       changed.push('порог контекста ' + human(MIN_CONTEXT));
     }
+    if (typeof c.cacheKeepaliveTtlMinutes === 'number'
+        && c.cacheKeepaliveTtlMinutes > 0
+        && c.cacheKeepaliveTtlMinutes !== TTL_MINUTES) {
+      TTL_MINUTES = c.cacheKeepaliveTtlMinutes;
+      changed.push('TTL ' + TTL_MINUTES + ' мин');
+    }
 
     if (changed.length) {
+      normalizeWindow();
       applyStateAll();  // подсказки пересобираются с новыми значениями
       logInfo('конфиг обновлён:', changed.join(', '));
     }
+  }
+
+  /**
+   * Порог обязан быть строго меньше TTL, иначе окно срабатывания пусто
+   * и кнопка молча не делает ничего. Чинить это отказом было бы хуже:
+   * пользователь увидел бы включённую кнопку без эффекта. Поджимаем
+   * порог и говорим об этом в консоль.
+   */
+  function normalizeWindow() {
+    if (IDLE_MINUTES < TTL_MINUTES) return;
+    var fixed = Math.max(1, TTL_MINUTES - 5);
+    logInfo('порог', IDLE_MINUTES, 'мин не меньше TTL', TTL_MINUTES,
+      '— окно пусто, поджимаю порог до', fixed);
+    IDLE_MINUTES = fixed;
   }
 
   function pollConfig() {
@@ -6678,7 +6725,20 @@
         var ts = Date.parse(d.last.ts);
         if (isNaN(ts)) return;
         lastIdleMin = (Date.now() - ts) / 60000;
+
+        // Верхняя граница окна. Кэш живёт TTL_MINUTES от НАЧАЛА
+        // последнего запроса; после этого он уже вытеснен, и сообщение
+        // ничего не продлевает — оно оплачивает полную перезапись
+        // префикса по ставке записи плюс output ответа. То есть ровно
+        // тот холодный старт, ради предотвращения которого всё
+        // затевалось. Молчим и ждём, пока пользователь напишет сам:
+        // его сообщение создаст новый кэш, и охрана возобновится.
+        cacheLost = lastIdleMin >= TTL_MINUTES;
         applyStateAll();
+        if (cacheLost) {
+          logInfo('простой', lastIdleMin.toFixed(0), 'мин — кэш уже истёк, не отправляю');
+          return;
+        }
         if (lastIdleMin >= IDLE_MINUTES) trySend();
       })
       .catch(function () {});
@@ -6863,6 +6923,7 @@
     // React-fiber, а дерево на этот момент ещё не отрисовано.
     // Этим занимается loadStateWhenReady() из scan(), как только
     // id станет доступен.
+    normalizeWindow();
     scan();
     applyStateAll();
     pollConfig();
