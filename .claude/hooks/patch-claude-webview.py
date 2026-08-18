@@ -153,6 +153,16 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
         "должен быть неотрицательным целым числом (токенов)",
     ),
+    (
+        "serverLog",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
+    (
+        "serverLogMaxBytes",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
+        "должен быть положительным целым числом (байт)",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"
@@ -467,14 +477,19 @@ def _http_server_status(timeout: float = 0.4) -> dict | None:
 
 def _server_sources_mtime() -> float:
     """Свежесть исходников сервера — тот же набор файлов, что считает
-    сам сервер в SCRIPT_MTIME."""
+    сам сервер в SCRIPT_MTIME. Списки обязаны совпадать, иначе сервер
+    будет перезапускаться на каждом сообщении (или не будет никогда)."""
     here = os.path.dirname(HTTP_SERVER_SCRIPT)
     newest = 0.0
-    for name in ("http-server.py", "cache_usage.py"):
+    for name in ("http-server.py", "cache_usage.py", "hook_log.py"):
         try:
             newest = max(newest, os.path.getmtime(os.path.join(here, name)))
         except OSError:
             pass
+    try:
+        newest = max(newest, os.path.getmtime(CANONICAL_CONFIG))
+    except OSError:
+        pass
     return newest
 
 
@@ -490,6 +505,17 @@ def _spawn_http_server() -> None:
         stderr=subprocess.DEVNULL,
         start_new_session=True,  # отвязать от родительского процесса
     )
+
+
+def _hlog(message: str) -> None:
+    """Пишет в тот же журнал, что и сервер. Импорт ленивый: хук должен
+    работать, даже если hook_log почему-то отсутствует."""
+    try:
+        sys.path.insert(0, os.path.dirname(HTTP_SERVER_SCRIPT))
+        import hook_log
+        hook_log.log("hook", message)
+    except Exception:
+        pass
 
 
 def _ensure_http_server() -> list[str]:
@@ -515,15 +541,25 @@ def _ensure_http_server() -> list[str]:
         except (TypeError, ValueError):
             running = 0.0
         # Полсекунды запаса: mtime и время старта берутся не атомарно.
-        if running >= _server_sources_mtime() - 0.5:
+        sources = _server_sources_mtime()
+        if running >= sources - 0.5:
             return []
+        _hlog(
+            f"перезапуск: исходники новее кода сервера "
+            f"(running={running:.3f}, sources={sources:.3f}), pid={status.get('pid')}"
+        )
         _stop_http_server(status)
+    else:
+        _hlog("сервер не отвечает на /ping — поднимаю")
 
     _spawn_http_server()
     for _ in range(30):
         time.sleep(0.1)
-        if _http_server_status(timeout=0.2) is not None:
+        st = _http_server_status(timeout=0.2)
+        if st is not None:
+            _hlog(f"поднялся, pid={st.get('pid')}")
             return []
+    _hlog(f"НЕ поднялся за 3 с — порт {HTTP_SERVER_PORT} занят кем-то ещё?")
     return [
         f"HTTP-сервер хуков не поднялся на порту {HTTP_SERVER_PORT} за 3 с. "
         "Скорее всего порт занят посторонним процессом. Пока это так, "
@@ -558,10 +594,11 @@ def _stop_http_server(status: dict | None = None) -> None:
             pid = None
 
     if pid is not None:
+        _hlog(f"останавливаю сервер pid={pid}")
         try:
             os.kill(pid, signal.SIGTERM)
-        except OSError:
-            pass
+        except OSError as exc:
+            _hlog(f"SIGTERM не прошёл: {exc}")
         # Ждём, пока порт освободится: следом почти всегда идёт запуск,
         # и без ожидания новый инстанс упрётся в занятый порт.
         for _ in range(20):
@@ -677,6 +714,7 @@ def main() -> int:
     if event_name in ("SessionStart", "UserPromptSubmit"):
         server_issues = _ensure_http_server()
     elif event_name == "SessionEnd":
+        _hlog("SessionEnd — гашу сервер (он общий для всех окон!)")
         _stop_http_server()
 
     # 5. Предупреждения уходят последними и одним объектом: модель

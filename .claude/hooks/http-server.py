@@ -25,6 +25,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import sys
 import time
 import uuid
@@ -40,6 +41,11 @@ _CACHE_LOCK = threading.Lock()
 # но вставляем явно, чтобы импорт не зависел от способа запуска.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_usage  # noqa: E402
+import hook_log  # noqa: E402
+
+
+def _log(message: str) -> None:
+    hook_log.log("server", message)
 
 PORT = int(os.environ.get("CLAUDE_HTTP_PORT", "18923"))
 
@@ -49,15 +55,29 @@ PORT = int(os.environ.get("CLAUDE_HTTP_PORT", "18923"))
 # не подхватываются до ручного убийства процесса.
 #
 # ВАЖНО: добавил серверу новый локальный импорт — впиши его сюда,
-# иначе изменения в нём не будут поводом для перезапуска.
+# иначе изменения в нём не будут поводом для перезапуска. Тот же список
+# продублирован в _server_sources_mtime() внутри patch-claude-webview.py;
+# они обязаны совпадать. Конфиг тоже здесь: правка serverLog должна
+# доезжать до сервера без ручного перезапуска.
+SOURCE_FILES = ("http-server.py", "cache_usage.py", "hook_log.py")
+CONFIG_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "patches", "claude-custom-config.toml",
+)
+
+
 def _sources_mtime() -> float:
     here = os.path.dirname(os.path.abspath(__file__))
     newest = 0.0
-    for name in ("http-server.py", "cache_usage.py"):
+    for name in SOURCE_FILES:
         try:
             newest = max(newest, os.path.getmtime(os.path.join(here, name)))
         except OSError:
             pass
+    try:
+        newest = max(newest, os.path.getmtime(CONFIG_FILE))
+    except OSError:
+        pass
     return newest
 
 
@@ -259,7 +279,24 @@ def _load_webview_patcher():
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        pass  # тишина в stdout
+        pass  # тишина в stdout: сервер запущен с DEVNULL
+
+    def log_error(self, format, *args):
+        # Ошибки запросов (битый HTTP, обрыв соединения) — в журнал,
+        # а не в никуда. Именно здесь всплывёт, если webview рвёт
+        # соединения по таймауту.
+        try:
+            _log("ошибка запроса: " + (format % args))
+        except Exception:
+            pass
+
+    def handle_one_request(self):
+        try:
+            BaseHTTPRequestHandler.handle_one_request(self)
+        except (ConnectionResetError, BrokenPipeError) as exc:
+            # Обычное дело, когда webview закрыл вкладку в середине
+            # запроса. Пишем на всякий случай, но без паники.
+            _log(f"соединение разорвано клиентом: {type(exc).__name__}")
 
     def _cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -1127,11 +1164,40 @@ def main():
     # блокировал очередь, и опросы отваливались по таймауту — в webview
     # это выглядело как «http-server.py недоступен».
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+
+    # Сигналы логируем ДО выхода: иначе в журнале остаётся только
+    # обрыв записей, и не отличить внешний SIGTERM (кто-то погасил)
+    # от падения. Номер сигнала сразу показывает, кто инициатор:
+    # 15 — штатная остановка хуком, 2 — Ctrl+C, 9 в лог не попадёт
+    # никогда (SIGKILL не перехватывается) — и это тоже улика.
+    def _on_signal(signum, _frame):
+        _log(f"получен сигнал {signum} ({signal.Signals(signum).name}) — останавливаюсь")
+        # shutdown() блокируется до выхода serve_forever(), а обработчик
+        # сигнала выполняется ВНУТРИ него, в главном потоке: прямой
+        # вызов — гарантированный дедлок (проверено, сервер повисал
+        # с занятым портом и переставал принимать соединения).
+        # Документированный способ — звать shutdown() из другого потока.
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(_sig, _on_signal)
+        except (ValueError, OSError):
+            pass
+
+    _log(
+        f"старт: порт {PORT}, project_dir={PROJECT_DIR}, "
+        f"script_mtime={SCRIPT_MTIME:.3f}, python={sys.version.split()[0]}"
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        _log("KeyboardInterrupt")
+    except BaseException as exc:
+        _log(f"падение serve_forever: {type(exc).__name__}: {exc}")
+        raise
     finally:
+        _log("завершение: закрываю сокет и убираю pid-файл")
         server.server_close()
         if os.path.isfile(pid_file):
             os.remove(pid_file)
