@@ -6535,6 +6535,52 @@
   }
 
   /**
+   * Читает содержимое поля с сохранением переносов.
+   *
+   * `textContent` склеивает строки: он просто конкатенирует текст узлов
+   * и о разрывах не знает. `innerText` учитывает раскладку и отдаёт
+   * ровно то, что видит пользователь, — с `\n` на каждом переносе,
+   * независимо от того, хранит их поле как символы или как <br>.
+   */
+  function readComposer(el) {
+    if (!el) return '';
+    return (typeof el.innerText === 'string' ? el.innerText : el.textContent) || '';
+  }
+
+  /**
+   * Вставляет текст, воспроизводя переносы строк.
+   *
+   * Один `insertText` со всей строкой не годится: перенос внутри неё
+   * Chromium не превращает в разрыв, и многострочный черновик
+   * возвращался склеенным в одну строку. Поэтому вставляем построчно,
+   * а между строками просим редактор сделать разрыв — тем же
+   * действием, что и Shift+Enter.
+   */
+  function insertMultiline(text) {
+    var lines = String(text).split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      if (i > 0) {
+        var broke = false;
+        try {
+          broke = document.execCommand('insertLineBreak');
+        } catch (e) {
+          broke = false;
+        }
+        if (!broke) {
+          try { document.execCommand('insertText', false, '\n'); } catch (e) {}
+        }
+      }
+      if (!lines[i]) continue;
+      try {
+        if (!document.execCommand('insertText', false, lines[i])) return false;
+      } catch (e) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Отправляет сообщение через штатное поле ввода.
    *
    * Текст вставляем execCommand'ом: поле React-controlled, прямая
@@ -6563,7 +6609,7 @@
       // Черновик не мешает отправке: убираем его, шлём keepalive
       // и возвращаем обратно. Текст держим в pendingDraft до успешного
       // возврата — если что-то пойдёт не так, его подберёт scan().
-      var draft = el.textContent || '';
+      var draft = readComposer(el);
       el.focus();
       if (draft) {
         pendingDraft = draft;
@@ -6577,12 +6623,7 @@
         }
       }
 
-      var ok = false;
-      try {
-        ok = document.execCommand('insertText', false, MESSAGE);
-      } catch (e) {
-        ok = false;
-      }
+      var ok = insertMultiline(MESSAGE);
       if (!ok) {
         logInfo('вставка текста не удалась');
         restoreDraft(container, 0);
@@ -6615,10 +6656,10 @@
       var text = pendingDraft;
       pendingDraft = null;
       el.focus();
-      try {
-        document.execCommand('insertText', false, text);
-        logInfo('черновик возвращён,', text.length, 'символов');
-      } catch (e) {
+      if (insertMultiline(text)) {
+        logInfo('черновик возвращён,', text.length, 'символов,',
+          text.split('\n').length, 'строк');
+      } else {
         pendingDraft = text;  // не вышло — пусть попробует scan()
       }
       return;
