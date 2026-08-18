@@ -6022,8 +6022,10 @@
     if (!host) return;
     var r = host.getBoundingClientRect();
     bar.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
-    bar.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
-    bar.style.left = 'auto';
+    // Выравнивание по ЛЕВОМУ краю формы: кнопка тоже слева, и панель
+    // раскрывается от неё, а не через всю ширину окна.
+    bar.style.left = Math.max(8, r.left) + 'px';
+    bar.style.right = 'auto';
   }
 
   /* ---------- кнопка ---------- */
@@ -6073,25 +6075,21 @@
   }
 
   /**
-   * Место в правой группе футера: 🔍 · Usage · Cache · ByPass ·
-   * автоправки. Донор стиля — любая штатная кнопка футера: иконку
-   * автосжатия показывают только при заметном расходе контекста,
-   * полагаться на её присутствие нельзя.
+   * Место — в левой группе футера, сразу за кнопкой меню `/`.
+   *
+   * Донора стиля берём у неё же, а не у `footerButton_`: меню —
+   * иконка без подписи, той же формы и размера, что наша лупа.
+   * `footerButton_` рассчитан на «иконка + текст» и даёт лишний
+   * отступ справа.
    */
   function findSlot(footer) {
+    var menu = footer.querySelector('[class*="menuButton_"]');
+    if (menu && menu.parentNode === footer) {
+      return { before: menu.nextSibling, donor: menu };
+    }
     var donor = footer.querySelector('[class*="footerButton_"]')
       || footer.querySelector('button');
-    var neighbour = footer.querySelector('.claude-usage-btn')
-      || footer.querySelector('.claude-keepalive-btn')
-      || footer.querySelector('.claude-bypass-btn');
-    if (neighbour && neighbour.parentNode === footer) {
-      return { before: neighbour, donor: donor };
-    }
-    var spacer = footer.querySelector('[class*="spacer_"]');
-    if (spacer && spacer.parentNode === footer) {
-      return { before: spacer.nextSibling, donor: donor };
-    }
-    return { before: null, donor: donor };
+    return { before: footer.firstChild, donor: donor };
   }
 
   function mount(footer) {
@@ -6136,15 +6134,13 @@
     }
   }
 
-  /** Держит кнопку левее наших, если порядок нарушился ре-рендером. */
+  /** Держит кнопку сразу за меню `/`, если ре-рендер её сдвинул. */
   function ensureOrder(footer) {
     var me = footer.querySelector('.' + BTN_CLASS);
-    if (!me || me.parentNode !== footer) return;
-    var right = footer.querySelector('.claude-usage-btn')
-      || footer.querySelector('.claude-keepalive-btn')
-      || footer.querySelector('.claude-bypass-btn');
-    if (!right || right.parentNode !== footer) return;
-    if (!(me.compareDocumentPosition(right) & 4)) footer.insertBefore(me, right);
+    var menu = footer.querySelector('[class*="menuButton_"]');
+    if (!me || !menu) return;
+    if (me.parentNode !== footer || menu.parentNode !== footer) return;
+    if (menu.nextSibling !== me) footer.insertBefore(me, menu.nextSibling);
   }
 
   /**
