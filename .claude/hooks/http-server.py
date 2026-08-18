@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import signal
+import subprocess
 import sys
 import time
 import uuid
@@ -45,6 +46,28 @@ except ModuleNotFoundError:  # Python < 3.11
 # Разобранный claude-custom-config.toml, обновляется по mtime.
 _CONFIG_CACHE = {"mtime": 0.0, "data": {}}
 _CONFIG_LOCK = threading.Lock()
+
+# Параметры, которые подтягиваются на лету и перезапуска НЕ требуют:
+# первые три обновляет applyLiveConfig() в claude-custom.js через
+# /custom-config, serverLog* перечитывает hook_log на каждой записи,
+# serverConfigWatchSec читает сам наблюдатель на каждом цикле.
+# Список обязан совпадать с тем, что там реально обновляется, иначе
+# сервер будет либо зря перезапускаться, либо не перезапускаться,
+# когда надо.
+HOT_KEYS = frozenset({
+    "cacheKeepaliveMinutes",
+    "cacheKeepaliveMessage",
+    "cacheKeepaliveMinContext",
+    "serverLog",
+    "serverLogMaxBytes",
+    "serverConfigWatchSec",
+})
+
+DEFAULT_CONFIG_WATCH_SEC = 10
+
+# Выставляется наблюдателем; main() после выхода из serve_forever()
+# смотрит на него и решает, делать exec или просто завершиться.
+_RESTART_REQUESTED = False
 
 # cache_usage лежит рядом; при запуске скриптом sys.path[0] — эта папка,
 # но вставляем явно, чтобы импорт не зависел от способа запуска.
@@ -1199,6 +1222,91 @@ def _bootstrap_cwd_markers() -> None:
             _write_cwd_marker(project_dir, real)
 
 
+def _read_config_dict() -> dict:
+    if tomllib is None:
+        return {}
+    try:
+        with open(CONFIG_FILE, "rb") as fh:
+            data = tomllib.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        # Битый или недописанный TOML (редактор сохраняет не атомарно) —
+        # молча пропускаем цикл, иначе наблюдатель принял бы это за
+        # «все параметры исчезли» и устроил перезапуск на ровном месте.
+        return {}
+
+
+def _cold_snapshot(cfg: dict) -> dict:
+    """Только те параметры, чья правка требует перезапуска."""
+    return {k: v for k, v in cfg.items() if k not in HOT_KEYS}
+
+
+def _rebuild_bootstrap() -> None:
+    """Просит патчер пересобрать bootstrap webview.
+
+    Сам по себе перезапуск сервера webview-параметры не применяет — они
+    живут в bootstrap. Поэтому перед рестартом дёргаем патчер как
+    подпроцесс, ровно тем же способом, каким его запускает harness:
+    вызывать его внутренности из чужого процесса было бы хрупко.
+    """
+    patcher = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "patch-claude-webview.py"
+    )
+    if not os.path.isfile(patcher):
+        return
+    payload = json.dumps({
+        "hook_event_name": "SessionStart",
+        "session_id": "config-watch",
+        "cwd": PROJECT_DIR,
+    })
+    try:
+        subprocess.run(
+            [sys.executable, patcher],
+            input=payload, text=True, capture_output=True, timeout=30,
+            env={**os.environ, "CLAUDE_PROJECT_DIR": PROJECT_DIR},
+        )
+        _log("bootstrap пересобран")
+    except Exception as exc:
+        _log(f"пересборка bootstrap не удалась: {exc}")
+
+
+def _watch_config(server) -> None:
+    """Следит за «холодными» параметрами конфига и перезапускает сервер.
+
+    Горячие параметры (HOT_KEYS) игнорируются: их правка применяется
+    без перезапуска, а лишний рестарт — это окно, в котором webview
+    получает «недоступен».
+    """
+    baseline = _cold_snapshot(_read_config_dict())
+    global _RESTART_REQUESTED
+    while True:
+        cfg = _read_config_dict()
+        delay = cfg.get("serverConfigWatchSec", DEFAULT_CONFIG_WATCH_SEC)
+        if not isinstance(delay, int) or isinstance(delay, bool) or delay <= 0:
+            # Наблюдение выключено. Не выходим из потока: параметр сам
+            # горячий, и его можно вернуть, не перезапуская сервер.
+            time.sleep(DEFAULT_CONFIG_WATCH_SEC)
+            continue
+        time.sleep(delay)
+
+        current = _cold_snapshot(_read_config_dict())
+        if not current or current == baseline:
+            continue
+
+        changed = sorted(
+            k for k in set(current) | set(baseline)
+            if current.get(k) != baseline.get(k)
+        )
+        _log("конфиг: изменились " + ", ".join(changed)
+             + " — пересобираю bootstrap и перезапускаюсь")
+        _rebuild_bootstrap()
+        _RESTART_REQUESTED = True
+        # shutdown() из этого же потока безопасен: мы не внутри
+        # serve_forever(), в отличие от обработчика сигнала.
+        server.shutdown()
+        return
+
+
 def main():
     if not PROJECT_DIR:
         print("CLAUDE_PROJECT_DIR not set", file=sys.stderr)
@@ -1250,6 +1358,8 @@ def main():
         except (ValueError, OSError):
             pass
 
+    threading.Thread(target=_watch_config, args=(server,), daemon=True).start()
+
     _log(
         f"старт: порт {PORT}, project_dir={PROJECT_DIR}, "
         f"script_mtime={SCRIPT_MTIME:.3f}, python={sys.version.split()[0]}"
@@ -1266,6 +1376,13 @@ def main():
         server.server_close()
         if os.path.isfile(pid_file):
             os.remove(pid_file)
+
+    if _RESTART_REQUESTED:
+        # exec вместо spawn: pid сохраняется, а сокет уже закрыт (и всё
+        # равно помечен CLOEXEC), так что новый процесс займёт порт без
+        # гонки с самим собой.
+        _log("перезапуск по изменению конфига: exec")
+        os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
 
 
 if __name__ == "__main__":

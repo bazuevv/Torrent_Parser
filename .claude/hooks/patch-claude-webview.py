@@ -163,6 +163,11 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
         "должен быть положительным целым числом (байт)",
     ),
+    (
+        "serverConfigWatchSec",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
+        "должен быть неотрицательным целым числом (сек), 0 — не следить",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"
