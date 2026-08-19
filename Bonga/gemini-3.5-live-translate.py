@@ -111,11 +111,12 @@ class Translator:
     после stop() заводит сессию заново, с чистого листа.
     """
 
-    def __init__(self, client, target='ru',
+    def __init__(self, client, target='ru', voice=None,
                  on_orig=None, on_ru=None, on_phrase=None, on_status=None,
                  on_audio=None):
         self._client = client
         self._target = target
+        self._voice = voice               # имя prebuilt-голоса TTS (Kore, Charon…)
         self._on_orig = on_orig or (lambda text: None)
         self._on_ru = on_ru or (lambda text: None)
         self._on_phrase = on_phrase or (lambda: None)
@@ -170,6 +171,13 @@ class Translator:
             # Без handle поле не заполняем: первый вход — новая сессия.
             extra['session_resumption'] = types.SessionResumptionConfig(
                 handle=self._handle)
+        if self._voice:
+            # Голос синтеза перевода. Без этого модель берёт свой дефолт —
+            # мужской; полный список имён — в документации speech generation.
+            extra['speech_config'] = types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=self._voice)))
         return types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
             input_audio_transcription=types.AudioTranscriptionConfig(),
@@ -337,7 +345,7 @@ class Console:
 async def run(args):
     client = genai.Client(api_key=resolve_key(args))
     console = Console()
-    tr = Translator(client, target=args.target,
+    tr = Translator(client, target=args.target, voice=args.voice,
                     on_orig=lambda t: console.delta('orig', t),
                     on_ru=lambda t: console.delta('ru', t),
                     on_phrase=console.turn_done,
@@ -481,12 +489,14 @@ async def serve_hub(args):
 
                     box['tr'] = Translator(
                         client, target=msg.get('target') or 'ru',
+                        voice=msg.get('voice') or None,
                         on_orig=lambda t: broadcast('orig', text=t),
                         on_ru=lambda t: broadcast('ru', text=t),
                         on_phrase=lambda: broadcast('phrase_end'),
                         on_status=lambda s: broadcast('status', text=s),
                         on_audio=on_audio)
-                    log(f'start от {addr}, target={msg.get("target") or "ru"}')
+                    log(f'start от {addr}, target={msg.get("target") or "ru"}, '
+                        f'voice={msg.get("voice") or "по умолчанию"}')
                     await box['tr'].start()
                 elif kind == 'stop':
                     log(f'stop от {addr}')
@@ -534,6 +544,9 @@ def main():
     ap.add_argument('--duration', type=float, default=0, help='сколько секунд (0 = до конца)')
     ap.add_argument('--speed', type=float, default=1.0, help='темп отправки, 1 = реальное время')
     ap.add_argument('--target', default='ru', help='целевой язык перевода (по умолчанию ru)')
+    ap.add_argument('--voice', default=None,
+                    help='голос синтеза перевода (Kore, Aoede, Charon…; '
+                         'по умолчанию — дефолт модели)')
     ap.add_argument('--key', help='API-ключ; иначе переменные GEMINI_API_KEY/GOOGLE_API_KEY')
     args = ap.parse_args()
 

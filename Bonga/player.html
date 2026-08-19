@@ -6134,6 +6134,10 @@
   const SUBS_PORT = 8778;
   const SUBS_GAP = 1400;     // пауза в дельтах, мс: реплика закончилась
   const SUBS_ROLL = 240;     // символов в плашке: длинный монолог делим на реплики
+  // Голос озвучки перевода. Без этого модель синтезирует своим дефолтным
+  // мужским; Kore — женский, ровный чтец. Полный список имён — в документации
+  // speech generation Gemini (Zephyr, Puck, Aoede, Charon, Fenrir…).
+  const DUB_VOICE = 'Kore';
   const subs = {
     on: false, ws: null, wanted: false, retry: 0,
     ctx: null, tap: null, sink: null,
@@ -6241,7 +6245,7 @@
     }
     subs.src = subs.ctx.createMediaStreamSource(stream);
     subs.src.connect(subs.tap);
-    subsSend({ type: 'start', target: 'ru' });   // новая комната — с чистого листа
+    subsSend({ type: 'start', target: 'ru', voice: DUB_VOICE });   // новая комната — с чистого листа
     dubDuck(videoEl);                     // озвучка приглушает уже новую комнату
   }
 
