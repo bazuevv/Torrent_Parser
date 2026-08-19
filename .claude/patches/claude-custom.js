@@ -6387,12 +6387,11 @@
       quoteButton = document.createElement('button');
       quoteButton.type = 'button';
       quoteButton.className = 'claude-quote-btn';
-      quoteButton.innerHTML = '❯';
+      quoteButton.textContent = '❝';
       quoteButton.title = 'Процитировать';
       quoteButton.style.cssText =
-        'position:fixed;padding:4px 8px;margin:0;border:1px solid #999;border-radius:4px;' +
-        'background:#f0f0f0;color:#333;font-size:14px;cursor:pointer;z-index:10000;' +
-        'box-shadow:0 2px 4px rgba(0,0,0,0.1);';
+        'position:fixed;padding:2px 4px;margin:0;border:none;background:transparent;' +
+        'color:currentColor;font-size:18px;line-height:1;cursor:pointer;z-index:10000;';
 
       quoteButton.addEventListener('mousedown', function (e) {
         e.preventDefault();
