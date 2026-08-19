@@ -66,6 +66,7 @@ class PcmPump:
                                       stdin=subprocess.DEVNULL)
         self._held = None                 # прочитан, но ещё не отправлен
         self._eof = False
+        self.eof_at = None                # момент конца звука (для дренажа)
         self.sent = 0                     # байт, подтверждённых отправкой
 
     async def next_chunk(self):
@@ -76,6 +77,7 @@ class PcmPump:
                 self._held = data
             else:
                 self._eof = True
+                self.eof_at = time.monotonic()
                 err = self._proc.stderr.read().decode('utf-8', 'replace')[-400:]
                 if err:
                     print(f'ffmpeg: {err}', file=sys.stderr)
@@ -186,14 +188,23 @@ async def run(args):
                if handle else {}),
         )
         reconnect = False
-        last_event = time.monotonic()
         sender = None
         try:
             async with client.aio.live.connect(model=MODEL, config=config) as session:
+                print('[подключено]', file=sys.stderr)
                 sender = asyncio.create_task(
                     send_loop(session, pump, flow, args.speed, started))
+                # Приём обычным async for: даже в полной тишине сервер шлёт
+                # пустые server_content ~3 раза в секунду (замер 2026-08-19),
+                # так что цикл живёт и проверки внутри него срабатывают.
+                # «Ждать тишины» для выхода нельзя — пустые сообщения не
+                # кончаются; выходим по дренажу: EOF + GRACE секунд.
+                # Отменять __anext__ по таймауту нельзя: wait_for рвёт
+                # внутренний конвейер приёма, и сессия выглядит «закрытой
+                # сервером» (прецедент: демо реконнектилось в цикле).
                 async for msg in session.receive():
-                    last_event = time.monotonic()
+                    if pump.eof and time.monotonic() - pump.eof_at > GRACE_AFTER_EOF:
+                        break
 
                     upd = msg.session_resumption_update
                     if upd and upd.new_handle:
@@ -216,10 +227,6 @@ async def run(args):
                         console.delta('ru', sc.output_transcription.text)
                     if sc.turn_complete:
                         console.turn_done()
-
-                    # Звук закончился, хвост перевода получен — не висим.
-                    if pump.eof and time.monotonic() - last_event > GRACE_AFTER_EOF:
-                        break
                 else:
                     # Приём кончился сам, без go_away и без конца звука —
                     # сервер закрыл сессию молча. Продолжаем с того же места.
