@@ -6168,7 +6168,8 @@
   /* Оверлей субтитров. Реплика живёт от первой дельты до phrase_end плюс
      шесть секунд: текст остаётся в DOM, накопители уже сброшены, и следую-
      щая реплика пишет с чистого листа, не приклеиваясь к прошлой. */
-  const subsView = { orig: '', tr: '', hideTimer: 0, pauseTimer: 0 };
+  const subsView = { orig: '', tr: '', hideTimer: 0, pauseTimer: 0,
+                     lastDelta: 0, sawDelta: false };
   const subsStageBox = $('subs');   // прямая ссылка: элемент ездит в окно PiP
 
   function subsBox() {
@@ -6265,8 +6266,15 @@
       if (e.data instanceof ArrayBuffer) { dubPlay(new Int16Array(e.data)); return; }
       let m = null;
       try { m = JSON.parse(e.data); } catch { return; }
-      if (m.type === 'orig') { subsView.orig += m.text || ''; subsTalk(); }
-      else if (m.type === 'ru') { subsView.tr += m.text || ''; subsTalk(); }
+      if (m.type === 'orig') {
+        subsView.orig += m.text || '';
+        subsView.lastDelta = Date.now(); subsView.sawDelta = true;
+        subsTalk();
+      } else if (m.type === 'ru') {
+        subsView.tr += m.text || '';
+        subsView.lastDelta = Date.now(); subsView.sawDelta = true;
+        subsTalk();
+      }
       else if (m.type === 'phrase_end') subsDone();
       else if (m.type === 'status') subsLine(m.text);
     };
@@ -6346,7 +6354,8 @@
      на громкость элемента не смотрит, снимаемый сигнал не слабеет. */
   const DUCK = 0.15;
   const dub = { on: false, ctx: null, next: 0, prev: null,
-                frames: 0, bytes: 0, stalls: 0, sawFirst: false, loggedAt: 0 };
+                frames: 0, bytes: 0, stalls: 0, skipped: 0,
+                sawFirst: false, loggedAt: 0 };
 
   // Имя источника для журнала: чья громкость менялась, чей звук идёт.
   function dubSource(el) {
@@ -6356,6 +6365,16 @@
 
   function dubPlay(pcm) {
     if (!dub.on || !dub.ctx) return;
+    /* Музыкальный гейт: когда транскрипции не приходят, модель занята не
+       переводом, а пересинтезом играющего трека («поёт» его перевод, голос
+       при этом плавает, вплоть до смены пола — ограничение модели). Такой
+       синтез не проигрываем: замолчали дельты дольше 4 секунд — ждём речь.
+       Если дельт не было вовсе (бывали сессии с аудио без транскрипций),
+       гейт не срабатывает — иначе озвучка онемела бы на весь эфир. */
+    if (subsView.sawDelta && Date.now() - subsView.lastDelta > 4000) {
+      dub.skipped++;
+      return;
+    }
     if (!dub.sawFirst) {
       dub.sawFirst = true;
       subsLine(`dub: первый кадр ${pcm.length} сэмплов ` +
@@ -6385,7 +6404,8 @@
       dub.loggedAt = nowMs;
       subsLine(`dub: кадров ${dub.frames}, ${(dub.bytes / 1024).toFixed(0)} КБ ` +
                `(${(dub.bytes / 48000).toFixed(1)} с), буфер ` +
-               `${(dub.next - dub.ctx.currentTime).toFixed(2)} с, простоев ${dub.stalls}`);
+               `${(dub.next - dub.ctx.currentTime).toFixed(2)} с, простоев ${dub.stalls}` +
+               (dub.skipped ? `, муз-пропуск ${dub.skipped}` : ''));
     }
   }
 
@@ -6414,7 +6434,7 @@
       dub.ctx = dub.ctx || new AudioContext({ sampleRate: 24000 });
       dub.ctx.resume().catch(() => { });
       dub.next = 0;
-      dub.frames = 0; dub.bytes = 0; dub.stalls = 0;
+      dub.frames = 0; dub.bytes = 0; dub.stalls = 0; dub.skipped = 0;
       dub.sawFirst = false; dub.loggedAt = 0;
       dubDuck(subs.video);
       say(t('статус.66'), 'ok');
