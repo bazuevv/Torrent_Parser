@@ -80,6 +80,64 @@ GRACE_AFTER_EOF = 25                     # сколько секунд ждат�
 RECONNECT_BACKOFF = 2                    # пауза перед повторным подключением, с
 QUEUE_CHUNKS = 300                       # буфер звука на разрыв: 300×100 мс = 30 с
 
+# Группы классов YAMNet (AudioSet): что считаем речью, пением, музыкой.
+KIND_SPEECH = {0, 1, 2, 3}               # Speech, Child speech, Conversation, Narration
+KIND_SING = {24, 25, 26, 27, 28, 29, 30, 31, 32, 35, 250}
+KIND_MUSIC = {132, 133}                  # Music, Musical instrument
+KIND_WIN = RATE * 96 // 100              # окно YAMNet 0.96 с
+KIND_HOP = RATE * 48 // 100              # шаг окна 0.48 с
+
+
+class AudioKind:
+    """Определяет, что сейчас в звуке: речь, пение, музыка или тишина.
+
+    YAMNet в ONNX (16 МБ, models/yamnet.onnx) на CPU почти бесплатен.
+    Окно 0.96 с, шаг 0.48 с; смена вердикта подтверждается тремя кадрами
+    подряд — итого реакция ~2 с. Зачем это нужно: на музыке live-translate
+    не переводит, а читает переведённые слова песни плавающим голосом
+    (вплоть до смены пола, замер 2026-08-19) или синтезирует тишину, поэтому
+    плеер гасит озвучку, а хаб перестаёт платить за перевод пауз.
+    """
+
+    def __init__(self, on_change):
+        import numpy
+        import onnxruntime
+        self._np = numpy
+        model = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             'models', 'yamnet.onnx')
+        self._sess = onnxruntime.InferenceSession(
+            model, providers=['CPUExecutionProvider'])
+        self._buf = bytearray()
+        self._hist = []
+        self._kind = 'speech'
+        self._on_change = on_change
+
+    def feed(self, pcm):
+        """Очередной чанк PCM16 16 кГц (тот же поток, что уходит в Gemini)."""
+        self._buf += pcm
+        while len(self._buf) >= KIND_WIN:
+            window = bytes(self._buf[:KIND_WIN])
+            del self._buf[:KIND_HOP]
+            self._step(window)
+
+    def _step(self, window):
+        np = self._np
+        x = np.frombuffer(window, np.int16).astype(np.float32) / 32768
+        rms = float(np.sqrt(np.mean(x * x))) if len(x) else 0.0
+        if rms < 0.004:
+            kind = 'quiet'
+        else:
+            scores = self._sess.run(None, {'waveform': x})[0].mean(axis=0)
+            sums = {'speech': sum(scores[i] for i in KIND_SPEECH),
+                    'singing': sum(scores[i] for i in KIND_SING),
+                    'music': sum(scores[i] for i in KIND_MUSIC)}
+            kind = max(sums, key=sums.get)
+        self._hist = (self._hist + [kind])[-3:]
+        # Три одинаковых кадра подряд — только тогда объявляем смену.
+        if len(self._hist) == 3 and len(set(self._hist)) == 1 and kind != self._kind:
+            self._kind = kind
+            self._on_change(kind)
+
 
 # --------------------------------------------------------------------------
 # Общее
@@ -382,7 +440,6 @@ async def run(args):
 # --------------------------------------------------------------------------
 
 async def serve_hub(args):
-    import wave
     import websockets
     try:
         from websockets.asyncio.server import serve as ws_serve   # websockets ≥ 13
@@ -414,8 +471,8 @@ async def serve_hub(args):
         except Exception:
             pass                         # мёртвый клиент выпадет сам в handler'е
 
-    def broadcast(kind, **fields):
-        message = json.dumps({'type': kind, **fields}, ensure_ascii=False)
+    def broadcast(mtype, **fields):
+        message = json.dumps({'type': mtype, **fields}, ensure_ascii=False)
         for ws in list(clients):
             asyncio.create_task(_send_safe(ws, message))
 
@@ -426,22 +483,20 @@ async def serve_hub(args):
             asyncio.create_task(_send_safe(ws, pcm))
 
     def open_dump():
-        """WAV-файл с синтезированной речью — прослушать, что шлёт модель.
+        """Файл с синтезированной речью — прослушать, что шлёт модель.
 
-        Прецедент (2026-08-19): «наложение двух дорожек без всякого синтеза»
-        на живом эфире — без записи того, что реально синтезируется,
-        причину не установить. Пишется только при --dump-dir."""
+        Формат — сырой PCM16 mono 24 кГц без заголовка (читать:
+        ffplay -f s16le -ar 24000 -ac 1 файл). WAV не годится: его заголовок
+        финализируется только при закрытии, а сессия живёт часами — ffmpeg
+        до закрытия видит пустой файл (прецедент 2026-08-19: «анализ»
+        тихих срезов, на самом деле не существовавших)."""
         if not args.dump_dir:
             return None
         os.makedirs(args.dump_dir, exist_ok=True)
         path = os.path.join(args.dump_dir,
-                            time.strftime('%Y%m%d-%H%M%S') + '.wav')
-        wf = wave.open(path, 'wb')
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(24000)
-        log(f'дамп синтеза: {path}')
-        return wf
+                            time.strftime('%Y%m%d-%H%M%S') + '.pcm')
+        log(f'дамп синтеза: {path} (PCM16 mono 24к, без заголовка)')
+        return open(path, 'wb')
 
     async def stop_translator():
         tr, box['tr'] = box['tr'], None
@@ -456,6 +511,28 @@ async def serve_hub(args):
             log(f'гашу перевод, итог сессии: {tr.stats()}')
             await tr.stop()
 
+    # Классификатор речи/музыки на входящем потоке. Если модели нет —
+    # плеер остаётся на резервном гейте по транскрипциям.
+    kind_box = {'kind': 'speech', 'since': time.monotonic(), 'dropped': 0}
+
+    def on_kind(kind):
+        kind_box['kind'] = kind
+        kind_box['since'] = time.monotonic()
+        broadcast('kind', kind=kind)
+        log(f'звук: {kind}')
+
+    classifier = None
+    try:
+        classifier = AudioKind(on_kind)
+    except Exception as err:
+        log(f'классификатор недоступен ({type(err).__name__}: {err}) — '
+            f'гейт озвучки останется на транскрипциях')
+
+    def music_hold():
+        """Музыка/тишина держится дольше трёх секунд — перевод пауз не платит."""
+        return (kind_box['kind'] != 'speech'
+                and time.monotonic() - kind_box['since'] >= 3.0)
+
     async def handler(ws):
         addr = getattr(ws, 'remote_address', None)
         clients.add(ws)
@@ -463,9 +540,16 @@ async def serve_hub(args):
         try:
             async for message in ws:
                 if isinstance(message, (bytes, bytearray)):
-                    if box['tr'] is not None:
-                        box['owner'] = ws
-                        box['tr'].feed(bytes(message))
+                    if box['tr'] is None:
+                        continue
+                    box['owner'] = ws
+                    data = bytes(message)
+                    if classifier is not None:
+                        classifier.feed(data)
+                    if music_hold():
+                        kind_box['dropped'] += len(data)   # пауза — не платим
+                        continue
+                    box['tr'].feed(data)
                     continue
                 try:
                     msg = json.loads(message)
@@ -482,7 +566,7 @@ async def serve_hub(args):
                     def on_audio(data, _dump=dump):
                         if _dump is not None:
                             try:
-                                _dump.writeframes(data)
+                                _dump.write(data)     # сырой PCM, без заголовка
                             except Exception:
                                 pass
                         broadcast_audio(data)
@@ -515,7 +599,9 @@ async def serve_hub(args):
         while True:
             await asyncio.sleep(10)
             if box['tr'] is not None:
-                log(f'тик: клиенты={len(clients)}, {box["tr"].stats()}')
+                log(f'тик: клиенты={len(clients)}, звук={kind_box["kind"]}, '
+                    f'без отправки {kind_box["dropped"] // (RATE * 2)} с, '
+                    f'{box["tr"].stats()}')
 
     async with ws_serve(handler, args.host, args.port, max_size=1 << 20):
         log(f'слушает ws://{args.host}:{args.port}'

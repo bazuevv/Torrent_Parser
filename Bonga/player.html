@@ -6142,6 +6142,7 @@
     on: false, ws: null, wanted: false, retry: 0,
     ctx: null, tap: null, sink: null,
     src: null, video: null, streams: new WeakMap(), timer: 0,
+    kind: 'speech', kindAt: 0,
   };
 
   function subsPickVideo() {
@@ -6228,6 +6229,19 @@
     if (box) box.hidden = true;
   }
 
+  /* Вердикт хаба о звуке эфира (YAMNet): speech | music | singing | quiet.
+     На музыке озвучке нечего переводить — модель читает тексты песен
+     плавающим голосом или синтезирует тишину, — поэтому громкость
+     оригинала возвращаем целиком: приглушённый в 15% трек звучит
+     одиноко, а перевода в этот момент всё равно нет. С речью — приглушаем
+     снова. Событие приходит только при смене вердикта. */
+  function subsKind(kind) {
+    subs.kind = kind;
+    subs.kindAt = Date.now();
+    subsLine(`звук: ${kind}`);
+    if (dub.on && subs.video) dubDuck(kind === 'speech' ? subs.video : null);
+  }
+
   function subsWire(videoEl) {
     if (videoEl === subs.video) return;
     subsClear();                     // плашка прошлой комнаты не мигает в новой
@@ -6276,6 +6290,7 @@
         subsTalk();
       }
       else if (m.type === 'phrase_end') subsDone();
+      else if (m.type === 'kind') subsKind(m.kind);
       else if (m.type === 'status') subsLine(m.text);
     };
     ws.onclose = () => {
@@ -6365,13 +6380,14 @@
 
   function dubPlay(pcm) {
     if (!dub.on || !dub.ctx) return;
-    /* Музыкальный гейт: когда транскрипции не приходят, модель занята не
-       переводом, а пересинтезом играющего трека («поёт» его перевод, голос
-       при этом плавает, вплоть до смены пола — ограничение модели). Такой
-       синтез не проигрываем: замолчали дельты дольше 4 секунд — ждём речь.
-       Если дельт не было вовсе (бывали сессии с аудио без транскрипций),
-       гейт не срабатывает — иначе озвучка онемела бы на весь эфир. */
-    if (subsView.sawDelta && Date.now() - subsView.lastDelta > 4000) {
+    /* Музыкальный гейт, основной путь — вердикт классификатора на хабе
+       (свежий = моложе 10 с). Резерв на случай, если модели нет или хаб
+       старый: замолчали транскрипции дольше 4 секунд. Если дельт не было
+       вовсе (бывали сессии с аудио без транскрипций), резерв не мешает —
+       иначе озвучка онемела бы на весь эфир. */
+    const kindFresh = subs.kindAt && Date.now() - subs.kindAt < 10000;
+    if ((kindFresh && subs.kind !== 'speech')
+        || (subsView.sawDelta && Date.now() - subsView.lastDelta > 4000)) {
       dub.skipped++;
       return;
     }
@@ -6410,6 +6426,10 @@
   }
 
   function dubDuck(videoEl) {
+    // Уже приглушён тот же источник — ничего не делаем: повторный вызов
+    // (например, повторное событие «речь») записал бы приглушённую
+    // громкость как «прежнюю», и вернуть было бы нечего.
+    if (videoEl && dub.prev && dub.prev.el === videoEl) return;
     if (dub.prev) {
       subsLine(`dub: возврат громкости ${dubSource(dub.prev.el)} ` +
                `${dub.prev.vol.toFixed(2)}`);

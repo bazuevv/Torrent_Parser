@@ -33,3 +33,4 @@ prompt.txt
 # mobile/ — исходники Tonkeeper (github.com/tonkeeper/android), лежат в нашем репо.
 # Артефакты сборки отсекает собственный mobile/.gitignore (build/, .gradle,
 # local.properties). Upstream-история вынесена в /mnt/Projects/tonkeeper-upstream.git
+Bonga/models/yamnet.onnx
