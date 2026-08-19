@@ -37,6 +37,12 @@ import time
 from google import genai
 from google.genai import types
 
+try:
+    # Локальные ключи из Bonga/config_secrets.py — файл в .gitignore.
+    from config_secrets import GEMINI_API_KEY as FILE_KEY
+except ImportError:
+    FILE_KEY = None
+
 MODEL = 'gemini-3.5-live-translate-preview'
 RATE = 16000
 BYTES_PER_SEC = RATE * 2                 # 16 бит * 1 канал
@@ -150,10 +156,14 @@ async def send_loop(session, pump, flow, speed, started):
 
 
 async def run(args):
-    key = args.key or os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
+    key = (args.key
+           or os.environ.get('GEMINI_API_KEY')
+           or os.environ.get('GOOGLE_API_KEY')
+           or FILE_KEY)
     if not key:
-        sys.exit('Нет ключа: export GEMINI_API_KEY=... (aistudio.google.com → Get API key) '
-                 'или передайте --key')
+        sys.exit('Нет ключа. Порядок поиска: --key, переменные GEMINI_API_KEY/'
+                 'GOOGLE_API_KEY, Bonga/config_secrets.py (GEMINI_API_KEY = \'...\'). '
+                 'Ключ: aistudio.google.com → Get API key')
 
     client = genai.Client(api_key=key)
     pump = PcmPump(ffmpeg_cmd(args.file, args.start, args.duration))
