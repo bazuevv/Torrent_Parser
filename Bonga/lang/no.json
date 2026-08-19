@@ -666,5 +666,8 @@
  "подпись.47": "Live oversettelse av tale via Gemini: på/av",
  "статус.63": "Undertekstoversettelse på",
  "статус.64": "Undertekstoversettelse av",
- "статус.65": "Oversettelseshub utilgjengelig — prøver igjen"
+ "статус.65": "Oversettelseshub utilgjengelig — prøver igjen",
+ "настройки.subsOrig.подпись": "Oversatte undertekster",
+ "настройки.subsOrig.рядом": "vis originalen over oversettelsen",
+ "настройки.subsOrig.пояснение": "Undertekstene slås på via «Oversatte undertekster» i videoens høyreklikkmeny. Valget styrer originallinjen over oversettelsen."
 }

@@ -666,5 +666,8 @@
  "подпись.47": "Traducere vocală în direct prin Gemini: activare/dezactivare",
  "статус.63": "Traducerea subtitrărilor a fost activată",
  "статус.64": "Traducerea subtitrărilor a fost dezactivată",
- "статус.65": "Hub-ul de traducere e inaccesibil — încerc din nou"
+ "статус.65": "Hub-ul de traducere e inaccesibil — încerc din nou",
+ "настройки.subsOrig.подпись": "Subtitrări traduse",
+ "настройки.subsOrig.рядом": "arată originalul deasupra traducerii",
+ "настройки.subsOrig.пояснение": "Subtitrările se activează din «Subtitrări traduse» în meniul din clic dreapta al videoclipului. Opțiunea arată linia originală deasupra traducerii."
 }

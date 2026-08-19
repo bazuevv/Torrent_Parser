@@ -666,5 +666,8 @@
  "подпись.47": "Live speech translation via Gemini: toggle",
  "статус.63": "Subtitle translation on",
  "статус.64": "Subtitle translation off",
- "статус.65": "Translation hub unreachable — will retry"
+ "статус.65": "Translation hub unreachable — will retry",
+ "настройки.subsOrig.подпись": "Translation subtitles",
+ "настройки.subsOrig.рядом": "show the original above the translation",
+ "настройки.subsOrig.пояснение": "Subtitles are enabled by the “Translation subtitles” item in the video right-click menu. This option controls showing the original speech line above the translation."
 }

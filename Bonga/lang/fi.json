@@ -666,5 +666,8 @@
  "подпись.47": "Puheen suorakäännös Geminin kautta: päälle/pois",
  "статус.63": "Tekstityskäännös päällä",
  "статус.64": "Tekstityskäännös pois",
- "статус.65": "Käännöskeskus tavoittamattomissa — yritän uudelleen"
+ "статус.65": "Käännöskeskus tavoittamattomissa — yritän uudelleen",
+ "настройки.subsOrig.подпись": "Käännöstekstitys",
+ "настройки.subsOrig.рядом": "näytä alkukieli käännöksen yllä",
+ "настройки.subsOrig.пояснение": "Tekstitys otetaan käyttöön kohdasta «Käännöstekstitys» videon oikean painikkeen valikosta. Valinta näyttää alkuperäisen rivin käännöksen yllä."
 }

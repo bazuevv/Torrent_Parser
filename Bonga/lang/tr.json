@@ -666,5 +666,8 @@
  "подпись.47": "Gemini ile canlı konuşma çevirisi: aç/kapat",
  "статус.63": "Altyazı çevirisi açıldı",
  "статус.64": "Altyazı çevirisi kapatıldı",
- "статус.65": "Çeviri hub’ına ulaşılamıyor — tekrar deneyeceğim"
+ "статус.65": "Çeviri hub’ına ulaşılamıyor — tekrar deneyeceğim",
+ "настройки.subsOrig.подпись": "Çeviri altyazıları",
+ "настройки.subsOrig.рядом": "çevirinin üzerinde orijinali göster",
+ "настройки.subsOrig.пояснение": "Altyazılar videonun sağ tık menüsündeki «Çeviri altyazıları» öğesiyle açılır. Bu seçenek orijinal satırı çevirinin üzerinde gösterir."
 }

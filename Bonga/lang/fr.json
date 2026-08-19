@@ -666,5 +666,8 @@
  "подпись.47": "Traduction vocale en direct via Gemini : activer/désactiver",
  "статус.63": "Traduction des sous-titres activée",
  "статус.64": "Traduction des sous-titres désactivée",
- "статус.65": "Hub de traduction inaccessible — nouvelle tentative"
+ "статус.65": "Hub de traduction inaccessible — nouvelle tentative",
+ "настройки.subsOrig.подпись": "Sous-titres de traduction",
+ "настройки.subsOrig.рядом": "afficher l’original au-dessus de la traduction",
+ "настройки.subsOrig.пояснение": "Les sous-titres s’activent par « Sous-titres de traduction » dans le menu clic droit de la vidéo. Cette option affiche la ligne originale au-dessus de la traduction."
 }

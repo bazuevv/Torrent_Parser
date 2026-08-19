@@ -666,5 +666,8 @@
  "подпись.47": "Dịch giọng nói trực tiếp qua Gemini: bật/tắt",
  "статус.63": "Đã bật phụ đề dịch",
  "статус.64": "Đã tắt phụ đề dịch",
- "статус.65": "Không kết nối được hub dịch — sẽ thử lại"
+ "статус.65": "Không kết nối được hub dịch — sẽ thử lại",
+ "настройки.subsOrig.подпись": "Phụ đề dịch thuật",
+ "настройки.subsOrig.рядом": "hiện bản gốc phía trên bản dịch",
+ "настройки.subsOrig.пояснение": "Phụ đề bật bằng «Phụ đề dịch thuật» trong menu chuột phải của video. Tùy chọn này hiện dòng gốc phía trên bản dịch."
 }

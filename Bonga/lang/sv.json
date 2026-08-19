@@ -666,5 +666,8 @@
  "подпись.47": "Live-översättning av tal via Gemini: på/av",
  "статус.63": "Undertextsöversättning på",
  "статус.64": "Undertextsöversättning av",
- "статус.65": "Översättningshub når inte — försöker igen"
+ "статус.65": "Översättningshub når inte — försöker igen",
+ "настройки.subsOrig.подпись": "Översatta undertexter",
+ "настройки.subsOrig.рядом": "visa originalet ovanför översättningen",
+ "настройки.subsOrig.пояснение": "Undertexterna slås på via «Översatta undertexter» i videons högerklicksmeny. Valret styr originalraden ovanför översättningen."
 }

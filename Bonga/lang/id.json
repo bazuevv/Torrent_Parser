@@ -666,5 +666,8 @@
  "подпись.47": "Terjemahan ucapan langsung via Gemini: aktif/nonaktif",
  "статус.63": "Terjemahan takarir aktif",
  "статус.64": "Terjemahan takarir nonaktif",
- "статус.65": "Hub terjemahan tak terjangkau — coba lagi"
+ "статус.65": "Hub terjemahan tak terjangkau — coba lagi",
+ "настройки.subsOrig.подпись": "Takarir terjemahan",
+ "настройки.subsOrig.рядом": "tampilkan teks asli di atas terjemahan",
+ "настройки.subsOrig.пояснение": "Takarir diaktifkan dari «Takarir terjemahan» di menu klik kanan video. Opsi ini menampilkan baris asli di atas terjemahan."
 }

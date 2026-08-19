@@ -666,5 +666,8 @@
  "подпись.47": "Tłumaczenie mowy na żywo przez Gemini: wł./wył.",
  "статус.63": "Tłumaczenie napisów włączone",
  "статус.64": "Tłumaczenie napisów wyłączone",
- "статус.65": "Hub tłumaczeń niedostępny — spróbuję ponownie"
+ "статус.65": "Hub tłumaczeń niedostępny — spróbuję ponownie",
+ "настройки.subsOrig.подпись": "Napisy z tłumaczeniem",
+ "настройки.subsOrig.рядом": "pokazuj oryginał nad tłumaczeniem",
+ "настройки.subsOrig.пояснение": "Napisy włącza pozycja „Napisy z tłumaczeniem” w menu prawego przycisku wideo. Ta opcja decyduje o oryginalnej linii nad tłumaczeniem."
 }

@@ -666,5 +666,8 @@
  "подпись.47": "Traducción de voz en vivo con Gemini: activar/desactivar",
  "статус.63": "Traducción de subtítulos activada",
  "статус.64": "Traducción de subtítulos desactivada",
- "статус.65": "Hub de traducción no disponible — reintentando"
+ "статус.65": "Hub de traducción no disponible — reintentando",
+ "настройки.subsOrig.подпись": "Subtítulos de traducción",
+ "настройки.subsOrig.рядом": "mostrar el original sobre la traducción",
+ "настройки.subsOrig.пояснение": "Los subtítulos se activan con «Subtítulos de traducción» en el menú contextual del vídeo. Esta opción controla la línea original sobre la traducción."
 }

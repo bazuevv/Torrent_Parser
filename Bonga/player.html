@@ -445,6 +445,19 @@
     gap: 6px; padding: 4px 6px; background: linear-gradient(transparent, rgba(0,0,0,.75));
     font-size: 12px; color: #e6e8ec;
   }
+  /* Субтитры перевода в ячейке: над подписью с ником; при всплывшей панели
+     управления приподняты — как подпись, иначе панель их закроет. */
+  .tsub {
+    z-index: 2; position: absolute; left: 5%; right: 5%; bottom: 34px;
+    padding: 3px 8px; border-radius: 6px; background: rgba(12, 14, 18, .72);
+    color: #fff; text-align: center; pointer-events: none; font-size: 12px;
+  }
+  .tsub[hidden] { display: none; }
+  .tsub .sOrig { font-size: 10px; color: #9da6b4; }
+  .tsub .sOrig[hidden] { display: none; }
+  .tile.busy.ctl .tsub { bottom: 76px; }
+  .tile.zoomed .tsub { font-size: 17px; }
+  .tile.zoomed .tsub .sOrig { font-size: 13px; }
   /* Ник и качество — одной группой, чтобы качество стояло вплотную к нику, а
      не улетало к правому краю: место в подписи забирает именно эта группа. */
   .tcap .tname { flex: 1 1 auto; min-width: 0; display: flex; align-items: center;
@@ -777,6 +790,19 @@
   #keepText b { color: #7ee787; }
   #keepText i { color: #98a1b0; font-style: normal; }
 
+  /* Живые субтитры перевода поверх одиночного видео. Плашка не ловит мышь
+     и поднята над штатной панелью управления видео. */
+  #subs {
+    position: absolute; z-index: 44; left: 50%; transform: translateX(-50%);
+    bottom: 62px; max-width: 86%; padding: 8px 14px; border-radius: 8px;
+    background: rgba(12, 14, 18, .78); color: #fff; text-align: center;
+    pointer-events: none;
+  }
+  #subs[hidden] { display: none; }        /* страховка, как у соседних панелей */
+  #subs .sOrig { font-size: 13px; color: #9da6b4; }
+  #subs .sOrig[hidden] { display: none; }
+  #subs .sTr { font-size: 17px; line-height: 1.35; }
+
   #logPanel {
     /* отступ снизу — чтобы не перекрывать штатную панель управления видео */
     position: absolute; z-index: 45; left: 10px; right: 10px; bottom: 62px;
@@ -989,6 +1015,13 @@
       <i class="tip" data-hint="msgs" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
     <p class="hint" data-i18n="настройки.msgs.пояснение" hidden></p>
+
+    <div class="row">
+      <label for="subsOrig" data-i18n="настройки.subsOrig.подпись"></label>
+      <label class="check"><input type="checkbox" id="subsOrig"><span data-i18n="настройки.subsOrig.рядом"></span></label>
+      <i class="tip" data-hint="subsOrig" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
+    </div>
+    <p class="hint" data-i18n="настройки.subsOrig.пояснение" hidden></p>
 
     </details>
 
@@ -1308,6 +1341,8 @@
       </div>
     </div>
 
+    <div id="subs" hidden><div class="sOrig"></div><div class="sTr"></div></div>
+
     <div id="logPanel" hidden>
       <div id="logHead" data-i18n="текст.7"></div>
       <button id="logClose" data-i18n-title="подпись.26">×</button>
@@ -1544,7 +1579,7 @@
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
                      catalog: 60, act: 15, ladder: 43200, warm: 5,
-                     wallQ: 480, wallCols: 0, msgs: 1, lang: 'auto' };
+                     wallQ: 480, wallCols: 0, msgs: 1, subsOrig: 1, lang: 'auto' };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];
@@ -4148,6 +4183,8 @@
        отдельно — строкой applyLang ниже. */
     box.innerHTML = '<video muted playsinline></video>' +
                     '<img class="tshot" alt="" data-i18n-title="ячейка.ушла">' +
+                    '<div class="tsub" hidden><div class="sOrig"></div>' +
+                      '<div class="sTr"></div></div>' +
                     '<div class="offBox"><span class="off" data-i18n="ячейка.нет">нет</span>' +
                     '<span class="offAt"></span></div>' +
                     '<div class="empty" data-i18n-title="ячейка.свободна">＋</div>' +
@@ -6120,8 +6157,51 @@
     paintLog();
   }
 
+  /* Оверлей субтитров. Реплика живёт от первой дельты до phrase_end плюс
+     шесть секунд: текст остаётся в DOM, накопители уже сброшены, и следую-
+     щая реплика пишет с чистого листа, не приклеиваясь к прошлой. */
+  const subsView = { orig: '', tr: '', hideTimer: 0 };
+  const subsStageBox = $('subs');   // прямая ссылка: элемент ездит в окно PiP
+
+  function subsBox() {
+    if (!subs.video) return null;
+    if (subs.video === video) return subsStageBox;
+    const t = tiles.find(x => x.video === subs.video);
+    return t ? t.box.querySelector('.tsub') : null;
+  }
+
+  function subsPaint() {
+    const box = subsBox();
+    if (!box) return;
+    clearTimeout(subsView.hideTimer);
+    const orig = box.querySelector('.sOrig');
+    const tr = box.querySelector('.sTr');
+    orig.textContent = subsView.orig;
+    orig.hidden = !cfg('subsOrig') || !subsView.orig;
+    tr.textContent = subsView.tr;
+    box.hidden = !subsView.orig && !subsView.tr;
+  }
+
+  function subsDone() {
+    // phrase_end: дорисовать что набралось, копить заново, плашку погасить позже.
+    subsPaint();
+    subsView.orig = subsView.tr = '';
+    subsView.hideTimer = setTimeout(() => {
+      const box = subsBox();
+      if (box && !subsView.orig && !subsView.tr) box.hidden = true;
+    }, 6000);
+  }
+
+  function subsClear() {
+    subsView.orig = subsView.tr = '';
+    clearTimeout(subsView.hideTimer);
+    const box = subsBox();            // плашка ещё старой комнаты — её и гасим
+    if (box) box.hidden = true;
+  }
+
   function subsWire(videoEl) {
     if (videoEl === subs.video) return;
+    subsClear();                     // плашка прошлой комнаты не мигает в новой
     if (subs.src) { try { subs.src.disconnect(); } catch { } subs.src = null; }
     subs.video = videoEl;
     if (!videoEl) return;
@@ -6154,9 +6234,9 @@
     ws.onmessage = e => {
       let m = null;
       try { m = JSON.parse(e.data); } catch { return; }
-      if (m.type === 'orig') subsLine(`ориг: ${m.text}`);
-      else if (m.type === 'ru') subsLine(`перев: ${m.text}`);
-      else if (m.type === 'phrase_end') subsLine('· реплика ·');
+      if (m.type === 'orig') { subsView.orig += m.text || ''; subsPaint(); }
+      else if (m.type === 'ru') { subsView.tr += m.text || ''; subsPaint(); }
+      else if (m.type === 'phrase_end') subsDone();
       else if (m.type === 'status') subsLine(m.text);
     };
     ws.onclose = () => {
@@ -6208,6 +6288,7 @@
       if (subs.ws) { try { subs.ws.close(); } catch { } }
       subs.ws = null;
       if (subs.src) { try { subs.src.disconnect(); } catch { } subs.src = null; }
+      subsClear();                   // пока subs.video жив — плащка найдётся
       subs.video = null;
       if (subs.tap) subs.tap.onaudioprocess = null;
       say(t('статус.64'), '');
@@ -6721,6 +6802,15 @@
       #keepAsk .dlg-btns { display: flex; gap: 8px; margin-top: 8px; }
       #keepAsk button { padding: 4px 10px; }
       #keepYes { background: #2f6fd0; border-color: #2f6fd0; }
+      /* Субтитры перевода, переехавшие из главного окна вместе с видео. */
+      #subs { position: absolute; z-index: 8; left: 50%; transform: translateX(-50%);
+              bottom: 40px; max-width: 86%; padding: 6px 12px; border-radius: 8px;
+              background: rgba(12, 14, 18, .78); color: #fff; text-align: center;
+              pointer-events: none; }
+      #subs[hidden] { display: none; }
+      #subs .sOrig { font-size: 11px; color: #9da6b4; }
+      #subs .sOrig[hidden] { display: none; }
+      #subs .sTr { font-size: 15px; line-height: 1.35; }
       /* Свой список вместо <select>: в системном нельзя покрасить часть текста,
          а нужен зелёный счётчик рядом с названием интервала. */
       #pick { position: relative; }
@@ -6757,6 +6847,8 @@
       `<button data-p="stop" title="${t('pip.стоп')}">⏹</button>`;
 
     win.document.body.append(holder, bar);
+    // Субтитры едут вместе с видео: смотрят именно это окно.
+    win.document.body.append(subsStageBox);
 
     bar.onclick = e => {
       const act = e.target.dataset.p;
@@ -6791,6 +6883,7 @@
       win.clearInterval(ticker);
       $('stage').prepend(video);                // возвращаем видео на место
       if ($('keepAsk').ownerDocument === win.document) $('stage').appendChild($('keepAsk'));
+      if (subsStageBox.ownerDocument === win.document) $('stage').append(subsStageBox);
       pipBar = null;
       pipWindow = null;
       armCarousel();                            // таймер возвращается в главное окно

@@ -666,5 +666,8 @@
  "подпись.47": "Tradução de fala ao vivo via Gemini: ativar/desativar",
  "статус.63": "Tradução de legendas ativada",
  "статус.64": "Tradução de legendas desativada",
- "статус.65": "Hub de tradução inacessível — tentarei de novo"
+ "статус.65": "Hub de tradução inacessível — tentarei de novo",
+ "настройки.subsOrig.подпись": "Legendas de tradução",
+ "настройки.subsOrig.рядом": "mostrar o original acima da tradução",
+ "настройки.subsOrig.пояснение": "As legendas ativam-se por «Legendas de tradução» no menu de contexto do vídeo. Esta opção controla a linha original acima da tradução."
 }

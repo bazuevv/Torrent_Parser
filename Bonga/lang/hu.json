@@ -666,5 +666,8 @@
  "подпись.47": "Élő beszédfordítás Gemini segítségével: be/ki",
  "статус.63": "Feliratfordítás bekapcsolva",
  "статус.64": "Feliratfordítás kikapcsolva",
- "статус.65": "A fordítóhub nem elérhető — újrapróbálom"
+ "статус.65": "A fordítóhub nem elérhető — újrapróbálom",
+ "настройки.subsOrig.подпись": "Fordított feliratok",
+ "настройки.subsOrig.рядом": "eredeti szöveg mutatása a fordítás felett",
+ "настройки.subsOrig.пояснение": "A feliratot a videó jobb klikk menüjének „Fordított feliratok” pontja kapcsolja be. Ez a beállítás az eredeti sort mutatja a fordítás felett."
 }

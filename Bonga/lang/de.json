@@ -666,5 +666,8 @@
  "подпись.47": "Live-Sprachübersetzung über Gemini: ein/aus",
  "статус.63": "Untertitelübersetzung an",
  "статус.64": "Untertitelübersetzung aus",
- "статус.65": "Übersetzungs-Hub nicht erreichbar — versuche es erneut"
+ "статус.65": "Übersetzungs-Hub nicht erreichbar — versuche es erneut",
+ "настройки.subsOrig.подпись": "Übersetzungsuntertitel",
+ "настройки.subsOrig.рядом": "Original über der Übersetzung zeigen",
+ "настройки.subsOrig.пояснение": "Untertitel aktiviert man über „Übersetzungsuntertitel“ im Rechtsklickmenü des Videos. Diese Option steuert die Originalzeile über der Übersetzung."
 }

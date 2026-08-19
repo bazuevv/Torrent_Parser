@@ -666,5 +666,8 @@
  "подпись.47": "Live spraakvertaling via Gemini: aan/uit",
  "статус.63": "Ondertitelvertaling aan",
  "статус.64": "Ondertitelvertaling uit",
- "статус.65": "Vertaalhub niet bereikbaar — probeer opnieuw"
+ "статус.65": "Vertaalhub niet bereikbaar — probeer opnieuw",
+ "настройки.subsOrig.подпись": "Vertaalondertitels",
+ "настройки.subsOrig.рядом": "origineel boven de vertaling tonen",
+ "настройки.subsOrig.пояснение": "Ondertitels zet je aan via «Vertaalondertitels» in het rechtermuisknopmenu van de video. Deze optie toont de originele regel boven de vertaling."
 }
