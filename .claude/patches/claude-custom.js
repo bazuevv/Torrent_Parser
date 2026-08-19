@@ -6390,9 +6390,10 @@
       quoteButton.textContent = '❝';
       quoteButton.title = 'Процитировать';
       quoteButton.style.cssText =
-        'position:fixed;padding:3px 8px;margin:0;border:none;border-radius:6px;' +
-        'background:#8B5A2B;color:#fff;font-size:28px;line-height:1;cursor:pointer;' +
-        'z-index:10000;';
+        'position:fixed;width:36px;height:36px;padding:3px 0 0;margin:0;border:none;' +
+        'border-radius:6px;background:#8B5A2B;color:#fff;font-size:34px;line-height:1;' +
+        'display:flex;align-items:center;justify-content:center;overflow:hidden;' +
+        'cursor:pointer;z-index:10000;';
 
       quoteButton.addEventListener('mousedown', function (e) {
         e.preventDefault();
@@ -6414,12 +6415,11 @@
     // Позиционируем кнопку выше выделения, справа
     try {
       var rect = sel.range.getBoundingClientRect();
-      // Кнопка выше выделения, справа от конца. Отступ подбираем
-      // по фактической высоте кнопки, чтобы крупный значок не наезжал
-      // на выделенный текст.
+      // Кнопка выше выделения, справа от конца. Низ кнопки — с зазором
+      // над верхней границей выделения, полностью над строкой.
       var btnH = quoteButton.offsetHeight || 36;
       var x = rect.right + 4;
-      var y = rect.top - btnH + 10;  // низ кнопки чуть выше выделения
+      var y = rect.top - btnH - 6;  // зазор 6px над выделением
 
       quoteButton.style.left = x + 'px';
       quoteButton.style.top = y + 'px';
