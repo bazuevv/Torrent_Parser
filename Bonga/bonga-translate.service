@@ -1,0 +1,29 @@
+[Unit]
+Description=Bonga хаб живого перевода (Gemini Live API → субтитры плеера)
+Documentation=file:///mnt/Projects/Torrent_Parser/Bonga/gemini-3.5-live-translate.py
+# Код и venv лежат на NVMe вместе с плеером: без /mnt/Projects поднимать нечего.
+# Записи хаб не читает — /mnt/DATA ему не нужен.
+After=network-online.target mnt-Projects.mount
+Wants=network-online.target
+RequiresMountsFor=/mnt/Projects/Torrent_Parser/Bonga
+
+[Service]
+Type=simple
+User=vladimir
+Group=vladimir
+WorkingDirectory=/mnt/Projects/Torrent_Parser/Bonga
+Environment=PYTHONUNBUFFERED=1
+# Принимает PCM от плеера (ws://LAN:8778) и раздаёт субтитры. Ключ Gemini
+# читается из config_secrets.py рядом со скриптом (в .gitignore).
+ExecStart=/mnt/Projects/Torrent_Parser/Bonga/.venv/bin/python /mnt/Projects/Torrent_Parser/Bonga/gemini-3.5-live-translate.py --serve
+Restart=on-failure
+RestartSec=3
+
+# Торчит в LAN, как и плеер; пишет только в journald — записи на диск нет,
+# хватает чтения каталога.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
