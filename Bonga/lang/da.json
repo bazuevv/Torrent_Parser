@@ -661,5 +661,10 @@
  "ячейка.стоп": "Stands modtagelsen: trafikken hører op, rummet bliver i feltet",
  "ячейка.убрать": "Fjern feltet",
  "ячейка.ушла": "Rummet gik ud af udsendelsen. Klik for at prøve igen",
- "ячейка.экран": "Hele skærmen (F)"
+ "ячейка.экран": "Hele skærmen (F)",
+ "меню.21": "Oversatte undertekster",
+ "подпись.47": "Live oversættelse af tale via Gemini: til/fra",
+ "статус.63": "Undertekstoversættelse slået til",
+ "статус.64": "Undertekstoversættelse slået fra",
+ "статус.65": "Oversættelseshub utilgængelig — prøver igen"
 }

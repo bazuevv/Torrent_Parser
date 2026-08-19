@@ -661,5 +661,10 @@
  "ячейка.стоп": "Oprește recepția: traficul se sfârșește, camera rămâne în căsuță",
  "ячейка.убрать": "Scoate căsuța",
  "ячейка.ушла": "Camera a plecat de pe post. Apăsați ca să încercați din nou",
- "ячейка.экран": "Ecran întreg (F)"
+ "ячейка.экран": "Ecran întreg (F)",
+ "меню.21": "Subtitrări traduse",
+ "подпись.47": "Traducere vocală în direct prin Gemini: activare/dezactivare",
+ "статус.63": "Traducerea subtitrărilor a fost activată",
+ "статус.64": "Traducerea subtitrărilor a fost dezactivată",
+ "статус.65": "Hub-ul de traducere e inaccesibil — încerc din nou"
 }

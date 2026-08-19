@@ -661,5 +661,10 @@
  "ячейка.стоп": "Alımı durdur: trafik biter, oda gözde kalır",
  "ячейка.убрать": "Gözü kaldır",
  "ячейка.ушла": "Oda yayından ayrıldı. Yeniden denemek için tıklayın",
- "ячейка.экран": "Tam ekran (F)"
+ "ячейка.экран": "Tam ekran (F)",
+ "меню.21": "Çeviri altyazıları",
+ "подпись.47": "Gemini ile canlı konuşma çevirisi: aç/kapat",
+ "статус.63": "Altyazı çevirisi açıldı",
+ "статус.64": "Altyazı çevirisi kapatıldı",
+ "статус.65": "Çeviri hub’ına ulaşılamıyor — tekrar deneyeceğim"
 }

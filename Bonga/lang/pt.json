@@ -661,5 +661,10 @@
  "ячейка.стоп": "Parar a receção: o tráfego cessa, a sala fica na célula",
  "ячейка.убрать": "Retirar a célula",
  "ячейка.ушла": "A sala saiu do direto. Carregue para tentar de novo",
- "ячейка.экран": "Ecrã inteiro (F)"
+ "ячейка.экран": "Ecrã inteiro (F)",
+ "меню.21": "Legendas de tradução",
+ "подпись.47": "Tradução de fala ao vivo via Gemini: ativar/desativar",
+ "статус.63": "Tradução de legendas ativada",
+ "статус.64": "Tradução de legendas desativada",
+ "статус.65": "Hub de tradução inacessível — tentarei de novo"
 }

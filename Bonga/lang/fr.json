@@ -661,5 +661,10 @@
  "ячейка.стоп": "Arrêter la réception : le trafic cesse, le salon reste dans la cellule",
  "ячейка.убрать": "Retirer la cellule",
  "ячейка.ушла": "Le salon a quitté le direct. Cliquez pour réessayer",
- "ячейка.экран": "Plein écran (F)"
+ "ячейка.экран": "Plein écran (F)",
+ "меню.21": "Sous-titres de traduction",
+ "подпись.47": "Traduction vocale en direct via Gemini : activer/désactiver",
+ "статус.63": "Traduction des sous-titres activée",
+ "статус.64": "Traduction des sous-titres désactivée",
+ "статус.65": "Hub de traduction inaccessible — nouvelle tentative"
 }

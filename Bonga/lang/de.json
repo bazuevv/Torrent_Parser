@@ -661,5 +661,10 @@
  "ячейка.стоп": "Empfang anhalten: der Verkehr hört auf, der Raum bleibt in der Zelle",
  "ячейка.убрать": "Die Zelle entfernen",
  "ячейка.ушла": "Der Raum hat den Äther verlassen. Klicken, um es erneut zu versuchen",
- "ячейка.экран": "Vollbild (F)"
+ "ячейка.экран": "Vollbild (F)",
+ "меню.21": "Übersetzungsuntertitel",
+ "подпись.47": "Live-Sprachübersetzung über Gemini: ein/aus",
+ "статус.63": "Untertitelübersetzung an",
+ "статус.64": "Untertitelübersetzung aus",
+ "статус.65": "Übersetzungs-Hub nicht erreichbar — versuche es erneut"
 }

@@ -661,5 +661,10 @@
  "ячейка.стоп": "De ontvangst stoppen: het verkeer houdt op, de kamer blijft in het vakje",
  "ячейка.убрать": "Het vakje weghalen",
  "ячейка.ушла": "De kamer is van de lucht. Klik om het nog eens te proberen",
- "ячейка.экран": "Volledig scherm (F)"
+ "ячейка.экран": "Volledig scherm (F)",
+ "меню.21": "Vertaalondertitels",
+ "подпись.47": "Live spraakvertaling via Gemini: aan/uit",
+ "статус.63": "Ondertitelvertaling aan",
+ "статус.64": "Ondertitelvertaling uit",
+ "статус.65": "Vertaalhub niet bereikbaar — probeer opnieuw"
 }

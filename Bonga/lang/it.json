@@ -661,5 +661,10 @@
  "ячейка.стоп": "Fermare la ricezione: il traffico cessa, la stanza resta nella cella",
  "ячейка.убрать": "Togliere la cella",
  "ячейка.ушла": "La stanza ha lasciato la diretta. Fate clic per riprovare",
- "ячейка.экран": "Schermo intero (F)"
+ "ячейка.экран": "Schermo intero (F)",
+ "меню.21": "Sottotitoli tradotti",
+ "подпись.47": "Traduzione vocale in tempo reale con Gemini: attiva/disattiva",
+ "статус.63": "Traduzione sottotitoli attivata",
+ "статус.64": "Traduzione sottotitoli disattivata",
+ "статус.65": "Hub di traduzione non raggiungibile — riprovo"
 }

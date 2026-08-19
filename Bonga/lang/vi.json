@@ -661,5 +661,10 @@
  "ячейка.стоп": "Ngừng nhận: lưu lượng dứt, phòng vẫn ở lại trong ô",
  "ячейка.убрать": "Bỏ ô đi",
  "ячейка.ушла": "Phòng đã rời sóng. Bấm để thử lại",
- "ячейка.экран": "Toàn màn hình (F)"
+ "ячейка.экран": "Toàn màn hình (F)",
+ "меню.21": "Phụ đề dịch thuật",
+ "подпись.47": "Dịch giọng nói trực tiếp qua Gemini: bật/tắt",
+ "статус.63": "Đã bật phụ đề dịch",
+ "статус.64": "Đã tắt phụ đề dịch",
+ "статус.65": "Không kết nối được hub dịch — sẽ thử lại"
 }

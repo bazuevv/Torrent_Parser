@@ -661,5 +661,10 @@
  "ячейка.стоп": "Hentikan penerimaan: lalu lintas berakhir, kamarnya tetap di petak",
  "ячейка.убрать": "Singkirkan petaknya",
  "ячейка.ушла": "Kamarnya meninggalkan siaran. Tekan untuk mencoba lagi",
- "ячейка.экран": "Layar penuh (F)"
+ "ячейка.экран": "Layar penuh (F)",
+ "меню.21": "Takarir terjemahan",
+ "подпись.47": "Terjemahan ucapan langsung via Gemini: aktif/nonaktif",
+ "статус.63": "Terjemahan takarir aktif",
+ "статус.64": "Terjemahan takarir nonaktif",
+ "статус.65": "Hub terjemahan tak terjangkau — coba lagi"
 }

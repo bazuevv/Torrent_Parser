@@ -661,5 +661,10 @@
  "ячейка.стоп": "Stans mottaket: trafikken tar slutt, rommet blir i ruta",
  "ячейка.убрать": "Fjern ruta",
  "ячейка.ушла": "Rommet gikk ut av sendingen. Klikk for å prøve igjen",
- "ячейка.экран": "Hele skjermen (F)"
+ "ячейка.экран": "Hele skjermen (F)",
+ "меню.21": "Oversatte undertekster",
+ "подпись.47": "Live oversettelse av tale via Gemini: på/av",
+ "статус.63": "Undertekstoversettelse på",
+ "статус.64": "Undertekstoversettelse av",
+ "статус.65": "Oversettelseshub utilgjengelig — prøver igjen"
 }

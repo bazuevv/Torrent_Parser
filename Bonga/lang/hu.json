@@ -661,5 +661,10 @@
  "ячейка.стоп": "A vétel leállítása: a forgalom megszűnik, a szoba a rekeszben marad",
  "ячейка.убрать": "A rekesz eltávolítása",
  "ячейка.ушла": "A szoba lement az adásból. Kattintson az újbóli próbához",
- "ячейка.экран": "Teljes képernyő (F)"
+ "ячейка.экран": "Teljes képernyő (F)",
+ "меню.21": "Fordított feliratok",
+ "подпись.47": "Élő beszédfordítás Gemini segítségével: be/ki",
+ "статус.63": "Feliratfordítás bekapcsolva",
+ "статус.64": "Feliratfordítás kikapcsolva",
+ "статус.65": "A fordítóhub nem elérhető — újrapróbálom"
 }

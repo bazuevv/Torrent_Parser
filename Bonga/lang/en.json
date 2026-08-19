@@ -661,5 +661,10 @@
  "ячейка.стоп": "Stop reception: traffic ends, the room stays in the cell",
  "ячейка.убрать": "Remove the cell",
  "ячейка.ушла": "The room left the air. Click to try again",
- "ячейка.экран": "Full screen (F)"
+ "ячейка.экран": "Full screen (F)",
+ "меню.21": "Translation subtitles",
+ "подпись.47": "Live speech translation via Gemini: toggle",
+ "статус.63": "Subtitle translation on",
+ "статус.64": "Subtitle translation off",
+ "статус.65": "Translation hub unreachable — will retry"
 }

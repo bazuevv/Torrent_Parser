@@ -661,5 +661,10 @@
  "ячейка.стоп": "Pysäytä vastaanotto: liikenne loppuu, huone jää ruutuun",
  "ячейка.убрать": "Poista ruutu",
  "ячейка.ушла": "Huone poistui lähetyksestä. Napsauta yrittääksesi uudelleen",
- "ячейка.экран": "Koko näyttö (F)"
+ "ячейка.экран": "Koko näyttö (F)",
+ "меню.21": "Käännöstekstitys",
+ "подпись.47": "Puheen suorakäännös Geminin kautta: päälle/pois",
+ "статус.63": "Tekstityskäännös päällä",
+ "статус.64": "Tekstityskäännös pois",
+ "статус.65": "Käännöskeskus tavoittamattomissa — yritän uudelleen"
 }

@@ -1350,6 +1350,7 @@
          data-i18n-title="подпись.39" data-i18n="меню.13"></div>
     <div data-act="full" data-i18n-title="подпись.40" data-i18n="меню.14"></div>
     <div data-act="mute" data-i18n-title="подпись.41" data-i18n="меню.15"></div>
+    <div data-act="subs" data-i18n-title="подпись.47" data-i18n="меню.21"></div>
     <hr>
     <div data-act="profile" data-i18n-title="подпись.42" data-i18n="меню.16"></div>
     <div data-act="copy" data-i18n-title="подпись.43" data-i18n="меню.17"></div>
@@ -6012,6 +6013,7 @@
     if (e.shiftKey) return;                       // Shift+ПКМ отдаёт меню браузера
     e.preventDefault();
     paintCtxAuto();
+    subsPaintCtx();
     ctx.hidden = false;
     ctx.style.left = `${Math.min(e.clientX, innerWidth - ctx.offsetWidth - 8)}px`;
     ctx.style.top = `${Math.min(e.clientY, innerHeight - ctx.offsetHeight - 8)}px`;
@@ -6049,6 +6051,7 @@
       if (document.fullscreenElement) document.exitFullscreen();
       else video.requestFullscreen().catch(() => say(t('статус.52'), 'err'));
     } else if (act === 'mute') video.muted = !video.muted;
+    else if (act === 'subs') subsToggle();
     else if (act === 'profile') openProfile(currentRoom().user);
     else if (act === 'copy') {
       navigator.clipboard.writeText(streamUrl)
@@ -6068,6 +6071,157 @@
       say(hit.length ? t('текст.182', { length: hit.length, знач1: plural(hit.length, t('склонение.6.один'), t('склонение.6.два'), t('склонение.6.много')) }) : t('текст.183'), 'ok');
     }
   };
+
+  // --- живые субтитры: перевод речи через Gemini ------------------------------
+  /* Звук снимаем captureStream() с играющего видео и уводим в отдельный
+     AudioContext на 16 кГц — ресемплинг делает браузер, свой дециматор
+     не нужен. Мониторинг это не задевает: элемент играет как играл, второй
+     контекст существует только для съёма. (createMediaElementSource не
+     подошёл бы: он перехватывает вывод элемента в свой граф, и весь звук
+     пошёл бы через контекст на 16 кГц — музыка в эфирах стала бы глухой.)
+
+     Пересылку делает ScriptProcessorNode, а не AudioWorklet: страницу
+     открывают и по адресу из LAN, где нет secure context — AudioWorklet
+     там просто отсутствует. Процессор объявлен устаревшим, но есть во
+     всех браузерах, а для пересылки чанков его точности хватает.
+
+     Слушаем активное видео — развёрнутая или громкая ячейка стены, а без
+     стены — главный плеер (он же играет записи и папку просмотра). Смена
+     источника шлёт хабу новый start: перевод не должен тащить контекст
+     прошлой комнаты. Хаб — gemini-3.5-live-translate.py --serve, порт
+     соседний с плеером; пока субтитры не нарисованы отдельным блоком
+     (следующая фаза), события видны в журнале (?log=1). */
+
+  const SUBS_PORT = 8778;
+  const subs = {
+    on: false, ws: null, wanted: false, retry: 0,
+    ctx: null, tap: null, sink: null,
+    src: null, video: null, streams: new WeakMap(), timer: 0,
+  };
+
+  function subsPickVideo() {
+    const t = zoom.tile
+      || tiles.find(tile => tile.user && !tile.video.muted)
+      || tiles.find(tile => tile.user);
+    if (t) return t.video;
+    return (!video.paused && video.currentSrc) ? video : null;
+  }
+
+  function subsSend(obj) {
+    if (subs.ws && subs.ws.readyState === WebSocket.OPEN)
+      subs.ws.send(JSON.stringify(obj));
+  }
+
+  function subsLine(text, cls = 'act') {
+    // В журнал плеера, но не на сервер: playback.log не должен тонуть
+    // в дельтах перевода, они интересны только здесь и сейчас.
+    logLines.push({ line: `${clockMs()} | subs | ${text}`, cls });
+    if (logLines.length > 3000) logLines.shift();
+    paintLog();
+  }
+
+  function subsWire(videoEl) {
+    if (videoEl === subs.video) return;
+    if (subs.src) { try { subs.src.disconnect(); } catch { } subs.src = null; }
+    subs.video = videoEl;
+    if (!videoEl) return;
+    let stream = subs.streams.get(videoEl);
+    if (!stream) {
+      if (!videoEl.captureStream) {
+        subsLine('captureStream в этом браузере нет — перевод выключаю', 'err');
+        subsToggle();
+        return;
+      }
+      stream = videoEl.captureStream();
+      subs.streams.set(videoEl, stream);
+    }
+    subs.src = subs.ctx.createMediaStreamSource(stream);
+    subs.src.connect(subs.tap);
+    subsSend({ type: 'start', target: 'ru' });   // новая комната — с чистого листа
+  }
+
+  function subsConnect() {
+    subs.wanted = true;
+    if (subs.ws && subs.ws.readyState <= WebSocket.CONNECTING) return;
+    const ws = new WebSocket(`ws://${location.hostname}:${SUBS_PORT}`);
+    subs.ws = ws;
+    ws.onopen = () => {
+      if (!subs.wanted) return;
+      subs.retry = 0;
+      subs.video = null;                     // force: повторно wire -> start уйдёт
+      subsWire(subsPickVideo());
+    };
+    ws.onmessage = e => {
+      let m = null;
+      try { m = JSON.parse(e.data); } catch { return; }
+      if (m.type === 'orig') subsLine(`ориг: ${m.text}`);
+      else if (m.type === 'ru') subsLine(`перев: ${m.text}`);
+      else if (m.type === 'phrase_end') subsLine('· реплика ·');
+      else if (m.type === 'status') subsLine(m.text);
+    };
+    ws.onclose = () => {
+      if (!subs.wanted) return;
+      // Хаб погашен вместе с машиной или ещё не поднят: повторяем с
+      // нарастающей паузой, как waitPlaylist у склеек записей.
+      const wait = Math.min(15000, 1000 * 2 ** Math.min(subs.retry++, 4));
+      say(t('статус.65'), '');
+      setTimeout(() => { if (subs.wanted) subsConnect(); }, wait);
+    };
+  }
+
+  function subsToggle() {
+    subs.on = !subs.on;
+    if (subs.on) {
+      // Жест уже случился — клик по пункту меню; без жеста контекст
+      // остался бы suspended и тап отдавал бы тишину.
+      subs.ctx = subs.ctx || new AudioContext({ sampleRate: 16000 });
+      subs.ctx.resume().catch(() => { });
+      if (!subs.tap) {
+        subs.tap = subs.ctx.createScriptProcessor(2048, 1, 1);
+        // ScriptProcessor не работает, пока не подключён к destination:
+        // заводим обход через нулевой гейн, чтобы не слышать свой тап.
+        subs.sink = subs.ctx.createGain();
+        subs.sink.gain.value = 0;
+        subs.tap.connect(subs.sink);
+        subs.sink.connect(subs.ctx.destination);
+      }
+      subs.tap.onaudioprocess = e => {
+        if (!subs.ws || subs.ws.readyState !== WebSocket.OPEN) return;
+        if (subs.ws.bufferedAmount > 1e6) return;        // сервер не поспевает
+        const f = e.inputBuffer.getChannelData(0);
+        const pcm = new Int16Array(f.length);
+        for (let i = 0; i < f.length; i++) {
+          const s = Math.max(-1, Math.min(1, f[i]));
+          pcm[i] = s < 0 ? s * 32768 : s * 32767;
+        }
+        subs.ws.send(pcm.buffer);       // 2048 сэмплов на 16 кГц ≈ 128 мс
+      };
+      subsConnect();
+      // Таймер раньше проводки: subsWire умеет выключить перевод сам
+      // (нет captureStream) — к этому моменту интервал уже должен стоять.
+      subs.timer = setInterval(() => subsWire(subsPickVideo()), 1000);
+      subsWire(subsPickVideo());
+      say(t('статус.63'), 'ok');
+    } else {
+      clearInterval(subs.timer);
+      subs.wanted = false;
+      if (subs.ws) { try { subs.ws.close(); } catch { } }
+      subs.ws = null;
+      if (subs.src) { try { subs.src.disconnect(); } catch { } subs.src = null; }
+      subs.video = null;
+      if (subs.tap) subs.tap.onaudioprocess = null;
+      say(t('статус.64'), '');
+    }
+    subsPaintCtx();
+  }
+
+  // Галочка состояния в контекст-меню — как у интервалов автопереключения.
+  function subsPaintCtx() {
+    const item = ctx.querySelector('[data-act="subs"]');
+    if (!item) return;
+    item.textContent = item.textContent.replace(/^✓ /, '');
+    if (subs.on) item.textContent = '✓ ' + item.textContent;
+  }
 
   // --- статистика ------------------------------------------------------------
   let statsTimer = 0, prevFrames = 0, prevAt = 0, fps = 0;

@@ -661,5 +661,10 @@
  "ячейка.стоп": "Stoppa mottagningen: trafiken upphör, rummet stannar i rutan",
  "ячейка.убрать": "Ta bort rutan",
  "ячейка.ушла": "Rummet gick ur sändningen. Klicka för att försöka igen",
- "ячейка.экран": "Hela skärmen (F)"
+ "ячейка.экран": "Hela skärmen (F)",
+ "меню.21": "Översatta undertexter",
+ "подпись.47": "Live-översättning av tal via Gemini: på/av",
+ "статус.63": "Undertextsöversättning på",
+ "статус.64": "Undertextsöversättning av",
+ "статус.65": "Översättningshub når inte — försöker igen"
 }

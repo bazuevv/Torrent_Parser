@@ -661,5 +661,10 @@
  "ячейка.стоп": "Zatrzymać odbiór: ruch ustaje, pokój zostaje w komórce",
  "ячейка.убрать": "Usunąć komórkę",
  "ячейка.ушла": "Pokój zszedł z anteny. Kliknij, aby spróbować ponownie",
- "ячейка.экран": "Pełny ekran (F)"
+ "ячейка.экран": "Pełny ekran (F)",
+ "меню.21": "Napisy z tłumaczeniem",
+ "подпись.47": "Tłumaczenie mowy na żywo przez Gemini: wł./wył.",
+ "статус.63": "Tłumaczenie napisów włączone",
+ "статус.64": "Tłumaczenie napisów wyłączone",
+ "статус.65": "Hub tłumaczeń niedostępny — spróbuję ponownie"
 }

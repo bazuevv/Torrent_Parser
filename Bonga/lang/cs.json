@@ -661,5 +661,10 @@
  "ячейка.стоп": "Zastavit příjem: provoz ustane, pokoj zůstane v políčku",
  "ячейка.убрать": "Odstranit políčko",
  "ячейка.ушла": "Pokoj odešel z vysílání. Klikněte, chcete-li to zkusit znovu",
- "ячейка.экран": "Celá obrazovka (F)"
+ "ячейка.экран": "Celá obrazovka (F)",
+ "меню.21": "Titulky s překladem",
+ "подпись.47": "Živý překlad řeči přes Gemini: zapnout/vypnout",
+ "статус.63": "Překlad titulků zapnut",
+ "статус.64": "Překlad titulků vypnut",
+ "статус.65": "Překladový hub není dostupný — zkusím to znovu"
 }
