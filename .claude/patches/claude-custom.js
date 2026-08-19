@@ -6390,8 +6390,8 @@
       quoteButton.textContent = '❝';
       quoteButton.title = 'Процитировать';
       quoteButton.style.cssText =
-        'position:fixed;padding:4px 10px;margin:0;border:none;border-radius:8px;' +
-        'background:#8B5A2B;color:#fff;font-size:48px;line-height:1;cursor:pointer;' +
+        'position:fixed;padding:3px 8px;margin:0;border:none;border-radius:6px;' +
+        'background:#8B5A2B;color:#fff;font-size:28px;line-height:1;cursor:pointer;' +
         'z-index:10000;';
 
       quoteButton.addEventListener('mousedown', function (e) {
@@ -6417,7 +6417,7 @@
       // Кнопка выше выделения, справа от конца. Отступ подбираем
       // по фактической высоте кнопки, чтобы крупный значок не наезжал
       // на выделенный текст.
-      var btnH = quoteButton.offsetHeight || 62;
+      var btnH = quoteButton.offsetHeight || 36;
       var x = rect.right + 4;
       var y = rect.top - btnH + 10;  // низ кнопки чуть выше выделения
 
