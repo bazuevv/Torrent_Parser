@@ -669,5 +669,9 @@
  "статус.65": "Käännöskeskus tavoittamattomissa — yritän uudelleen",
  "настройки.subsOrig.подпись": "Käännöstekstitys",
  "настройки.subsOrig.рядом": "näytä alkukieli käännöksen yllä",
- "настройки.subsOrig.пояснение": "Tekstitys otetaan käyttöön kohdasta «Käännöstekstitys» videon oikean painikkeen valikosta. Valinta näyttää alkuperäisen rivin käännöksen yllä."
+ "настройки.subsOrig.пояснение": "Tekstitys otetaan käyttöön kohdasta «Käännöstekstitys» videon oikean painikkeen valikosta. Valinta näyttää alkuperäisen rivin käännöksen yllä.",
+ "меню.22": "Puhuttu käännös",
+ "подпись.48": "Live-puhuttu käännös (dubbaus) huoneelle, jota kuuntelet; alkuperä hiljennetään",
+ "статус.66": "Puhuttu käännös päällä — alkuperä hiljennetty",
+ "статус.67": "Puhuttu käännös pois"
 }

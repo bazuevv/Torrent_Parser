@@ -669,5 +669,9 @@
  "статус.65": "Překladový hub není dostupný — zkusím to znovu",
  "настройки.subsOrig.подпись": "Titulky s překladem",
  "настройки.subsOrig.рядом": "ukazovat originál nad překladem",
- "настройки.subsOrig.пояснение": "Titulky zapne položka „Titulky s překladem“ v nabídce pravého tlačítka videa. Zde se volí původní řádek nad překladem."
+ "настройки.subsOrig.пояснение": "Titulky zapne položka „Titulky s překladem“ v nabídce pravého tlačítka videa. Zde se volí původní řádek nad překladem.",
+ "меню.22": "Mluvený překlad",
+ "подпись.48": "Živé mluvené překládání (dabing) místnosti, kterou posloucháte; originál ztlumen",
+ "статус.66": "Mluvený překlad zapnut — originál ztlumen",
+ "статус.67": "Mluvený překlad vypnut"
 }

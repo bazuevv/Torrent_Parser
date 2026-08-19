@@ -669,5 +669,9 @@
  "статус.65": "Hub terjemahan tak terjangkau — coba lagi",
  "настройки.subsOrig.подпись": "Takarir terjemahan",
  "настройки.subsOrig.рядом": "tampilkan teks asli di atas terjemahan",
- "настройки.subsOrig.пояснение": "Takarir diaktifkan dari «Takarir terjemahan» di menu klik kanan video. Opsi ini menampilkan baris asli di atas terjemahan."
+ "настройки.subsOrig.пояснение": "Takarir diaktifkan dari «Takarir terjemahan» di menu klik kanan video. Opsi ini menampilkan baris asli di atas terjemahan.",
+ "меню.22": "Terjemahan lisan",
+ "подпись.48": "Terjemahan lisan langsung (sulih suara) untuk ruangan yang Anda dengar; original diredam",
+ "статус.66": "Terjemahan lisan aktif — original diredam",
+ "статус.67": "Terjemahan lisan nonaktif"
 }

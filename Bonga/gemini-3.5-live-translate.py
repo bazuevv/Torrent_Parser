@@ -18,11 +18,15 @@
 
     → {"type":"start","target":"ru"}   начать/сбросить перевод
     → {"type":"stop"}                  остановить перевод
-    → бинарный кадр                    очередной чанк звука
+    → бинарный кадр                    очередной чанк звука (PCM16 16 кГц)
     ← {"type":"orig","text":"..."}     дельта транскрипции оригинала
     ← {"type":"ru","text":"..."}       дельта перевода
     ← {"type":"phrase_end"}            конец реплики (turn_complete)
     ← {"type":"status","text":"..."}   служебное: ready/обрыв/переподключение
+    ← бинарный кадр                    переведённая речь (PCM16 LE mono 24 кГц);
+                                       приходит всегда — native-audio модель
+                                       синтезирует его неизбежно, играет ли его
+                                       клиент, решает сам (режим «озвучка»)
 
 Перевод один на всех: сессию заводит «start», звук кормит любой клиент
 (последний приславший), субтитры летят всем подключённым. Уход клиента,
@@ -108,17 +112,23 @@ class Translator:
     """
 
     def __init__(self, client, target='ru',
-                 on_orig=None, on_ru=None, on_phrase=None, on_status=None):
+                 on_orig=None, on_ru=None, on_phrase=None, on_status=None,
+                 on_audio=None):
         self._client = client
         self._target = target
         self._on_orig = on_orig or (lambda text: None)
         self._on_ru = on_ru or (lambda text: None)
         self._on_phrase = on_phrase or (lambda: None)
         self._on_status = on_status or (lambda text: None)
+        self._on_audio = on_audio or (lambda data: None)
         self._queue = asyncio.Queue(maxsize=QUEUE_CHUNKS)
         self._handle = None             # resumption-хэндл живой сессии
         self._task = None
         self._stopping = False
+        # Счётчики событий сессии. Прецедент (2026-08-19): две сессии подряд
+        # синтезировали аудио, но не прислали ни одной транскрипции — без
+        # сводки в журнале такое видно только со стороны клиента.
+        self._counts = {'orig': 0, 'ru': 0, 'audio': 0}
 
     def feed(self, pcm):
         """Чанк PCM16 LE mono 16 кГц; неблокирующий."""
@@ -199,9 +209,20 @@ class Translator:
                         sc = msg.server_content
                         if sc is None:
                             continue
+                        if sc.model_turn:
+                            # Синтезированная речь перевода: PCM16 mono 24 кГц.
+                            # Приходит кусками по мере синтеза.
+                            for part in sc.model_turn.parts or []:
+                                data = getattr(getattr(part, 'inline_data', None),
+                                               'data', None)
+                                if data:
+                                    self._counts['audio'] += 1
+                                    self._on_audio(data)
                         if sc.input_transcription and sc.input_transcription.text:
+                            self._counts['orig'] += 1
                             self._on_orig(sc.input_transcription.text)
                         if sc.output_transcription and sc.output_transcription.text:
+                            self._counts['ru'] += 1
                             self._on_ru(sc.output_transcription.text)
                         if sc.turn_complete:
                             self._on_phrase()
@@ -211,6 +232,7 @@ class Translator:
                         if not self._stopping:
                             self._on_status('сессия закрыта сервером, '
                                             'переподключаюсь')
+                print(f'сессия завершена: {self._counts}', file=sys.stderr)
             except asyncio.CancelledError:
                 raise                       # это stop() — выходим тихо
             except Exception as err:        # сеть, шлюз, квота
@@ -368,6 +390,12 @@ async def serve_hub(args):
         for ws in list(clients):
             asyncio.create_task(_send_safe(ws, message))
 
+    def broadcast_audio(pcm):
+        # Переведённая речь — бинарным кадром, без JSON-обёртки: клиент
+        # различает кадры по типу данных.
+        for ws in list(clients):
+            asyncio.create_task(_send_safe(ws, pcm))
+
     async def stop_translator():
         tr, box['tr'] = box['tr'], None
         box['owner'] = None
@@ -397,7 +425,8 @@ async def serve_hub(args):
                         on_orig=lambda t: broadcast('orig', text=t),
                         on_ru=lambda t: broadcast('ru', text=t),
                         on_phrase=lambda: broadcast('phrase_end'),
-                        on_status=lambda s: broadcast('status', text=s))
+                        on_status=lambda s: broadcast('status', text=s),
+                        on_audio=broadcast_audio)
                     await box['tr'].start()
                 elif kind == 'stop':
                     await stop_translator()

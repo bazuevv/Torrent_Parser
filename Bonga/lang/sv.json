@@ -669,5 +669,9 @@
  "статус.65": "Översättningshub når inte — försöker igen",
  "настройки.subsOrig.подпись": "Översatta undertexter",
  "настройки.subsOrig.рядом": "visa originalet ovanför översättningen",
- "настройки.subsOrig.пояснение": "Undertexterna slås på via «Översatta undertexter» i videons högerklicksmeny. Valret styr originalraden ovanför översättningen."
+ "настройки.subsOrig.пояснение": "Undertexterna slås på via «Översatta undertexter» i videons högerklicksmeny. Valret styr originalraden ovanför översättningen.",
+ "меню.22": "Talad översättning",
+ "подпись.48": "Livetalad översättning (dubbning) för rummet du lyssnar på; originalet dämpas",
+ "статус.66": "Talad översättning på — originalet dämpat",
+ "статус.67": "Talad översättning av"
 }

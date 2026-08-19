@@ -669,5 +669,9 @@
  "статус.65": "Oversettelseshub utilgjengelig — prøver igjen",
  "настройки.subsOrig.подпись": "Oversatte undertekster",
  "настройки.subsOrig.рядом": "vis originalen over oversettelsen",
- "настройки.subsOrig.пояснение": "Undertekstene slås på via «Oversatte undertekster» i videoens høyreklikkmeny. Valget styrer originallinjen over oversettelsen."
+ "настройки.subsOrig.пояснение": "Undertekstene slås på via «Oversatte undertekster» i videoens høyreklikkmeny. Valget styrer originallinjen over oversettelsen.",
+ "меню.22": "Talt oversettelse",
+ "подпись.48": "Live talt oversettelse (dubbing) av rommet du lytter til; originalen dempes",
+ "статус.66": "Talt oversettelse på — originalen dempet",
+ "статус.67": "Talt oversettelse av"
 }

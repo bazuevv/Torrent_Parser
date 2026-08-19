@@ -669,5 +669,9 @@
  "статус.65": "Hub tłumaczeń niedostępny — spróbuję ponownie",
  "настройки.subsOrig.подпись": "Napisy z tłumaczeniem",
  "настройки.subsOrig.рядом": "pokazuj oryginał nad tłumaczeniem",
- "настройки.subsOrig.пояснение": "Napisy włącza pozycja „Napisy z tłumaczeniem” w menu prawego przycisku wideo. Ta opcja decyduje o oryginalnej linii nad tłumaczeniem."
+ "настройки.subsOrig.пояснение": "Napisy włącza pozycja „Napisy z tłumaczeniem” w menu prawego przycisku wideo. Ta opcja decyduje o oryginalnej linii nad tłumaczeniem.",
+ "меню.22": "Mówione tłumaczenie",
+ "подпись.48": "Mówione tłumaczenie na żywo (dubbing) pokoju, którego słuchasz; oryginał wyciszany",
+ "статус.66": "Mówione tłumaczenie włączone — oryginał wyciszony",
+ "статус.67": "Mówione tłumaczenie wyłączone"
 }

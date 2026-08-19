@@ -669,5 +669,9 @@
  "статус.65": "Çeviri hub’ına ulaşılamıyor — tekrar deneyeceğim",
  "настройки.subsOrig.подпись": "Çeviri altyazıları",
  "настройки.subsOrig.рядом": "çevirinin üzerinde orijinali göster",
- "настройки.subsOrig.пояснение": "Altyazılar videonun sağ tık menüsündeki «Çeviri altyazıları» öğesiyle açılır. Bu seçenek orijinal satırı çevirinin üzerinde gösterir."
+ "настройки.subsOrig.пояснение": "Altyazılar videonun sağ tık menüsündeki «Çeviri altyazıları» öğesiyle açılır. Bu seçenek orijinal satırı çevirinin üzerinde gösterir.",
+ "меню.22": "Konuşmalı çeviri",
+ "подпись.48": "Dinlediğiniz oda için canlı konuşmalı çeviri (dublaj); orijinal kısılır",
+ "статус.66": "Konuşmalı çeviri açık — orijinal kısık",
+ "статус.67": "Konuşmalı çeviri kapalı"
 }

@@ -669,5 +669,9 @@
  "статус.65": "Vertaalhub niet bereikbaar — probeer opnieuw",
  "настройки.subsOrig.подпись": "Vertaalondertitels",
  "настройки.subsOrig.рядом": "origineel boven de vertaling tonen",
- "настройки.subsOrig.пояснение": "Ondertitels zet je aan via «Vertaalondertitels» in het rechtermuisknopmenu van de video. Deze optie toont de originele regel boven de vertaling."
+ "настройки.subsOrig.пояснение": "Ondertitels zet je aan via «Vertaalondertitels» in het rechtermuisknopmenu van de video. Deze optie toont de originele regel boven de vertaling.",
+ "меню.22": "Gesproken vertaling",
+ "подпись.48": "Live gesproken vertaling (dubbing) voor de kamer die je beluistert; het origineel wordt gedempt",
+ "статус.66": "Gesproken vertaling aan — origineel gedempt",
+ "статус.67": "Gesproken vertaling uit"
 }

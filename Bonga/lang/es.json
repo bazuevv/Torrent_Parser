@@ -669,5 +669,9 @@
  "статус.65": "Hub de traducción no disponible — reintentando",
  "настройки.subsOrig.подпись": "Subtítulos de traducción",
  "настройки.subsOrig.рядом": "mostrar el original sobre la traducción",
- "настройки.subsOrig.пояснение": "Los subtítulos se activan con «Subtítulos de traducción» en el menú contextual del vídeo. Esta opción controla la línea original sobre la traducción."
+ "настройки.subsOrig.пояснение": "Los subtítulos se activan con «Subtítulos de traducción» en el menú contextual del vídeo. Esta opción controla la línea original sobre la traducción.",
+ "меню.22": "Traducción hablada",
+ "подпись.48": "Traducción hablada en directo (doblaje) de la sala que escuchas; el original se atenúa",
+ "статус.66": "Traducción hablada activada — original atenuado",
+ "статус.67": "Traducción hablada desactivada"
 }

@@ -669,5 +669,9 @@
  "статус.65": "Translation hub unreachable — will retry",
  "настройки.subsOrig.подпись": "Translation subtitles",
  "настройки.subsOrig.рядом": "show the original above the translation",
- "настройки.subsOrig.пояснение": "Subtitles are enabled by the “Translation subtitles” item in the video right-click menu. This option controls showing the original speech line above the translation."
+ "настройки.subsOrig.пояснение": "Subtitles are enabled by the “Translation subtitles” item in the video right-click menu. This option controls showing the original speech line above the translation.",
+ "меню.22": "Spoken translation",
+ "подпись.48": "Live spoken translation (dubbing) for the room you are listening to; the original is ducked",
+ "статус.66": "Spoken translation on — original ducked",
+ "статус.67": "Spoken translation off"
 }

@@ -669,5 +669,9 @@
  "статус.65": "Hub de tradução inacessível — tentarei de novo",
  "настройки.subsOrig.подпись": "Legendas de tradução",
  "настройки.subsOrig.рядом": "mostrar o original acima da tradução",
- "настройки.subsOrig.пояснение": "As legendas ativam-se por «Legendas de tradução» no menu de contexto do vídeo. Esta opção controla a linha original acima da tradução."
+ "настройки.subsOrig.пояснение": "As legendas ativam-se por «Legendas de tradução» no menu de contexto do vídeo. Esta opção controla a linha original acima da tradução.",
+ "меню.22": "Tradução falada",
+ "подпись.48": "Tradução falada ao vivo (doblagem) da sala que você ouve; o original é abafado",
+ "статус.66": "Tradução falada ativada — original abafado",
+ "статус.67": "Tradução falada desativada"
 }

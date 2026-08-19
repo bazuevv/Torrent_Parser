@@ -669,5 +669,9 @@
  "статус.65": "Hub-ul de traducere e inaccesibil — încerc din nou",
  "настройки.subsOrig.подпись": "Subtitrări traduse",
  "настройки.subsOrig.рядом": "arată originalul deasupra traducerii",
- "настройки.subsOrig.пояснение": "Subtitrările se activează din «Subtitrări traduse» în meniul din clic dreapta al videoclipului. Opțiunea arată linia originală deasupra traducerii."
+ "настройки.subsOrig.пояснение": "Subtitrările se activează din «Subtitrări traduse» în meniul din clic dreapta al videoclipului. Opțiunea arată linia originală deasupra traducerii.",
+ "меню.22": "Traducere vorbită",
+ "подпись.48": "Traducere vorbită în direct (dublare) pentru camera pe care o asculți; originalul atenuat",
+ "статус.66": "Traducerea vorbită e activată — originalul atenuat",
+ "статус.67": "Traducerea vorbită e dezactivată"
 }

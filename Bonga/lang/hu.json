@@ -669,5 +669,9 @@
  "статус.65": "A fordítóhub nem elérhető — újrapróbálom",
  "настройки.subsOrig.подпись": "Fordított feliratok",
  "настройки.subsOrig.рядом": "eredeti szöveg mutatása a fordítás felett",
- "настройки.subsOrig.пояснение": "A feliratot a videó jobb klikk menüjének „Fordított feliratok” pontja kapcsolja be. Ez a beállítás az eredeti sort mutatja a fordítás felett."
+ "настройки.subsOrig.пояснение": "A feliratot a videó jobb klikk menüjének „Fordított feliratok” pontja kapcsolja be. Ez a beállítás az eredeti sort mutatja a fordítás felett.",
+ "меню.22": "Beszélt fordítás",
+ "подпись.48": "Élő beszélt fordítás (szinkron) a hallgatott szobához; az eredeti el van halkítva",
+ "статус.66": "Beszélt fordítás bekapcsolva — eredeti elhalkítva",
+ "статус.67": "Beszélt fordítás kikapcsolva"
 }

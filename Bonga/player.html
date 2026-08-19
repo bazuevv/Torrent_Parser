@@ -1386,6 +1386,7 @@
     <div data-act="full" data-i18n-title="подпись.40" data-i18n="меню.14"></div>
     <div data-act="mute" data-i18n-title="подпись.41" data-i18n="меню.15"></div>
     <div data-act="subs" data-i18n-title="подпись.47" data-i18n="меню.21"></div>
+    <div data-act="dub" data-i18n-title="подпись.48" data-i18n="меню.22"></div>
     <hr>
     <div data-act="profile" data-i18n-title="подпись.42" data-i18n="меню.16"></div>
     <div data-act="copy" data-i18n-title="подпись.43" data-i18n="меню.17"></div>
@@ -6089,6 +6090,7 @@
       else video.requestFullscreen().catch(() => say(t('статус.52'), 'err'));
     } else if (act === 'mute') video.muted = !video.muted;
     else if (act === 'subs') subsToggle();
+    else if (act === 'dub') dubToggle();
     else if (act === 'profile') openProfile(currentRoom().user);
     else if (act === 'copy') {
       navigator.clipboard.writeText(streamUrl)
@@ -6240,6 +6242,7 @@
     subs.src = subs.ctx.createMediaStreamSource(stream);
     subs.src.connect(subs.tap);
     subsSend({ type: 'start', target: 'ru' });   // новая комната — с чистого листа
+    dubDuck(videoEl);                     // озвучка приглушает уже новую комнату
   }
 
   function subsConnect() {
@@ -6247,6 +6250,7 @@
     if (subs.ws && subs.ws.readyState <= WebSocket.CONNECTING) return;
     const ws = new WebSocket(`ws://${location.hostname}:${SUBS_PORT}`);
     subs.ws = ws;
+    ws.binaryType = 'arraybuffer';        // бинарные кадры = речь перевода
     ws.onopen = () => {
       if (!subs.wanted) return;
       subs.retry = 0;
@@ -6254,6 +6258,7 @@
       subsWire(subsPickVideo());
     };
     ws.onmessage = e => {
+      if (e.data instanceof ArrayBuffer) { dubPlay(new Int16Array(e.data)); return; }
       let m = null;
       try { m = JSON.parse(e.data); } catch { return; }
       if (m.type === 'orig') { subsView.orig += m.text || ''; subsTalk(); }
@@ -6310,20 +6315,71 @@
       if (subs.ws) { try { subs.ws.close(); } catch { } }
       subs.ws = null;
       if (subs.src) { try { subs.src.disconnect(); } catch { } subs.src = null; }
-      subsClear();                   // пока subs.video жив — плащка найдётся
+      subsClear();                   // пока subs.video жив — плашка найдётся
       subs.video = null;
+      if (dub.on) { dub.on = false; dubDuck(null); }   // озвучке нечего читать
       if (subs.tap) subs.tap.onaudioprocess = null;
       say(t('статус.64'), '');
     }
     subsPaintCtx();
   }
 
-  // Галочка состояния в контекст-меню — как у интервалов автопереключения.
+  // Галочки состояния в контекст-меню — как у интервалов автопереключения.
   function subsPaintCtx() {
-    const item = ctx.querySelector('[data-act="subs"]');
-    if (!item) return;
-    item.textContent = item.textContent.replace(/^✓ /, '');
-    if (subs.on) item.textContent = '✓ ' + item.textContent;
+    for (const [act, on] of [['subs', subs.on], ['dub', dub.on]]) {
+      const item = ctx.querySelector(`[data-act="${act}"]`);
+      if (!item) continue;
+      item.textContent = item.textContent.replace(/^✓ /, '');
+      if (on) item.textContent = '✓ ' + item.textContent;
+    }
+  }
+
+  /* Озвучка перевода (дубляж) для комнаты, которую слушаем. Речь приходит
+     из хаба бинарными кадрами PCM16 24 кГц, играем её отдельным контекстом,
+     раскладывая куски встык по расписанию. Оригинал приглушаем не в ноль:
+     музыка эфира остаётся чуть слышна под речью перевода. Приглушение —
+     через video.volume, и это безопасно для самого перевода: captureStream
+     на громкость элемента не смотрит, снимаемый сигнал не слабеет. */
+  const DUCK = 0.15;
+  const dub = { on: false, ctx: null, next: 0, prev: null };
+
+  function dubPlay(pcm) {
+    if (!dub.on || !dub.ctx) return;
+    const buf = dub.ctx.createBuffer(1, pcm.length, 24000);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+    const src = dub.ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(dub.ctx.destination);
+    const now = dub.ctx.currentTime;
+    if (dub.next < now + 0.05) dub.next = now + 0.05;   // отстали — без очереди
+    src.start(dub.next);
+    dub.next += buf.duration;
+  }
+
+  function dubDuck(videoEl) {
+    if (dub.prev) dub.prev.el.volume = dub.prev.vol;    // вернуть прежнему
+    dub.prev = null;
+    if (dub.on && videoEl) {
+      dub.prev = { el: videoEl, vol: videoEl.volume };
+      videoEl.volume = Math.min(videoEl.volume, DUCK);
+    }
+  }
+
+  function dubToggle() {
+    dub.on = !dub.on;
+    if (dub.on) {
+      if (!subs.on) subsToggle();       // озвучке нужен тот же конвейер ввода
+      dub.ctx = dub.ctx || new AudioContext({ sampleRate: 24000 });
+      dub.ctx.resume().catch(() => { });
+      dub.next = 0;
+      dubDuck(subs.video);
+      say(t('статус.66'), 'ok');
+    } else {
+      dubDuck(null);
+      say(t('статус.67'), '');
+    }
+    subsPaintCtx();
   }
 
   // --- статистика ------------------------------------------------------------

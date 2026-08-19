@@ -669,5 +669,9 @@
  "статус.65": "Übersetzungs-Hub nicht erreichbar — versuche es erneut",
  "настройки.subsOrig.подпись": "Übersetzungsuntertitel",
  "настройки.subsOrig.рядом": "Original über der Übersetzung zeigen",
- "настройки.subsOrig.пояснение": "Untertitel aktiviert man über „Übersetzungsuntertitel“ im Rechtsklickmenü des Videos. Diese Option steuert die Originalzeile über der Übersetzung."
+ "настройки.subsOrig.пояснение": "Untertitel aktiviert man über „Übersetzungsuntertitel“ im Rechtsklickmenü des Videos. Diese Option steuert die Originalzeile über der Übersetzung.",
+ "меню.22": "Gesprochene Übersetzung",
+ "подпись.48": "Live-Sprechübersetzung (Dubbing) für den Raum, den Sie hören; das Original wird leiser",
+ "статус.66": "Gesprochene Übersetzung an — Original leiser",
+ "статус.67": "Gesprochene Übersetzung aus"
 }

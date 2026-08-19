@@ -669,5 +669,9 @@
  "статус.65": "Hub de traduction inaccessible — nouvelle tentative",
  "настройки.subsOrig.подпись": "Sous-titres de traduction",
  "настройки.subsOrig.рядом": "afficher l’original au-dessus de la traduction",
- "настройки.subsOrig.пояснение": "Les sous-titres s’activent par « Sous-titres de traduction » dans le menu clic droit de la vidéo. Cette option affiche la ligne originale au-dessus de la traduction."
+ "настройки.subsOrig.пояснение": "Les sous-titres s’activent par « Sous-titres de traduction » dans le menu clic droit de la vidéo. Cette option affiche la ligne originale au-dessus de la traduction.",
+ "меню.22": "Traduction parlée",
+ "подпись.48": "Traduction vocale en direct (doublage) pour la salle que vous écoutez ; l’original est atténué",
+ "статус.66": "Traduction parlée activée — original atténué",
+ "статус.67": "Traduction parlée désactivée"
 }

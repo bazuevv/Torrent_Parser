@@ -669,5 +669,9 @@
  "статус.65": "Không kết nối được hub dịch — sẽ thử lại",
  "настройки.subsOrig.подпись": "Phụ đề dịch thuật",
  "настройки.subsOrig.рядом": "hiện bản gốc phía trên bản dịch",
- "настройки.subsOrig.пояснение": "Phụ đề bật bằng «Phụ đề dịch thuật» trong menu chuột phải của video. Tùy chọn này hiện dòng gốc phía trên bản dịch."
+ "настройки.subsOrig.пояснение": "Phụ đề bật bằng «Phụ đề dịch thuật» trong menu chuột phải của video. Tùy chọn này hiện dòng gốc phía trên bản dịch.",
+ "меню.22": "Bản dịch lời nói",
+ "подпись.48": "Bản dịch lời nói trực tiếp (lồng tiếng) cho phòng bạn đang nghe; bản gốc giảm âm",
+ "статус.66": "Bản dịch lời nói đã bật — bản gốc giảm âm",
+ "статус.67": "Bản dịch lời nói đã tắt"
 }
