@@ -1579,7 +1579,7 @@
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
                      catalog: 60, act: 15, ladder: 43200, warm: 5,
-                     wallQ: 480, wallCols: 0, msgs: 1, subsOrig: 1, lang: 'auto' };
+                     wallQ: 480, wallCols: 0, msgs: 1, subsOrig: 0, lang: 'auto' };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];
@@ -6130,6 +6130,8 @@
      (следующая фаза), события видны в журнале (?log=1). */
 
   const SUBS_PORT = 8778;
+  const SUBS_GAP = 1400;     // пауза в дельтах, мс: реплика закончилась
+  const SUBS_ROLL = 240;     // символов в плашке: длинный монолог делим на реплики
   const subs = {
     on: false, ws: null, wanted: false, retry: 0,
     ctx: null, tap: null, sink: null,
@@ -6160,7 +6162,7 @@
   /* Оверлей субтитров. Реплика живёт от первой дельты до phrase_end плюс
      шесть секунд: текст остаётся в DOM, накопители уже сброшены, и следую-
      щая реплика пишет с чистого листа, не приклеиваясь к прошлой. */
-  const subsView = { orig: '', tr: '', hideTimer: 0 };
+  const subsView = { orig: '', tr: '', hideTimer: 0, pauseTimer: 0 };
   const subsStageBox = $('subs');   // прямая ссылка: элемент ездит в окно PiP
 
   function subsBox() {
@@ -6182,10 +6184,29 @@
     box.hidden = !subsView.orig && !subsView.tr;
   }
 
+  /* Границ реплик модель не сообщает: turn_complete в режиме перевода не
+     приходил ни разу. Конец фразы узнаём по паузе в дельтах — полутора
+     секунд тишины достаточно, чтобы считать реплику сказанной. */
+  function subsTalk() {
+    clearTimeout(subsView.hideTimer);
+    clearTimeout(subsView.pauseTimer);
+    // Слишком длинный монолог делим на реплики принудительно: иначе плашка
+    // растёт без предела.
+    if (subsView.orig.length + subsView.tr.length > SUBS_ROLL) {
+      subsDone();
+      return;
+    }
+    subsPaint();
+    subsView.pauseTimer = setTimeout(subsDone, SUBS_GAP);
+  }
+
   function subsDone() {
-    // phrase_end: дорисовать что набралось, копить заново, плашку погасить позже.
+    // Реплика закончилась (пауза, turn_complete или предел длины): текст
+    // остаётся на шесть секунд для дочитывания, копим следующую с чистого
+    // листа — не приклеиваясь к прошлой.
     subsPaint();
     subsView.orig = subsView.tr = '';
+    clearTimeout(subsView.pauseTimer);
     subsView.hideTimer = setTimeout(() => {
       const box = subsBox();
       if (box && !subsView.orig && !subsView.tr) box.hidden = true;
@@ -6195,6 +6216,7 @@
   function subsClear() {
     subsView.orig = subsView.tr = '';
     clearTimeout(subsView.hideTimer);
+    clearTimeout(subsView.pauseTimer);
     const box = subsBox();            // плашка ещё старой комнаты — её и гасим
     if (box) box.hidden = true;
   }
@@ -6234,8 +6256,8 @@
     ws.onmessage = e => {
       let m = null;
       try { m = JSON.parse(e.data); } catch { return; }
-      if (m.type === 'orig') { subsView.orig += m.text || ''; subsPaint(); }
-      else if (m.type === 'ru') { subsView.tr += m.text || ''; subsPaint(); }
+      if (m.type === 'orig') { subsView.orig += m.text || ''; subsTalk(); }
+      else if (m.type === 'ru') { subsView.tr += m.text || ''; subsTalk(); }
       else if (m.type === 'phrase_end') subsDone();
       else if (m.type === 'status') subsLine(m.text);
     };
