@@ -214,7 +214,7 @@ cacheKeepalive = true
 # webview опрашивает GET localhost:18923/custom-config раз в 5 секунд.
 # Остальные параметры по-прежнему живут в bootstrap и фиксируются
 # на момент загрузки окна.
-cacheKeepaliveMinutes = 55
+cacheKeepaliveMinutes = 3
 
 # Текст сообщения поддержания. Чем короче ответ модели, тем дешевле
 # ход: тело сообщения почти ничего не стоит, платим за output.
@@ -289,3 +289,12 @@ bypassButton = true
 # execCommand и попадает в undo-стек редактора).
 # true — заменять; false — модуль не активируется.
 emojiAutoReplace = true
+
+# Вставления выделенного текста как цитаты в чат
+# (модуль QUOTE FROM SELECTION в claude-custom.js).
+# По горячей клавише Ctrl+Shift+Q (Win/Linux) или Cmd+Shift+Q (Mac)
+# получает выделенный текст на странице, преобразует его в цитату
+# (добавляет `> ` перед каждой строкой) и вставляет в composer.
+# Работает как в тексте переписки, так и на других вкладках браузера.
+# true — активировать модуль; false — горячая клавиша не работает.
+quoteFromSelection = true
