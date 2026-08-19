@@ -579,6 +579,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json_response(500, {"ok": False, "error": str(exc)})
             return
 
+        # TTL кладём сюда же, чтобы панель не делала второй запрос:
+        # по нему она отличает обычный промах «отошёл надолго» от
+        # аномального, где кэш обязан был выжить.
+        if stats.get("ok"):
+            ttl = _config_value("cacheKeepaliveTtlMinutes", 60)
+            if isinstance(ttl, int) and not isinstance(ttl, bool) and ttl > 0:
+                stats["ttl_minutes"] = ttl
+
         self._json_response(200 if stats.get("ok") else 404, stats)
 
     def _handle_vscode_settings(self) -> None:
@@ -1221,6 +1229,26 @@ def _bootstrap_cwd_markers() -> None:
         real = _real_path_from_cwd(entry)  # fallback на jsonl-сканирование
         if real:
             _write_cwd_marker(project_dir, real)
+
+
+def _config_value(key: str, default):
+    """Значение параметра из конфига через тот же mtime-кэш, что и
+    endpoint /custom-config — правка видна без перезапуска сервера."""
+    try:
+        mtime = os.path.getmtime(CONFIG_FILE)
+    except OSError:
+        return default
+    with _CONFIG_LOCK:
+        if mtime != _CONFIG_CACHE["mtime"]:
+            if tomllib is None:
+                return default
+            try:
+                with open(CONFIG_FILE, "rb") as fh:
+                    _CONFIG_CACHE["data"] = tomllib.load(fh)
+                _CONFIG_CACHE["mtime"] = mtime
+            except Exception:
+                return default
+        return _CONFIG_CACHE["data"].get(key, default)
 
 
 def _read_config_dict() -> dict:

@@ -643,6 +643,21 @@
   color: var(--vscode-charts-red, #f14c4c);
 }
 
+/* Промах при паузе короче TTL — аномалия: кэш обязан был выжить,
+ * а префикс переписан целиком. Красим строку целиком, а не только
+ * значение: такие случаи надо выхватывать глазом из общего списка. */
+.claude-cache-unexpected .claude-cache-label,
+.claude-cache-unexpected .claude-cache-value {
+  color: var(--vscode-charts-red, #f14c4c);
+}
+
+.claude-cache-legend {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.6;
+}
+
 .claude-cache-panel hr {
   width: 100%;
   margin: 6px 0;

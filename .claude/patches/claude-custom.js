@@ -5143,6 +5143,10 @@
 
   function renderStats(body, d, guessed) {
     var last = d.last || {};
+    // TTL приходит с сервера (он читает конфиг по mtime), поэтому
+    // правка cacheKeepaliveTtlMinutes видна сразу, без Reload Window.
+    var ttl = typeof d.ttl_minutes === 'number' && d.ttl_minutes > 0
+      ? d.ttl_minutes : 60;
     var verdict = last.verdict || '—';
     var gap = gapText(last.gap);
 
@@ -5193,12 +5197,27 @@
       title.className = 'claude-cache-head claude-cache-head-sub';
       title.textContent = 'последние промахи';
       body.appendChild(title);
+      var unexpected = 0;
       for (var i = 0; i < d.miss_log.length; i++) {
         var m = d.miss_log[i];
+        // Промах при паузе короче TTL — аномалия: кэш должен был быть
+        // жив, а префикс переписан целиком. Помечаем красным, чтобы
+        // такие случаи было видно среди обычных «просто отошёл надолго».
+        var odd = typeof m.gap === 'number' && m.gap < ttl;
+        if (odd) unexpected++;
         body.appendChild(row(
           hhmm(m.ts) + '  ·  пауза ' + (gapText(m.gap) || '—'),
-          'переписано ' + human(m.written)
+          'переписано ' + human(m.written),
+          odd ? 'claude-cache-unexpected' : ''
         ));
+      }
+      if (unexpected) {
+        var legend = document.createElement('div');
+        legend.className = 'claude-cache-legend';
+        legend.textContent = 'красным — ' + unexpected + ' из '
+          + d.miss_log.length + ': пауза короче TTL (' + ttl
+          + ' мин), кэш должен был выжить';
+        body.appendChild(legend);
       }
     }
 
