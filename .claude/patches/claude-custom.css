@@ -651,11 +651,18 @@
   color: var(--vscode-charts-red, #f14c4c);
 }
 
-.claude-cache-legend {
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.4;
-  opacity: 0.6;
+/* Пауза длиннее TTL — кэш вытеснен по времени, это ожидаемо. Жёлтый,
+ * а не красный: деньги потеряны так же, но винить тут нечего. */
+.claude-cache-expired .claude-cache-label,
+.claude-cache-expired .claude-cache-value {
+  color: var(--vscode-charts-yellow, #e2c08d);
+}
+
+/* Пояснение приходит из title, поэтому курсор должен намекать,
+ * что на строку стоит навести. */
+.claude-cache-unexpected,
+.claude-cache-expired {
+  cursor: help;
 }
 
 .claude-cache-panel hr {

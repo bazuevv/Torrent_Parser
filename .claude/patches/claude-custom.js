@@ -5124,9 +5124,10 @@
     if (e.key === 'Escape') closePanel();
   }
 
-  function row(label, value, cls) {
+  function row(label, value, cls, title) {
     var el = document.createElement('div');
     el.className = 'claude-cache-row' + (cls ? ' ' + cls : '');
+    if (title) el.title = title;
     var l = document.createElement('span');
     l.className = 'claude-cache-label';
     l.textContent = label;
@@ -5194,7 +5195,10 @@
     body.appendChild(row('без кэша было бы', money(d.cost_naive)));
     body.appendChild(row('экономия', d.ratio + '×', 'claude-cache-hit'));
     if (d.wasted) {
-      body.appendChild(row('потеряно на промахах', money(d.wasted), 'claude-cache-miss'));
+      // Минус — это расход, а не поступление; знак снимает двусмысленность.
+      body.appendChild(row(
+        'потеряно на промахах', '-' + money(d.wasted), 'claude-cache-miss'
+      ));
     }
 
     if (d.miss_log && d.miss_log.length) {
@@ -5202,31 +5206,35 @@
       title.className = 'claude-cache-head claude-cache-head-sub';
       title.textContent = 'последние промахи';
       body.appendChild(title);
-      var unexpected = 0;
       for (var i = 0; i < d.miss_log.length; i++) {
         var m = d.miss_log[i];
-        // Промах при паузе короче TTL — аномалия: кэш должен был быть
-        // жив, а префикс переписан целиком. Помечаем красным, чтобы
-        // такие случаи было видно среди обычных «просто отошёл надолго».
-        var odd = typeof m.gap === 'number' && m.gap < ttl;
-        if (odd) unexpected++;
+        // Два разных случая, и различать их важно. Пауза короче TTL —
+        // аномалия: кэш обязан был выжить, значит префикс сломало
+        // что-то другое (смена tools, окно просмотра назад). Пауза
+        // длиннее — обычное вытеснение по времени, тут всё закономерно.
+        var known = typeof m.gap === 'number';
+        var odd = known && m.gap < ttl;
+        var cls, title;
+        if (!known) {
+          cls = '';
+          title = '';
+        } else if (odd) {
+          cls = 'claude-cache-unexpected';
+          title = 'пауза короче TTL (' + ttl + ' мин), кэш должен был выжить';
+        } else {
+          cls = 'claude-cache-expired';
+          title = 'пауза больше TTL (' + ttl + ' мин) — кэш вытеснен '
+            + 'по истечении максимального времени хранения';
+        }
         // Потеря — разница между тем, что заплачено (запись, 2x),
         // и тем, что стоило бы попадание (чтение, 0.1x). Не полная
         // стоимость записи: даже при попадании префикс не бесплатен.
         var lost = m.written * MISS_LOSS_MULT * rate / 1e6;
         body.appendChild(row(
           hhmm(m.ts) + '  ·  пауза ' + (gapText(m.gap) || '—'),
-          'переписано ' + human(m.written) + '  (' + money(lost) + ')',
-          odd ? 'claude-cache-unexpected' : ''
+          'переписано ' + human(m.written) + '  (-' + money(lost) + ')',
+          cls, title
         ));
-      }
-      if (unexpected) {
-        var legend = document.createElement('div');
-        legend.className = 'claude-cache-legend';
-        legend.textContent = 'красным — ' + unexpected + ' из '
-          + d.miss_log.length + ': пауза короче TTL (' + ttl
-          + ' мин), кэш должен был выжить';
-        body.appendChild(legend);
       }
     }
 
