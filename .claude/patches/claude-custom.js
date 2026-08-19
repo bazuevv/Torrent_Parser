@@ -6253,26 +6253,25 @@
 })();
 
 /* ============================================================
- * QUOTE FROM SELECTION — вставка выделенного текста как цитаты
+ * QUOTE FROM SELECTION — контекстная кнопка цитирования
  * ============================================================
  *
- * По горячей клавише Ctrl+Shift+Q (Win/Linux) или Cmd+Shift+Q (Mac)
- * получает выделенный текст на странице, преобразует его в цитату
- * (добавляет `> ` перед каждой строкой) и вставляет в composer.
+ * При выделении текста на странице в конце выделения появляется
+ * значок цитаты (❯). По клику на него текст преобразуется в цитату
+ * (добавляется `> ` перед каждой строкой) и вставляется в composer
+ * как новая строка.
  *
- * Работает с любым выделённым текстом:
- *   - на странице переписки Claude
- *   - на других вкладках браузера
- *   - в текстовых полях
- *   - в коде (подсвеченный синтаксис остаётся текстом)
+ * Работает с выделением в:
+ *   - переписке Claude (сообщения, промеки)
+ *   - коде и форматированном тексте
  *
- * Примеры:
- *   "hello\nworld"     → "> hello\n> world"
- *   "one"              → "> one"
- *   "a\n\nb"           → "> a\n> \n> b"  (пустые строки тоже квотируются)
+ * Примеры вставки:
+ *   "hello\nworld"     → "\n> hello\n> world"
+ *   "one"              → "\n> one"
  *
- * Вставка идёт в позицию каретки composer'а. Если composer не найден,
- * выделение выбрасывается и ничего не происходит.
+ * Кнопка исчезает, когда:
+ *   - выделение снято (mousedown вне кнопки)
+ *   - был выполнен клик (вставка произошла)
  *
  * Управление: `quoteFromSelection` в claude-custom-config.toml.
  * ============================================================ */
@@ -6282,6 +6281,9 @@
 
   var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
   if (cfg.quoteFromSelection !== true) return;
+
+  var quoteButton = null;    // текущая кнопка (или null)
+  var currentSelection = null; // сохранённое выделение
 
   function logInfo() {
     if (!cfg.logs) return;
@@ -6299,18 +6301,20 @@
   }
 
   /**
-   * Получает текущее выделение на странице (Selection API).
-   * Возвращает строку выделённого текста или null, если ничего не выделено.
+   * Получает выделённый текст из Selection API.
+   * Возвращает {text, range} или null, если ничего не выделено.
    */
-  function getSelectedText() {
+  function getSelection() {
     var sel = window.getSelection();
     if (!sel || sel.toString().length === 0) return null;
-    return sel.toString();
+    return {
+      text: sel.toString(),
+      range: sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null
+    };
   }
 
   /**
    * Преобразует текст в цитату: добавляет `> ` перед каждой строкой.
-   * Пустые строки тоже получают `> `.
    */
   function toQuote(text) {
     var lines = text.split('\n');
@@ -6319,75 +6323,151 @@
   }
 
   /**
-   * Вставляет текст (с цитатой) в composer.
-   * Использует execCommand('insertText'), как в EMOJI PICKER/AUTOREPLACE.
+   * Вставляет цитату в composer как новую строку.
+   * Если в composer уже есть текст, добавляет \n перед цитатой.
    */
-  function insertQuoteIntoComposer(quote) {
+  function insertQuoteIntoComposer(text) {
     var composer = getComposer();
     if (!composer) {
-      logInfo('composer не найден, вставка отменена');
+      logInfo('composer не найден');
       return false;
     }
 
     try {
+      var quote = toQuote(text);
+
       composer.focus();
 
-      var inserted = document.execCommand('insertText', false, quote);
+      // Ставим каретку в конец
+      var sel = window.getSelection();
+      var range = document.createRange();
+      range.selectNodeContents(composer);
+      range.collapse(false); // в конец
+      sel.removeAllRanges();
+      sel.addRange(range);
+
+      // Проверяем, есть ли уже текст в composer
+      var currentText = composer.textContent || '';
+      var hasText = currentText.trim().length > 0;
+      var textToInsert = hasText ? '\n' + quote : quote;
+
+      // Вставляем текст
+      var inserted = document.execCommand('insertText', false, textToInsert);
 
       if (!inserted) {
-        // Fallback: если execCommand не сработал, вставляем ручно.
-        var sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-          var range = sel.getRangeAt(0);
-          range.deleteContents();
-          var node = document.createTextNode(quote);
-          range.insertNode(node);
-          range.setStartAfter(node);
-          range.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        } else {
-          composer.textContent = (composer.textContent || '') + quote;
-        }
-
+        // Fallback: вставляем вручную
+        composer.textContent = currentText + textToInsert;
         composer.dispatchEvent(new InputEvent('input', {
-          bubbles: true, cancelable: true, inputType: 'insertText', data: quote,
+          bubbles: true, cancelable: true, inputType: 'insertText', data: textToInsert,
         }));
       }
 
-      logInfo('цитата вставлена:', quote.length, 'символов');
+      logInfo('цитата вставлена (' + quote.length + ' символов)');
       return true;
     } catch (e) {
-      logInfo('вставка не удалась:', (e && e.message) || e);
+      logInfo('ошибка при вставке:', (e && e.message) || e);
       return false;
     }
   }
 
   /**
-   * Обработчик горячей клавиши.
-   * Ctrl+Shift+Q (Win/Linux) или Cmd+Shift+Q (Mac)
+   * Создаёт и показывает кнопку цитирования рядом с выделением.
    */
-  function handleKeydown(e) {
-    var isQuoteKey = (e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'KeyQ';
-    if (!isQuoteKey) return;
-
-    var selected = getSelectedText();
-    if (!selected) {
-      logInfo('выделение не найдено');
+  function showQuoteButton() {
+    var sel = getSelection();
+    if (!sel || !sel.range) {
+      hideQuoteButton();
       return;
     }
 
-    var quote = toQuote(selected);
-    if (insertQuoteIntoComposer(quote)) {
-      // Успешно вставили — предотвращаем штатное поведение.
-      e.preventDefault();
-      e.stopPropagation();
+    currentSelection = sel;
+
+    // Создаём кнопку, если её нет
+    if (!quoteButton) {
+      quoteButton = document.createElement('button');
+      quoteButton.type = 'button';
+      quoteButton.className = 'claude-quote-btn';
+      quoteButton.innerHTML = '❯';
+      quoteButton.title = 'Процитировать';
+      quoteButton.style.cssText =
+        'position:fixed;padding:4px 8px;margin:0;border:1px solid #999;border-radius:4px;' +
+        'background:#f0f0f0;color:#333;font-size:14px;cursor:pointer;z-index:10000;' +
+        'box-shadow:0 2px 4px rgba(0,0,0,0.1);';
+
+      quoteButton.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+
+      quoteButton.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (currentSelection && currentSelection.text) {
+          insertQuoteIntoComposer(currentSelection.text);
+          hideQuoteButton();
+        }
+      });
+
+      document.body.appendChild(quoteButton);
+    }
+
+    // Позиционируем кнопку выше выделения, справа
+    try {
+      var rect = sel.range.getBoundingClientRect();
+      // Кнопка выше выделения, справа от конца
+      var x = rect.right + 2;
+      var y = rect.top - 28;  // выше верхней части выделения
+
+      quoteButton.style.left = x + 'px';
+      quoteButton.style.top = y + 'px';
+      quoteButton.style.display = 'block';
+    } catch (e) {
+      logInfo('ошибка при позиционировании:', (e && e.message) || e);
+      hideQuoteButton();
+    }
+  }
+
+  /**
+   * Скрывает кнопку цитирования.
+   */
+  function hideQuoteButton() {
+    if (quoteButton) {
+      quoteButton.style.display = 'none';
+    }
+    currentSelection = null;
+  }
+
+  /**
+   * Обработчик выделения текста.
+   */
+  function handleSelection() {
+    var hasSelection = window.getSelection().toString().length > 0;
+    if (hasSelection) {
+      showQuoteButton();
+    } else {
+      hideQuoteButton();
+    }
+  }
+
+  /**
+   * Скрывает кнопку при mousedown вне неё.
+   */
+  function handleMouseDown(e) {
+    if (quoteButton && e.target !== quoteButton && !quoteButton.contains(e.target)) {
+      hideQuoteButton();
     }
   }
 
   function init() {
-    document.addEventListener('keydown', handleKeydown, true); // capture-фаза
-    logInfo('горячая клавиша Ctrl+Shift+Q (Cmd+Shift+Q на Mac) активирована');
+    // Слушаем события выделения
+    document.addEventListener('mouseup', handleSelection);
+    document.addEventListener('touchend', handleSelection);
+    document.addEventListener('selectionchange', handleSelection);
+
+    // Скрываем кнопку при клике в другое место
+    document.addEventListener('mousedown', handleMouseDown);
+
+    logInfo('контекстная кнопка цитирования активирована');
   }
 
   if (document.readyState === 'loading') {
