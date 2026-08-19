@@ -5201,13 +5201,21 @@
       ));
     }
 
-    if (d.miss_log && d.miss_log.length) {
+    // Записи с «переписано 0» — частичные попадания: кэш использовался,
+    // перезаписи и потерь нет. В списке промахов они только шумят,
+    // поэтому не показываем. Если после фильтра список пуст — секцию
+    // не рисуем вовсе.
+    var missLog = (d.miss_log || []).filter(function (m) {
+      return m.written > 0;
+    });
+
+    if (missLog.length) {
       var title = document.createElement('div');
       title.className = 'claude-cache-head claude-cache-head-sub';
       title.textContent = 'последние промахи';
       body.appendChild(title);
-      for (var i = 0; i < d.miss_log.length; i++) {
-        var m = d.miss_log[i];
+      for (var i = 0; i < missLog.length; i++) {
+        var m = missLog[i];
         // Два разных случая, и различать их важно. Пауза короче TTL —
         // аномалия: кэш обязан был выжить, значит префикс сломало
         // что-то другое (смена tools, окно просмотра назад). Пауза
