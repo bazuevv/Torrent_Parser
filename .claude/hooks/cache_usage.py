@@ -308,7 +308,13 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
         "cost": round(cost, 2),
         "cost_naive": round(naive, 2),
         "ratio": round(naive / cost, 1) if cost > 0 else 0.0,
-        "wasted": round(state["rewritten"] / 1e6 * in_rate * CACHE_WRITE_MULT, 2),
+        # Потеря — разница между уплаченным (запись) и тем, что стоило
+        # бы попадание (чтение). Полная стоимость записи завышала бы
+        # оценку: даже при попадании префикс не бесплатен.
+        "wasted": round(
+            state["rewritten"] / 1e6 * in_rate
+            * (CACHE_WRITE_MULT - CACHE_READ_MULT), 2
+        ),
         "rates": {
             "input": in_rate,
             "output": out_rate,

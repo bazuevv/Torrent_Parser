@@ -4903,6 +4903,10 @@
 
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+  // Во сколько ставок input обходится промах сверх попадания:
+  // заплачено по записи (2x) вместо чтения (0.1x).
+  var MISS_LOSS_MULT = 1.9;
+
   var panel = null;
   var anchorBtn = null;
 
@@ -5147,6 +5151,7 @@
     // правка cacheKeepaliveTtlMinutes видна сразу, без Reload Window.
     var ttl = typeof d.ttl_minutes === 'number' && d.ttl_minutes > 0
       ? d.ttl_minutes : 60;
+    var rate = (d.rates && d.rates.input) || 5.0;
     var verdict = last.verdict || '—';
     var gap = gapText(last.gap);
 
@@ -5205,9 +5210,13 @@
         // такие случаи было видно среди обычных «просто отошёл надолго».
         var odd = typeof m.gap === 'number' && m.gap < ttl;
         if (odd) unexpected++;
+        // Потеря — разница между тем, что заплачено (запись, 2x),
+        // и тем, что стоило бы попадание (чтение, 0.1x). Не полная
+        // стоимость записи: даже при попадании префикс не бесплатен.
+        var lost = m.written * MISS_LOSS_MULT * rate / 1e6;
         body.appendChild(row(
           hhmm(m.ts) + '  ·  пауза ' + (gapText(m.gap) || '—'),
-          'переписано ' + human(m.written),
+          'переписано ' + human(m.written) + '  (' + money(lost) + ')',
           odd ? 'claude-cache-unexpected' : ''
         ));
       }
