@@ -128,7 +128,11 @@ class Translator:
         # Счётчики событий сессии. Прецедент (2026-08-19): две сессии подряд
         # синтезировали аудио, но не прислали ни одной транскрипции — без
         # сводки в журнале такое видно только со стороны клиента.
-        self._counts = {'orig': 0, 'ru': 0, 'audio': 0}
+        self._counts = {'orig': 0, 'ru': 0, 'audio': 0, 'audio_bytes': 0}
+
+    def stats(self):
+        """Сводка для журнала хаба: события и глубина очереди звука."""
+        return {**self._counts, 'queue': self._queue.qsize()}
 
     def feed(self, pcm):
         """Чанк PCM16 LE mono 16 кГц; неблокирующий."""
@@ -217,6 +221,7 @@ class Translator:
                                                'data', None)
                                 if data:
                                     self._counts['audio'] += 1
+                                    self._counts['audio_bytes'] += len(data)
                                     self._on_audio(data)
                         if sc.input_transcription and sc.input_transcription.text:
                             self._counts['orig'] += 1
@@ -369,15 +374,31 @@ async def run(args):
 # --------------------------------------------------------------------------
 
 async def serve_hub(args):
+    import wave
     import websockets
     try:
         from websockets.asyncio.server import serve as ws_serve   # websockets ≥ 13
     except ImportError:
         from websockets import serve as ws_serve                  # старые версии
 
+    def log(text):
+        # journald на этой машине вывод юнитов не собирает (прецедент —
+        # write_log в server.py с тем же выводом), поэтому пишем файл рядом
+        # с записями, как делает плеер. stderr оставляем для ручных запусков.
+        line = time.strftime('%Y-%m-%d %H:%M:%S ') + text
+        print(f'хаб: {text}', file=sys.stderr, flush=True)
+        base = (os.environ.get('BONGA_REC_DIR')
+                or (args.dump_dir and os.path.dirname(os.path.abspath(args.dump_dir)))
+                or os.getcwd())
+        try:
+            with open(os.path.join(base, 'translate.log'), 'a', encoding='utf-8') as fh:
+                fh.write(line + '\n')
+        except OSError:
+            pass                         # диск недоступен — остаётся stderr
+
     client = genai.Client(api_key=resolve_key(args))
     clients = set()                      # все подключённые браузеры
-    box = {'tr': None, 'owner': None}    # текущий перевод и кто кормит звук
+    box = {'tr': None, 'owner': None, 'dump': None}   # перевод, кормилец, WAV-дамп
 
     async def _send_safe(ws, message):
         try:
@@ -396,14 +417,41 @@ async def serve_hub(args):
         for ws in list(clients):
             asyncio.create_task(_send_safe(ws, pcm))
 
+    def open_dump():
+        """WAV-файл с синтезированной речью — прослушать, что шлёт модель.
+
+        Прецедент (2026-08-19): «наложение двух дорожек без всякого синтеза»
+        на живом эфире — без записи того, что реально синтезируется,
+        причину не установить. Пишется только при --dump-dir."""
+        if not args.dump_dir:
+            return None
+        os.makedirs(args.dump_dir, exist_ok=True)
+        path = os.path.join(args.dump_dir,
+                            time.strftime('%Y%m%d-%H%M%S') + '.wav')
+        wf = wave.open(path, 'wb')
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)
+        log(f'дамп синтеза: {path}')
+        return wf
+
     async def stop_translator():
         tr, box['tr'] = box['tr'], None
         box['owner'] = None
+        dump, box['dump'] = box['dump'], None
+        if dump is not None:
+            try:
+                dump.close()
+            except Exception:
+                pass
         if tr is not None:
+            log(f'гашу перевод, итог сессии: {tr.stats()}')
             await tr.stop()
 
     async def handler(ws):
+        addr = getattr(ws, 'remote_address', None)
         clients.add(ws)
+        log(f'клиент + {addr}, всего {len(clients)}')
         try:
             async for message in ws:
                 if isinstance(message, (bytes, bytearray)):
@@ -420,26 +468,49 @@ async def serve_hub(args):
                     # start = и «начать», и «сбросить» (смена комнаты в плеере
                     # должна начинать перевод с чистого листа).
                     await stop_translator()
+                    box['dump'] = open_dump()
+                    dump = box['dump']
+
+                    def on_audio(data, _dump=dump):
+                        if _dump is not None:
+                            try:
+                                _dump.writeframes(data)
+                            except Exception:
+                                pass
+                        broadcast_audio(data)
+
                     box['tr'] = Translator(
                         client, target=msg.get('target') or 'ru',
                         on_orig=lambda t: broadcast('orig', text=t),
                         on_ru=lambda t: broadcast('ru', text=t),
                         on_phrase=lambda: broadcast('phrase_end'),
                         on_status=lambda s: broadcast('status', text=s),
-                        on_audio=broadcast_audio)
+                        on_audio=on_audio)
+                    log(f'start от {addr}, target={msg.get("target") or "ru"}')
                     await box['tr'].start()
                 elif kind == 'stop':
+                    log(f'stop от {addr}')
                     await stop_translator()
         except websockets.ConnectionClosed:
             pass
         finally:
             clients.discard(ws)
+            log(f'клиент − {addr}, осталось {len(clients)}')
             # Ушёл кормивший звук или вообще все — переводить нечего.
             if ws is box['owner'] or not clients:
                 await stop_translator()
 
+    async def ticker():
+        """Раз в 10 секунд — живая картина сессии в журнале."""
+        while True:
+            await asyncio.sleep(10)
+            if box['tr'] is not None:
+                log(f'тик: клиенты={len(clients)}, {box["tr"].stats()}')
+
     async with ws_serve(handler, args.host, args.port, max_size=1 << 20):
-        print(f'хаб перевода слушает ws://{args.host}:{args.port}', file=sys.stderr)
+        log(f'слушает ws://{args.host}:{args.port}'
+            + (f', дамп в {args.dump_dir}' if args.dump_dir else ''))
+        asyncio.create_task(ticker())
         await asyncio.Future()           # пока не остановят Ctrl-C
 
 
@@ -454,6 +525,9 @@ def main():
                     help='режим хаба: WebSocket-сервер для плеера')
     ap.add_argument('--host', default='0.0.0.0',
                     help='адрес хаба (по умолчанию вся LAN, как у server.py)')
+    ap.add_argument('--dump-dir', default=None,
+                    help='писать синтезированную речь каждой сессии в WAV '
+                         '(диагностика озвучки: прослушать, что шлёт модель)')
     ap.add_argument('--port', type=int, default=8778,
                     help='порт хаба (по умолчанию 8778, соседний с плеером)')
     ap.add_argument('--start', type=float, default=0, help='с какой секунды (по умолчанию 0)')
