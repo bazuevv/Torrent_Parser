@@ -6253,6 +6253,151 @@
 })();
 
 /* ============================================================
+ * QUOTE FROM SELECTION — вставка выделенного текста как цитаты
+ * ============================================================
+ *
+ * По горячей клавише Ctrl+Shift+Q (Win/Linux) или Cmd+Shift+Q (Mac)
+ * получает выделенный текст на странице, преобразует его в цитату
+ * (добавляет `> ` перед каждой строкой) и вставляет в composer.
+ *
+ * Работает с любым выделённым текстом:
+ *   - на странице переписки Claude
+ *   - на других вкладках браузера
+ *   - в текстовых полях
+ *   - в коде (подсвеченный синтаксис остаётся текстом)
+ *
+ * Примеры:
+ *   "hello\nworld"     → "> hello\n> world"
+ *   "one"              → "> one"
+ *   "a\n\nb"           → "> a\n> \n> b"  (пустые строки тоже квотируются)
+ *
+ * Вставка идёт в позицию каретки composer'а. Если composer не найден,
+ * выделение выбрасывается и ничего не происходит.
+ *
+ * Управление: `quoteFromSelection` в claude-custom-config.toml.
+ * ============================================================ */
+(function () {
+  if (window.__claudeQuoteFromSelectionInstalled) return;
+  window.__claudeQuoteFromSelectionInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (cfg.quoteFromSelection !== true) return;
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[quote-from-selection]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  function getComposer() {
+    return (
+      document.querySelector('[role="textbox"][contenteditable][aria-label*="essage" i]') ||
+      document.querySelector('[role="textbox"][contenteditable]') ||
+      document.querySelector('div[contenteditable]')
+    );
+  }
+
+  /**
+   * Получает текущее выделение на странице (Selection API).
+   * Возвращает строку выделённого текста или null, если ничего не выделено.
+   */
+  function getSelectedText() {
+    var sel = window.getSelection();
+    if (!sel || sel.toString().length === 0) return null;
+    return sel.toString();
+  }
+
+  /**
+   * Преобразует текст в цитату: добавляет `> ` перед каждой строкой.
+   * Пустые строки тоже получают `> `.
+   */
+  function toQuote(text) {
+    var lines = text.split('\n');
+    var quoted = lines.map(function (line) { return '> ' + line; });
+    return quoted.join('\n');
+  }
+
+  /**
+   * Вставляет текст (с цитатой) в composer.
+   * Использует execCommand('insertText'), как в EMOJI PICKER/AUTOREPLACE.
+   */
+  function insertQuoteIntoComposer(quote) {
+    var composer = getComposer();
+    if (!composer) {
+      logInfo('composer не найден, вставка отменена');
+      return false;
+    }
+
+    try {
+      composer.focus();
+
+      var inserted = document.execCommand('insertText', false, quote);
+
+      if (!inserted) {
+        // Fallback: если execCommand не сработал, вставляем ручно.
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          var range = sel.getRangeAt(0);
+          range.deleteContents();
+          var node = document.createTextNode(quote);
+          range.insertNode(node);
+          range.setStartAfter(node);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } else {
+          composer.textContent = (composer.textContent || '') + quote;
+        }
+
+        composer.dispatchEvent(new InputEvent('input', {
+          bubbles: true, cancelable: true, inputType: 'insertText', data: quote,
+        }));
+      }
+
+      logInfo('цитата вставлена:', quote.length, 'символов');
+      return true;
+    } catch (e) {
+      logInfo('вставка не удалась:', (e && e.message) || e);
+      return false;
+    }
+  }
+
+  /**
+   * Обработчик горячей клавиши.
+   * Ctrl+Shift+Q (Win/Linux) или Cmd+Shift+Q (Mac)
+   */
+  function handleKeydown(e) {
+    var isQuoteKey = (e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'KeyQ';
+    if (!isQuoteKey) return;
+
+    var selected = getSelectedText();
+    if (!selected) {
+      logInfo('выделение не найдено');
+      return;
+    }
+
+    var quote = toQuote(selected);
+    if (insertQuoteIntoComposer(quote)) {
+      // Успешно вставили — предотвращаем штатное поведение.
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+
+  function init() {
+    document.addEventListener('keydown', handleKeydown, true); // capture-фаза
+    logInfo('горячая клавиша Ctrl+Shift+Q (Cmd+Shift+Q на Mac) активирована');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+
+/* ============================================================
  * CACHE KEEPALIVE
  *
  * Кнопка «Cache» между Usage и ByPass. Включённая — не даёт истечь
