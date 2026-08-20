@@ -7,13 +7,15 @@ import android.widget.Button
 import androidx.appcompat.widget.AppCompatImageView
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.content.ContextCompat
+import androidx.core.os.BundleCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.tonapps.extensions.getParcelableCompat
 import com.tonapps.log.L
 import com.tonapps.tonkeeper.ui.base.BaseWalletScreen
 import com.tonapps.tonkeeper.ui.base.BaseWalletVM
@@ -21,16 +23,17 @@ import com.tonapps.tonkeeper.ui.base.ScreenContext
 import com.tonapps.tonkeeper.ui.screen.music.entity.RadioStationEntity
 import com.tonapps.tonkeeper.ui.screen.music.playback.RadioPlaybackService
 import com.tonapps.tonkeeperx.R
+import com.google.common.util.concurrent.ListenableFuture
 import uikit.base.BaseFragment
 import uikit.widget.AsyncImageView
 import uikit.widget.HeaderView
 import uikit.widget.LoaderView
 
 /**
- * Экран одной радиостанции. Плеер живёт в RadioPlaybackService, экран лишь
- * подключается к нему контроллером: закрытие экрана не останавливает эфир —
- * он играет фоном под уведомлением. Живой поток без позиции, поэтому
- * интерфейс — только play/pause.
+ * Экран радиостанции. Плеер живёт в RadioPlaybackService и держит плейлист
+ * всех станций: кнопки «назад/вперёд» в уведомлении переключают их, а экран
+ * через onMediaItemTransition следует за переключением. Открытие экрана
+ * настраивает эфир на выбранную станцию; закрытие не останавливает звук.
  */
 class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
     R.layout.fragment_radio_player,
@@ -41,11 +44,25 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
 
     override val viewModel: BaseWalletVM? = null
 
-    private val station: RadioStationEntity by lazy {
-        requireArguments().getParcelableCompat(ARG_STATION)!!
+    private val stations: List<RadioStationEntity> by lazy {
+        BundleCompat.getParcelableArrayList(
+            requireArguments(), ARG_STATIONS, RadioStationEntity::class.java
+        ).orEmpty()
     }
 
-    private var pendingFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
+    private val station: RadioStationEntity by lazy {
+        val index = openedIndex
+        if (index in stations.indices) stations[index] else stations.first()
+    }
+
+    private val openedIndex: Int
+        get() = requireArguments().getInt(ARG_INDEX, 0)
+
+    // Станция, которую экран показывает в данный момент — меняется, когда
+    // пользователь переключает эфир кнопками в уведомлении
+    private var shownStation: RadioStationEntity? = null
+
+    private var pendingFuture: ListenableFuture<MediaController>? = null
 
     private var controller: MediaController? = null
 
@@ -79,6 +96,13 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
             applyPlayIcon(isPlaying)
         }
 
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // Станцию переключили из уведомления — показываем новую
+            val url = mediaItem?.mediaId ?: return
+            val next = stations.firstOrNull { it.url == url } ?: return
+            applyStation(next)
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             L.e(error, "Radio playback error: ${station.name}")
             showError()
@@ -88,19 +112,12 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         headerView = view.findViewById(R.id.header)
-        headerView.title = station.name
         headerView.doOnCloseClick = { finish() }
 
         logoView = view.findViewById(R.id.logo)
         logoPlaceholderView = view.findViewById(R.id.logo_placeholder)
         nameView = view.findViewById(R.id.name)
-        nameView.text = station.name
-
         infoView = view.findViewById(R.id.info)
-        infoView.text = station.info
-        infoView.visibility = if (station.info.isNullOrBlank()) View.GONE else View.VISIBLE
-
-        bindLogo()
 
         loaderView = view.findViewById(R.id.loader)
         playButtonView = view.findViewById(R.id.play_button)
@@ -110,12 +127,26 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
         errorButtonView = view.findViewById(R.id.error_button)
         errorButtonView.setOnClickListener { retry() }
 
+        applyStation(station)
         connectController()
     }
 
-    private fun bindLogo() {
-        val url = station.logoUrl
+    private fun applyStation(station: RadioStationEntity) {
+        if (shownStation?.url == station.url) {
+            return
+        }
+        shownStation = station
+        headerView.title = station.name
+        nameView.text = station.name
+        infoView.text = station.info
+        infoView.visibility = if (station.info.isNullOrBlank()) View.GONE else View.VISIBLE
+        bindLogo(station.logoUrl)
+    }
+
+    private fun bindLogo(url: String?) {
         if (url.isNullOrBlank()) {
+            logoView.visibility = View.GONE
+            logoPlaceholderView.visibility = View.VISIBLE
             return
         }
         logoView.visibility = View.VISIBLE
@@ -141,10 +172,15 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
                 val mediaController = future.get()
                 mediaController.addListener(playerListener)
                 controller = mediaController
-                applyPlayIcon(mediaController.isPlaying)
-                if (pendingPlay) {
-                    pendingPlay = false
+                if (mediaController.currentMediaItem?.mediaId != station.url) {
+                    // В сессии другая станция или ничего — настраиваем эфир на эту
                     startPlayback()
+                } else {
+                    applyPlayIcon(mediaController.isPlaying)
+                    if (pendingPlay) {
+                        pendingPlay = false
+                        mediaController.play()
+                    }
                 }
             } catch (e: Throwable) {
                 L.e(e, "Radio controller connect failed")
@@ -154,17 +190,30 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
         pendingFuture = future
     }
 
+    // C.TIME_UNSET помечен @UnstableApi, хотя значение «позиция по умолчанию»
+    // для живого потока стабильно уже много лет
+    @androidx.annotation.OptIn(UnstableApi::class)
     private fun startPlayback() {
         val controller = controller ?: return
-        // Метаданные попадают в уведомление: название станции, кодек и обложка
-        val metadata = MediaMetadata.Builder()
-            .setTitle(station.name)
-            .setArtist(station.info)
-            .setArtworkUri(station.logoUrl?.let { android.net.Uri.parse(it) })
-            .build()
-        controller.setMediaItem(MediaItem.Builder().setUri(station.url).setMediaMetadata(metadata).build())
+        val index = openedIndex.coerceIn(0, stations.lastIndex)
+        controller.setMediaItems(stations.map { it.toMediaItem() }, index, C.TIME_UNSET)
         controller.prepare()
         controller.play()
+    }
+
+    private fun RadioStationEntity.toMediaItem(): MediaItem {
+        // Метаданные попадают в уведомление: название станции, кодек и обложка.
+        // mediaId = URL потока, по нему экран опознаёт текущую станцию
+        val metadata = MediaMetadata.Builder()
+            .setTitle(name)
+            .setArtist(info)
+            .setArtworkUri(logoUrl?.let { android.net.Uri.parse(it) })
+            .build()
+        return MediaItem.Builder()
+            .setUri(url)
+            .setMediaId(url)
+            .setMediaMetadata(metadata)
+            .build()
     }
 
     private fun togglePlay() {
@@ -172,21 +221,10 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
             pendingPlay = true
             return
         }
-        if (controller.isPlaying) {
-            controller.pause()
-        } else {
-            if (controller.playbackState == Player.STATE_IDLE &&
-                controller.currentMediaItem?.mediaMetadata?.title != station.name
-            ) {
-                // В сессии лежит другая станция или ничего — переключаем на эту
-                startPlayback()
-                return
-            }
-            if (controller.playbackState == Player.STATE_IDLE) {
-                retry()
-                return
-            }
-            controller.play()
+        when {
+            controller.isPlaying -> controller.pause()
+            controller.playbackState == Player.STATE_IDLE -> retry()
+            else -> controller.play()
         }
     }
 
@@ -229,11 +267,13 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
 
     companion object {
 
-        private const val ARG_STATION = "station"
+        private const val ARG_STATIONS = "stations"
+        private const val ARG_INDEX = "index"
 
-        fun newInstance(station: RadioStationEntity): RadioPlayerScreen {
+        fun newInstance(stations: ArrayList<RadioStationEntity>, index: Int): RadioPlayerScreen {
             val screen = RadioPlayerScreen()
-            screen.putParcelableArg(ARG_STATION, station)
+            screen.putParcelableArrayListArg(ARG_STATIONS, stations)
+            screen.putIntArg(ARG_INDEX, index)
             return screen
         }
     }

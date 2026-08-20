@@ -23,6 +23,10 @@ class MusicViewModel(
     private var stations: List<RadioStationEntity> = emptyList()
     private var query: String = ""
 
+    /** Полный список без поискового фильтра — плейлист переключения станций */
+    val allStations: List<RadioStationEntity>
+        get() = stations
+
     init {
         load(forceRefresh = false)
     }

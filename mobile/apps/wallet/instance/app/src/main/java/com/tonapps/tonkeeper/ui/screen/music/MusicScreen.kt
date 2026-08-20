@@ -138,7 +138,11 @@ class MusicScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_mus
     }
 
     private fun openStation(station: RadioStationEntity) {
-        navigation?.add(RadioPlayerScreen.newInstance(station))
+        // Плейлист для уведомления строится из полного списка: фильтрованный
+        // поиск дал бы обрывки, а порядок полного списка одинаков у всех экранов
+        val stations = ArrayList(viewModel.allStations)
+        val index = stations.indexOfFirst { it.url == station.url }
+        navigation?.add(RadioPlayerScreen.newInstance(stations, index))
     }
 
     override fun getRecyclerView(): RecyclerView? {
