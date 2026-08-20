@@ -137,6 +137,10 @@
     <string name="tv">TV</string>
     <string name="music">Musik</string>
     <string name="music_stations_empty">Daftar stasiun akan muncul di sini</string>
+    <string name="music_stations_empty_subtitle">Katalog kosong. Coba muat ulang.</string>
+    <string name="music_stations_error">Gagal memuat</string>
+    <string name="music_stations_error_subtitle">Periksa koneksi internet Anda dan coba lagi</string>
+    <string name="music_stations_retry">Muat ulang</string>
     <string name="tv_channels_empty">Tidak ada saluran</string>
     <string name="tv_channels_empty_subtitle">Daftar putar kosong. Coba muat ulang.</string>
     <string name="tv_channels_error">Gagal memuat</string>

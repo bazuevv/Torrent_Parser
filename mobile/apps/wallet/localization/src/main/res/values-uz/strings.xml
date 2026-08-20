@@ -140,6 +140,10 @@
     <string name="tv">TV</string>
     <string name="music">Musiqa</string>
     <string name="music_stations_empty">Stansiyalar roʻyxati shu yerda paydo boʻladi</string>
+    <string name="music_stations_empty_subtitle">Katalog boʻsh — yangilab koʻring</string>
+    <string name="music_stations_error">Yuklab boʻlmadi</string>
+    <string name="music_stations_error_subtitle">Internet aloqasini tekshirib, qayta urinib koʻring</string>
+    <string name="music_stations_retry">Yangilash</string>
     <string name="tv_channels_empty">Kanallar yoʻq</string>
     <string name="tv_channels_empty_subtitle">Pleylist boʻsh — yangilab koʻring</string>
     <string name="tv_channels_error">Yuklab boʻlmadi</string>
