@@ -135,6 +135,8 @@
     <string name="activity">Actividad</string>
     <string name="history">Historia</string>
     <string name="tv">TV</string>
+    <string name="music">Música</string>
+    <string name="music_stations_empty">La lista de emisoras aparecerá aquí</string>
     <string name="tv_channels_empty">Sin canales</string>
     <string name="tv_channels_empty_subtitle">La lista está vacía. Intenta actualizarla.</string>
     <string name="tv_channels_error">Error al cargar</string>

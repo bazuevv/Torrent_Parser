@@ -284,6 +284,8 @@
     <string name="activity">Activity</string>
     <string name="history">History</string>
     <string name="tv">TV</string>
+    <string name="music">Music</string>
+    <string name="music_stations_empty">Station list will appear here</string>
     <string name="tv_channels_empty">No channels</string>
     <string name="tv_channels_empty_subtitle">The playlist is empty. Try refreshing it.</string>
     <string name="tv_channels_error">Failed to load</string>

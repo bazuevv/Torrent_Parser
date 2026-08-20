@@ -135,6 +135,8 @@
     <string name="activity">Aktivitas</string>
     <string name="history">Sejarah</string>
     <string name="tv">TV</string>
+    <string name="music">Musik</string>
+    <string name="music_stations_empty">Daftar stasiun akan muncul di sini</string>
     <string name="tv_channels_empty">Tidak ada saluran</string>
     <string name="tv_channels_empty_subtitle">Daftar putar kosong. Coba muat ulang.</string>
     <string name="tv_channels_error">Gagal memuat</string>

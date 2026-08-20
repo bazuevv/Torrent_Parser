@@ -138,6 +138,8 @@
     <string name="activity">活动</string>
     <string name="history">历史</string>
     <string name="tv">电视</string>
+    <string name="music">音乐</string>
+    <string name="music_stations_empty">电台列表将显示在这里</string>
     <string name="tv_channels_empty">没有频道</string>
     <string name="tv_channels_empty_subtitle">播放列表为空，请尝试刷新</string>
     <string name="tv_channels_error">加载失败</string>

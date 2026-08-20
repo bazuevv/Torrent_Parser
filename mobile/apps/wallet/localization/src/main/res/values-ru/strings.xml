@@ -292,6 +292,8 @@
     <string name="settings">Настройки</string>
     <string name="history">История</string>
     <string name="tv">ТВ</string>
+    <string name="music">Музыка</string>
+    <string name="music_stations_empty">Список станций появится здесь</string>
     <string name="tv_channels_empty">Нет каналов</string>
     <string name="tv_channels_empty_subtitle">Плейлист пуст — попробуйте обновить</string>
     <string name="tv_channels_error">Не удалось загрузить</string>

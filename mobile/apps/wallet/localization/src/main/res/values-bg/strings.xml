@@ -170,6 +170,8 @@
     <string name="activity">Активност</string>
     <string name="history">История</string>
     <string name="tv">ТВ</string>
+    <string name="music">Музика</string>
+    <string name="music_stations_empty">Списъкът с радио станции ще се появи тук</string>
     <string name="tv_channels_empty">Няма канали</string>
     <string name="tv_channels_empty_subtitle">Плейлистът е празен — опитайте да го обновите</string>
     <string name="tv_channels_error">Зареждането е неуспешно</string>

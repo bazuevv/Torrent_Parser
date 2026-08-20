@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="28dp"
+    android:height="28dp"
+    android:viewportWidth="28"
+    android:viewportHeight="28">
+  <!-- Две восьмые с общим ребром: головы-эллипсы, штифты и перекладина -->
+  <path
+      android:pathData="M8.5,18.7a3.1,2.5 0 1,0 6.2,0a3.1,2.5 0 1,0 -6.2,0z"
+      android:fillColor="#ffffff"/>
+  <path
+      android:pathData="M20.9,16.1a3.1,2.5 0 1,0 6.2,0a3.1,2.5 0 1,0 -6.2,0z"
+      android:fillColor="#ffffff"/>
+  <path
+      android:pathData="M10.2,7.5L11.6,7.5L11.6,21.2L10.2,21.2z"
+      android:fillColor="#ffffff"/>
+  <path
+      android:pathData="M22.6,5.5L24,5.5L24,18.6L22.6,18.6z"
+      android:fillColor="#ffffff"/>
+  <path
+      android:pathData="M10.2,6L24,4.2L24,7.8L10.2,9.6z"
+      android:fillColor="#ffffff"/>
+</vector>
