@@ -673,5 +673,9 @@
  "меню.22": "Traducere vorbită",
  "подпись.48": "Traducere vorbită în direct (dublare) pentru camera pe care o asculți; originalul atenuat",
  "статус.66": "Traducerea vorbită e activată — originalul atenuat",
- "статус.67": "Traducerea vorbită e dezactivată"
+ "статус.67": "Traducerea vorbită e dezactivată",
+ "настройки.dubVoice.подпись": "Vocea dublajului",
+ "настройки.dubVoice.пояснение": "Vocea cu care Gemini citește traducerea (♀ feminină, ♂ masculină). Se aplică imediat: sesiunea se repornește cu noua voce.",
+ "настройки.dubDuck.подпись": "Atenuare în timpul dublajului",
+ "настройки.dubDuck.пояснение": "Cât de tare se șterge sunetul când vorbește dublajul. 0 % — fără atenuare. La muzică volumul revine întotdeauna complet."
 }

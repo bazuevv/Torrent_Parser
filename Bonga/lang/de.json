@@ -673,5 +673,9 @@
  "меню.22": "Gesprochene Übersetzung",
  "подпись.48": "Live-Sprechübersetzung (Dubbing) für den Raum, den Sie hören; das Original wird leiser",
  "статус.66": "Gesprochene Übersetzung an — Original leiser",
- "статус.67": "Gesprochene Übersetzung aus"
+ "статус.67": "Gesprochene Übersetzung aus",
+ "настройки.dubVoice.подпись": "Stimme der Übersetzungsausgabe",
+ "настройки.dubVoice.пояснение": "Die Stimme, mit der Gemini die Übersetzung liest (♀ weiblich, ♂ männlich). Wirkt sofort: die Sitzung startet mit der neuen Stimme neu.",
+ "настройки.dubDuck.подпись": "Abdämpfung bei der Ausgabe",
+ "настройки.dubDuck.пояснение": "Wie viel leiser der Stream wird, während die Stimme spricht. 0 % — nicht abdämpfen. Bei Musik kommt die Lautstärke immer voll zurück."
 }

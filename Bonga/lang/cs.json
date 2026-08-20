@@ -673,5 +673,9 @@
  "меню.22": "Mluvený překlad",
  "подпись.48": "Živé mluvené překládání (dabing) místnosti, kterou posloucháte; originál ztlumen",
  "статус.66": "Mluvený překlad zapnut — originál ztlumen",
- "статус.67": "Mluvený překlad vypnut"
+ "статус.67": "Mluvený překlad vypnut",
+ "настройки.dubVoice.подпись": "Hlas dabingu",
+ "настройки.dubVoice.пояснение": "Hlas, kterým Gemini čte překlad (♀ ženský, ♂ mužský). Platí hned: relace se restartuje s novým hlasem.",
+ "настройки.dubDuck.подпись": "Ztlumení při dabingu",
+ "настройки.dubDuck.пояснение": "O kolik ztišit stream, když mluví dabing. 0 % — neztlumovat. Při hudbě se hlasitost vždy vrátí naplno."
 }

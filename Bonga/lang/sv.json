@@ -673,5 +673,9 @@
  "меню.22": "Talad översättning",
  "подпись.48": "Livetalad översättning (dubbning) för rummet du lyssnar på; originalet dämpas",
  "статус.66": "Talad översättning på — originalet dämpat",
- "статус.67": "Talad översättning av"
+ "статус.67": "Talad översättning av",
+ "настройки.dubVoice.подпись": "Dubbelningsröst",
+ "настройки.dubVoice.пояснение": "Rösten Gemini läser översättningen med (♀ kvinnlig, ♂ manlig). Slår igenom direkt: sessionen startar om med den nya rösten.",
+ "настройки.dubDuck.подпись": "Dämpning under dubbelning",
+ "настройки.dubDuck.пояснение": "Hur mycket strömmen tystas medan rösten talar. 0 % — ingen dämpning. Vid musik återkommer volymen alltid fullt."
 }

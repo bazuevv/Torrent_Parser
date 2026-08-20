@@ -673,5 +673,9 @@
  "меню.22": "Konuşmalı çeviri",
  "подпись.48": "Dinlediğiniz oda için canlı konuşmalı çeviri (dublaj); orijinal kısılır",
  "статус.66": "Konuşmalı çeviri açık — orijinal kısık",
- "статус.67": "Konuşmalı çeviri kapalı"
+ "статус.67": "Konuşmalı çeviri kapalı",
+ "настройки.dubVoice.подпись": "Dublaj sesi",
+ "настройки.dubVoice.пояснение": "Gemini’nin çeviriyi okuduğu ses (♀ kadın, ♂ erkek). Hemen uygulanır: oturum yeni sesle yeniden başlar.",
+ "настройки.dubDuck.подпись": "Dublaj sırasında kısma",
+ "настройки.dubDuck.пояснение": "Ses konuşurken yayın ne kadar kısılsın. %0 — kısıma yok. Müzikte ses düzeyi her zaman tamamen geri gelir."
 }

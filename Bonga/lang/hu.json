@@ -673,5 +673,9 @@
  "меню.22": "Beszélt fordítás",
  "подпись.48": "Élő beszélt fordítás (szinkron) a hallgatott szobához; az eredeti el van halkítva",
  "статус.66": "Beszélt fordítás bekapcsolva — eredeti elhalkítva",
- "статус.67": "Beszélt fordítás kikapcsolva"
+ "статус.67": "Beszélt fordítás kikapcsolva",
+ "настройки.dubVoice.подпись": "Szinkronhang",
+ "настройки.dubVoice.пояснение": "A hang, amellyel a Gemini felolvassa a fordítást (♀ női, ♂ férfi). Azonnal érvényes: a munkamenet új hanggal indul újra.",
+ "настройки.dubDuck.подпись": "Elnémítás szinkron közben",
+ "настройки.dubDuck.пояснение": "Mennyire halkuljon a közvetítés, amíg a hang beszél. 0 % — nincs halkítás. Zenénél a hangerő mindig teljesen visszatér."
 }

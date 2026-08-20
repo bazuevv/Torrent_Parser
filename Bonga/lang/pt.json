@@ -673,5 +673,9 @@
  "меню.22": "Tradução falada",
  "подпись.48": "Tradução falada ao vivo (doblagem) da sala que você ouve; o original é abafado",
  "статус.66": "Tradução falada ativada — original abafado",
- "статус.67": "Tradução falada desativada"
+ "статус.67": "Tradução falada desativada",
+ "настройки.dubVoice.подпись": "Voz da dublagem",
+ "настройки.dubVoice.пояснение": "A voz com que o Gemini lê a tradução (♀ feminina, ♂ masculina). Aplica-se já: a sessão reinicia com a nova voz.",
+ "настройки.dubDuck.подпись": "Abafamento durante a dublagem",
+ "настройки.dubDuck.пояснение": "Quanto abaixar o som enquanto a dublagem fala. 0 % — sem abafar. Na música o volume volta sempre ao máximo."
 }

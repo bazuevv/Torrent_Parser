@@ -673,5 +673,9 @@
  "меню.22": "Traducción hablada",
  "подпись.48": "Traducción hablada en directo (doblaje) de la sala que escuchas; el original se atenúa",
  "статус.66": "Traducción hablada activada — original atenuado",
- "статус.67": "Traducción hablada desactivada"
+ "статус.67": "Traducción hablada desactivada",
+ "настройки.dubVoice.подпись": "Voz del doblaje",
+ "настройки.dubVoice.пояснение": "La voz con la que Gemini lee la traducción (♀ femenina, ♂ masculina). Se aplica al instante: la sesión se reinicia con la nueva voz.",
+ "настройки.dubDuck.подпись": "Atenuación durante el doblaje",
+ "настройки.dubDuck.пояснение": "Cuánto bajar el sonido mientras habla el doblaje. 0 % — sin atenuación. Con música el volumen siempre vuelve por completo."
 }

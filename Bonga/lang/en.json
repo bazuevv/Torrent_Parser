@@ -673,5 +673,9 @@
  "меню.22": "Spoken translation",
  "подпись.48": "Live spoken translation (dubbing) for the room you are listening to; the original is ducked",
  "статус.66": "Spoken translation on — original ducked",
- "статус.67": "Spoken translation off"
+ "статус.67": "Spoken translation off",
+ "настройки.dubVoice.подпись": "Dubbing voice",
+ "настройки.dubVoice.пояснение": "The voice Gemini reads the translation with (♀ female, ♂ male). Applies immediately: the session restarts with the new voice.",
+ "настройки.dubDuck.подпись": "Ducking during dubbing",
+ "настройки.dubDuck.пояснение": "How much to quiet the stream while the dubbing speaks. 0 % — no ducking: translation and original sound together. Volume always returns fully during music."
 }

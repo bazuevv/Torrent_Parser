@@ -673,5 +673,9 @@
  "меню.22": "Terjemahan lisan",
  "подпись.48": "Terjemahan lisan langsung (sulih suara) untuk ruangan yang Anda dengar; original diredam",
  "статус.66": "Terjemahan lisan aktif — original diredam",
- "статус.67": "Terjemahan lisan nonaktif"
+ "статус.67": "Terjemahan lisan nonaktif",
+ "настройки.dubVoice.подпись": "Suara sulih",
+ "настройки.dubVoice.пояснение": "Suara yang dipakai Gemini membacakan terjemahan (♀ wanita, ♂ pria). Langsung berlaku: sesi dimulai ulang dengan suara baru.",
+ "настройки.dubDuck.подпись": "Peredaman saat sulih suara",
+ "настройки.dubDuck.пояснение": "Seberapa pelan stream disuarakan saat sulih berbicara. 0% — tanpa peredaman. Saat musik volume selalu kembali penuh."
 }

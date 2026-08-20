@@ -152,7 +152,13 @@ SETTINGS_RANGE = {
     'wallCols': (0, 8),          # столбцов в стене; 0 — подбирать по числу ячеек
     'msgs': (0, 1),              # показывать ли сообщения о событиях в верхней панели
     'subsOrig': (0, 1),          # субтитры перевода: показывать оригинал над переводом
+    'dubDuck': (0, 100),         # озвучка: приглушать оригинал до этих процентов
 }
+
+# Голоса озвучки перевода (Gemini TTS). Список — как в документации speech
+# generation; ♀/♂ — в подписях на странице настроек.
+SUBS_VOICES = ('Kore', 'Aoede', 'Leda', 'Puck', 'Zephyr', 'Sulafat',
+               'Charon', 'Fenrir', 'Orus', 'Gacrux')
 
 # Путь к папке записей — единственная строковая настройка. Разрешаем только
 # внутри понятных корней: сервис работает под обычным пользователем, а systemd
@@ -290,7 +296,7 @@ def load_settings():
         if not isinstance(data, dict):
             return {}
         return {k: v for k, v in data.items()
-                if k in SETTINGS_RANGE or k in ('recDir', 'libDir', 'lang')}
+                if k in SETTINGS_RANGE or k in ('recDir', 'libDir', 'lang', 'dubVoice')}
     except (OSError, ValueError):
         return {}
 
@@ -322,6 +328,12 @@ def save_settings(patch):
                 code = str(value or '').strip().lower()
                 if code == 'auto' or code in known_langs():
                     merged[key] = code or 'auto'
+                continue
+            # Голос озвучки перевода: только имя из известного списка.
+            if key == 'dubVoice':
+                name = str(value or '').strip()
+                if name in SUBS_VOICES:
+                    merged[key] = name
                 continue
             if key in ('recDir', 'libDir'):
                 if isinstance(value, str) and not value.strip():

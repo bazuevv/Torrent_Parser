@@ -673,5 +673,9 @@
  "меню.22": "Talt oversættelse",
  "подпись.48": "Live talt oversættelse (dubbing) af rummet du lytter til; originalen dæmpes",
  "статус.66": "Talt oversættelse slået til — originalen dæmpet",
- "статус.67": "Talt oversættelse slået fra"
+ "статус.67": "Talt oversættelse slået fra",
+ "настройки.dubVoice.подпись": "Dubbingsstemme",
+ "настройки.dubVoice.пояснение": "Stemmen, Gemini læser oversættelsen med (♀ kvinde, ♂ mand). Virker med det samme: sessionen genstarter med den nye stemme.",
+ "настройки.dubDuck.подпись": "Dæmpning under dubbing",
+ "настройки.dubDuck.пояснение": "Hvor meget strømmen dæmpes, mens stemmen taler. 0 % — ingen dæmpning. Ved musik vender lydstyrken altid helt tilbage."
 }

@@ -1023,6 +1023,37 @@
     </div>
     <p class="hint" data-i18n="настройки.subsOrig.пояснение" hidden></p>
 
+    <div class="row">
+      <label for="dubVoice" data-i18n="настройки.dubVoice.подпись"></label>
+      <select id="dubVoice">
+        <option value="Kore">Kore ♀</option>
+        <option value="Aoede">Aoede ♀</option>
+        <option value="Leda">Leda ♀</option>
+        <option value="Puck">Puck ♀</option>
+        <option value="Zephyr">Zephyr ♀</option>
+        <option value="Sulafat">Sulafat ♀</option>
+        <option value="Charon">Charon ♂</option>
+        <option value="Fenrir">Fenrir ♂</option>
+        <option value="Orus">Orus ♂</option>
+        <option value="Gacrux">Gacrux ♂</option>
+      </select>
+      <i class="tip" data-hint="dubVoice" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
+    </div>
+    <p class="hint" data-i18n="настройки.dubVoice.пояснение" hidden></p>
+
+    <div class="row">
+      <label for="dubDuck" data-i18n="настройки.dubDuck.подпись"></label>
+      <select id="dubDuck">
+        <option value="0">0 %</option>
+        <option value="10">10 %</option>
+        <option value="15">15 %</option>
+        <option value="25">25 %</option>
+        <option value="40">40 %</option>
+      </select>
+      <i class="tip" data-hint="dubDuck" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
+    </div>
+    <p class="hint" data-i18n="настройки.dubDuck.пояснение" hidden></p>
+
     </details>
 
     <details class="sect" open data-sect="rec">
@@ -1580,7 +1611,8 @@
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
                      catalog: 60, act: 15, ladder: 43200, warm: 5,
-                     wallQ: 480, wallCols: 0, msgs: 1, subsOrig: 0, lang: 'auto' };
+                     wallQ: 480, wallCols: 0, msgs: 1, subsOrig: 0,
+                     dubVoice: 'Kore', dubDuck: 15, lang: 'auto' };
   let settings = { ...DEFAULTS };
 
   const cfg = key => settings[key];
@@ -2175,6 +2207,26 @@
       if (pick === 'auto') pickLang(); else useLang(pick);
     };
     fillLangs();
+
+    /* Голос озвучки — строка, как язык интерфейса: общий разбор настроек
+       превратил бы её в NaN. Смена голоса перезапускает сессию перевода —
+       новый голос вступает в силу сразу, не при следующей комнате. */
+    $('dubVoice').value = String(cfg('dubVoice') || 'Kore');
+    $('dubVoice').onchange = () => {
+      pushSettings({ dubVoice: $('dubVoice').value });
+      if (subs.on) {
+        subs.video = null;               // force: subsWire отправит start заново
+        subsWire(subsPickVideo());
+      }
+    };
+    /* Приглушение применяется тут же, без ожидания смены комнаты. */
+    $('dubDuck').onchange = () => {
+      pushSettings({ dubDuck: Number($('dubDuck').value) });
+      if (dub.on && subs.video) {
+        dubDuck(null);
+        dubDuck(subs.video);
+      }
+    };
 
     $('recDir').value = settings.recDir || '';
     $('libDir').value = settings.libDir || '';
@@ -6134,10 +6186,8 @@
   const SUBS_PORT = 8778;
   const SUBS_GAP = 1400;     // пауза в дельтах, мс: реплика закончилась
   const SUBS_ROLL = 240;     // символов в плашке: длинный монолог делим на реплики
-  // Голос озвучки перевода. Без этого модель синтезирует своим дефолтным
-  // мужским; Kore — женский, ровный чтец. Полный список имён — в документации
-  // speech generation Gemini (Zephyr, Puck, Aoede, Charon, Fenrir…).
-  const DUB_VOICE = 'Kore';
+  // Голос и приглушение озвучки — настройки на сервере (dubVoice/dubDuck),
+  // управляются из панели настроек; здесь только чтение с запасом.
   const subs = {
     on: false, ws: null, wanted: false, retry: 0,
     ctx: null, tap: null, sink: null,
@@ -6263,7 +6313,7 @@
     }
     subs.src = subs.ctx.createMediaStreamSource(stream);
     subs.src.connect(subs.tap);
-    subsSend({ type: 'start', target: 'ru', voice: DUB_VOICE });   // новая комната — с чистого листа
+    subsSend({ type: 'start', target: 'ru', voice: cfg('dubVoice') || 'Kore' });   // новая комната — с чистого листа
     dubDuck(videoEl);                     // озвучка приглушает уже новую комнату
   }
 
@@ -6370,7 +6420,6 @@
      музыка эфира остаётся чуть слышна под речью перевода. Приглушение —
      через video.volume, и это безопасно для самого перевода: captureStream
      на громкость элемента не смотрит, снимаемый сигнал не слабеет. */
-  const DUCK = 0.15;
   const dub = { on: false, ctx: null, next: 0, prev: null,
                 frames: 0, bytes: 0, stalls: 0, skipped: 0,
                 sawFirst: false, loggedAt: 0 };
@@ -6439,9 +6488,10 @@
       dub.prev.el.volume = dub.prev.vol;    // вернуть прежнему
     }
     dub.prev = null;
-    if (dub.on && videoEl) {
+    const level = (Number(cfg('dubDuck')) || 0) / 100;
+    if (dub.on && videoEl && level > 0) {
       const was = videoEl.volume;
-      videoEl.volume = Math.min(videoEl.volume, DUCK);
+      if (was > level) videoEl.volume = level;
       subsLine(`dub: приглушение ${dubSource(videoEl)} ` +
                `${was.toFixed(2)} → ${videoEl.volume.toFixed(2)}`);
       dub.prev = { el: videoEl, vol: was };

@@ -673,5 +673,9 @@
  "меню.22": "Bản dịch lời nói",
  "подпись.48": "Bản dịch lời nói trực tiếp (lồng tiếng) cho phòng bạn đang nghe; bản gốc giảm âm",
  "статус.66": "Bản dịch lời nói đã bật — bản gốc giảm âm",
- "статус.67": "Bản dịch lời nói đã tắt"
+ "статус.67": "Bản dịch lời nói đã tắt",
+ "настройки.dubVoice.подпись": "Giọng thuyết minh",
+ "настройки.dubVoice.пояснение": "Giọng Gemini đọc bản dịch (♀ nữ, ♂ nam). Áp dụng ngay: phiên dịch khởi động lại với giọng mới.",
+ "настройки.dubDuck.подпись": "Giảm âm khi thuyết minh",
+ "настройки.dubDuck.пояснение": "Giảm bao nhiêu âm lượng khi giọng thuyết minh nói. 0% — không giảm. Khi có nhạc, âm lượng luôn trở lại nguyên vẹn."
 }

@@ -673,5 +673,9 @@
  "меню.22": "Gesproken vertaling",
  "подпись.48": "Live gesproken vertaling (dubbing) voor de kamer die je beluistert; het origineel wordt gedempt",
  "статус.66": "Gesproken vertaling aan — origineel gedempt",
- "статус.67": "Gesproken vertaling uit"
+ "статус.67": "Gesproken vertaling uit",
+ "настройки.dubVoice.подпись": "Stem van de nagesynchronisatie",
+ "настройки.dubVoice.пояснение": "De stem waarin Gemini de vertaling voorleest (♀ vrouw, ♂ man). Direct actief: de sessie herstart met de nieuwe stem.",
+ "настройки.dubDuck.подпись": "Dempen tijdens de nagesynchronisatie",
+ "настройки.dubDuck.пояснение": "Hoeveel zachter de stream klinkt terwijl de stem praat. 0 % — niet dempen. Bij muziek komt het volume altijd volledig terug."
 }

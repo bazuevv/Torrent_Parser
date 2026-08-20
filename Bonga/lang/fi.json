@@ -673,5 +673,9 @@
  "меню.22": "Puhuttu käännös",
  "подпись.48": "Live-puhuttu käännös (dubbaus) huoneelle, jota kuuntelet; alkuperä hiljennetään",
  "статус.66": "Puhuttu käännös päällä — alkuperä hiljennetty",
- "статус.67": "Puhuttu käännös pois"
+ "статус.67": "Puhuttu käännös pois",
+ "настройки.dubVoice.подпись": "Dubbausääni",
+ "настройки.dubVoice.пояснение": "Ääni, jolla Gemini lukee käännöksen (♀ nainen, ♂ mies). Tulee voimaan heti: istunto käynnistyy uudelleen uudella äänellä.",
+ "настройки.dubDuck.подпись": "Hiljennys dubbauksen aikana",
+ "настройки.dubDuck.пояснение": "Kuinka paljon virtaa hiljennetään, kun ääni puhuu. 0 % — ei hiljennystä. Musiikin aikana äänenvoimakkuus palaa aina täysin."
 }
