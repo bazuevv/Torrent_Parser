@@ -144,6 +144,8 @@
     <string name="music_stations_error">Yuklab boʻlmadi</string>
     <string name="music_stations_error_subtitle">Internet aloqasini tekshirib, qayta urinib koʻring</string>
     <string name="music_stations_retry">Yangilash</string>
+    <string name="music_player_error">Oqim mavjud emas. Bir daqiqadan soʻng qayta urinib koʻring</string>
+    <string name="music_player_retry">Qayta urinish</string>
     <string name="tv_channels_empty">Kanallar yoʻq</string>
     <string name="tv_channels_empty_subtitle">Pleylist boʻsh — yangilab koʻring</string>
     <string name="tv_channels_error">Yuklab boʻlmadi</string>

@@ -13,6 +13,7 @@ import com.tonapps.tonkeeper.extensions.isLightTheme
 import com.tonapps.tonkeeper.ui.screen.main.MainScreen
 import com.tonapps.tonkeeper.ui.screen.music.entity.RadioStationEntity
 import com.tonapps.tonkeeper.ui.screen.music.list.Adapter
+import com.tonapps.tonkeeper.ui.screen.music.player.RadioPlayerScreen
 import com.tonapps.tonkeeperx.R
 import com.tonapps.uikit.color.backgroundPageColor
 import com.tonapps.uikit.color.backgroundTransparentColor
@@ -117,7 +118,7 @@ class MusicScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_mus
     }
 
     private fun openStation(station: RadioStationEntity) {
-        // Плеер появится в следующей фазе
+        navigation?.add(RadioPlayerScreen.newInstance(station))
     }
 
     override fun getRecyclerView(): RecyclerView? {

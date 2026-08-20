@@ -141,6 +141,8 @@
     <string name="music_stations_error">Gagal memuat</string>
     <string name="music_stations_error_subtitle">Periksa koneksi internet Anda dan coba lagi</string>
     <string name="music_stations_retry">Muat ulang</string>
+    <string name="music_player_error">Siaran tidak tersedia. Coba lagi sebentar</string>
+    <string name="music_player_retry">Coba lagi</string>
     <string name="tv_channels_empty">Tidak ada saluran</string>
     <string name="tv_channels_empty_subtitle">Daftar putar kosong. Coba muat ulang.</string>
     <string name="tv_channels_error">Gagal memuat</string>

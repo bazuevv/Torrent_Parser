@@ -141,6 +141,8 @@
     <string name="music_stations_error">Не вдалося завантажити</string>
     <string name="music_stations_error_subtitle">Перевірте підключення до інтернету та спробуйте ще раз</string>
     <string name="music_stations_retry">Оновити</string>
+    <string name="music_player_error">Потік недоступний. Спробуйте ще раз за хвилину</string>
+    <string name="music_player_retry">Повторити</string>
     <string name="tv_channels_empty">Немає каналів</string>
     <string name="tv_channels_empty_subtitle">Плейлист порожній — спробуйте оновити</string>
     <string name="tv_channels_error">Не вдалося завантажити</string>

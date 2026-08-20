@@ -144,6 +144,8 @@
     <string name="music_stations_error">Yüklenemedi</string>
     <string name="music_stations_error_subtitle">İnternet bağlantınızı kontrol edip tekrar deneyin</string>
     <string name="music_stations_retry">Yenile</string>
+    <string name="music_player_error">Yayın kullanılamıyor. Bir dakika sonra tekrar deneyin</string>
+    <string name="music_player_retry">Tekrar dene</string>
     <string name="tv_channels_empty">Kanal yok</string>
     <string name="tv_channels_empty_subtitle">Çalma listesi boş. Yenilemeyi deneyin.</string>
     <string name="tv_channels_error">Yüklenemedi</string>

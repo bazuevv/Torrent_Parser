@@ -298,6 +298,8 @@
     <string name="music_stations_error">Не удалось загрузить</string>
     <string name="music_stations_error_subtitle">Проверьте подключение к интернету и попробуйте ещё раз</string>
     <string name="music_stations_retry">Обновить</string>
+    <string name="music_player_error">Поток недоступен. Попробуйте ещё раз через минуту</string>
+    <string name="music_player_retry">Повторить</string>
     <string name="tv_channels_empty">Нет каналов</string>
     <string name="tv_channels_empty_subtitle">Плейлист пуст — попробуйте обновить</string>
     <string name="tv_channels_error">Не удалось загрузить</string>
