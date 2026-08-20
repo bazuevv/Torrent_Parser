@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Suara sulih",
  "настройки.dubVoice.пояснение": "Suara yang dipakai Gemini membacakan terjemahan (♀ wanita, ♂ pria). Langsung berlaku: sesi dimulai ulang dengan suara baru.",
  "настройки.dubDuck.подпись": "Peredaman saat sulih suara",
- "настройки.dubDuck.пояснение": "Seberapa pelan stream disuarakan saat sulih berbicara. 0% — tanpa peredaman. Saat musik volume selalu kembali penuh."
+ "настройки.dubDuck.пояснение": "Seberapa pelan stream disuarakan saat sulih berbicara. 0% — tanpa peredaman. Saat musik volume selalu kembali penuh.",
+ "меню.23": "Suara: {голос} →",
+ "меню.24": "Peredaman: {процент} % →",
+ "подпись.49": "Ganti suara sulih",
+ "подпись.50": "Ganti peredaman: 0/10/15/25/40 %"
 }

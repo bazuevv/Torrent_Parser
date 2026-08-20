@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Dubbing voice",
  "настройки.dubVoice.пояснение": "The voice Gemini reads the translation with (♀ female, ♂ male). Applies immediately: the session restarts with the new voice.",
  "настройки.dubDuck.подпись": "Ducking during dubbing",
- "настройки.dubDuck.пояснение": "How much to quiet the stream while the dubbing speaks. 0 % — no ducking: translation and original sound together. Volume always returns fully during music."
+ "настройки.dubDuck.пояснение": "How much to quiet the stream while the dubbing speaks. 0 % — no ducking: translation and original sound together. Volume always returns fully during music.",
+ "меню.23": "Dubbing voice: {голос} →",
+ "меню.24": "Ducking: {процент} % →",
+ "подпись.49": "Cycle the dubbing voice",
+ "подпись.50": "Cycle ducking: 0/10/15/25/40 %"
 }

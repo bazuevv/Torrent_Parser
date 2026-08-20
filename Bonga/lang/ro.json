@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Vocea dublajului",
  "настройки.dubVoice.пояснение": "Vocea cu care Gemini citește traducerea (♀ feminină, ♂ masculină). Se aplică imediat: sesiunea se repornește cu noua voce.",
  "настройки.dubDuck.подпись": "Atenuare în timpul dublajului",
- "настройки.dubDuck.пояснение": "Cât de tare se șterge sunetul când vorbește dublajul. 0 % — fără atenuare. La muzică volumul revine întotdeauna complet."
+ "настройки.dubDuck.пояснение": "Cât de tare se șterge sunetul când vorbește dublajul. 0 % — fără atenuare. La muzică volumul revine întotdeauna complet.",
+ "меню.23": "Voce: {голос} →",
+ "меню.24": "Atenuare: {процент} % →",
+ "подпись.49": "Comută vocea dublajului",
+ "подпись.50": "Comută atenuarea: 0/10/15/25/40 %"
 }

@@ -1418,6 +1418,8 @@
     <div data-act="mute" data-i18n-title="подпись.41" data-i18n="меню.15"></div>
     <div data-act="subs" data-i18n-title="подпись.47" data-i18n="меню.21"></div>
     <div data-act="dub" data-i18n-title="подпись.48" data-i18n="меню.22"></div>
+    <div data-act="dubVoice" data-i18n-title="подпись.49"></div>
+    <div data-act="dubDuck" data-i18n-title="подпись.50"></div>
     <hr>
     <div data-act="profile" data-i18n-title="подпись.42" data-i18n="меню.16"></div>
     <div data-act="copy" data-i18n-title="подпись.43" data-i18n="меню.17"></div>
@@ -2212,21 +2214,9 @@
        превратил бы её в NaN. Смена голоса перезапускает сессию перевода —
        новый голос вступает в силу сразу, не при следующей комнате. */
     $('dubVoice').value = String(cfg('dubVoice') || 'Kore');
-    $('dubVoice').onchange = () => {
-      pushSettings({ dubVoice: $('dubVoice').value });
-      if (subs.on) {
-        subs.video = null;               // force: subsWire отправит start заново
-        subsWire(subsPickVideo());
-      }
-    };
+    $('dubVoice').onchange = () => subsSetVoice($('dubVoice').value);
     /* Приглушение применяется тут же, без ожидания смены комнаты. */
-    $('dubDuck').onchange = () => {
-      pushSettings({ dubDuck: Number($('dubDuck').value) });
-      if (dub.on && subs.video) {
-        dubDuck(null);
-        dubDuck(subs.video);
-      }
-    };
+    $('dubDuck').onchange = () => subsSetDuck(Number($('dubDuck').value));
 
     $('recDir').value = settings.recDir || '';
     $('libDir').value = settings.libDir || '';
@@ -6143,6 +6133,17 @@
     } else if (act === 'mute') video.muted = !video.muted;
     else if (act === 'subs') subsToggle();
     else if (act === 'dub') dubToggle();
+    else if (act === 'dubVoice') {
+      /* Голос и приглушение меняются прямо из меню, по кругу — как интервалы
+         автопереключения: одна и та же кнопка листает значения. */
+      const cur = cfg('dubVoice') || 'Kore';
+      const i = Math.max(0, DUB_VOICES.findIndex(v => v[0] === cur));
+      subsSetVoice(DUB_VOICES[(i + 1) % DUB_VOICES.length][0]);
+    } else if (act === 'dubDuck') {
+      const cur = Number(cfg('dubDuck')) || 0;
+      const i = Math.max(0, DUB_DUCKS.indexOf(cur));
+      subsSetDuck(DUB_DUCKS[(i + 1) % DUB_DUCKS.length]);
+    }
     else if (act === 'profile') openProfile(currentRoom().user);
     else if (act === 'copy') {
       navigator.clipboard.writeText(streamUrl)
@@ -6186,8 +6187,31 @@
   const SUBS_PORT = 8778;
   const SUBS_GAP = 1400;     // пауза в дельтах, мс: реплика закончилась
   const SUBS_ROLL = 240;     // символов в плашке: длинный монолог делим на реплики
-  // Голос и приглушение озвучки — настройки на сервере (dubVoice/dubDuck),
-  // управляются из панели настроек; здесь только чтение с запасом.
+  // Голос и приглушение озвучки — настройки на сервере (dubVoice/dubDuck).
+  // Меняются из панели настроек и из контекст-меню (листание по кругу).
+  const DUB_VOICES = [['Kore', '♀'], ['Aoede', '♀'], ['Leda', '♀'],
+                      ['Puck', '♀'], ['Zephyr', '♀'], ['Sulafat', '♀'],
+                      ['Charon', '♂'], ['Fenrir', '♂'], ['Orus', '♂'],
+                      ['Gacrux', '♂']];
+  const DUB_DUCKS = [0, 10, 15, 25, 40];
+
+  function subsSetVoice(name) {
+    pushSettings({ dubVoice: name });
+    $('dubVoice').value = name;
+    if (subs.on) {
+      subs.video = null;               // force: subsWire отправит start заново
+      subsWire(subsPickVideo());
+    }
+  }
+
+  function subsSetDuck(level) {
+    pushSettings({ dubDuck: level });
+    $('dubDuck').value = String(level);
+    if (dub.on && subs.video) {
+      dubDuck(null);
+      dubDuck(subs.video);
+    }
+  }
   const subs = {
     on: false, ws: null, wanted: false, retry: 0,
     ctx: null, tap: null, sink: null,
@@ -6412,6 +6436,15 @@
       item.textContent = item.textContent.replace(/^✓ /, '');
       if (on) item.textContent = '✓ ' + item.textContent;
     }
+    // Регуляторы меню показывают текущее значение прямо в подписи.
+    const voice = ctx.querySelector('[data-act="dubVoice"]');
+    if (voice) {
+      const cur = cfg('dubVoice') || 'Kore';
+      const mark = (DUB_VOICES.find(v => v[0] === cur) || ['', ''])[1];
+      voice.textContent = t('меню.23', { голос: `${cur} ${mark}` });
+    }
+    const duck = ctx.querySelector('[data-act="dubDuck"]');
+    if (duck) duck.textContent = t('меню.24', { процент: String(Number(cfg('dubDuck')) || 0) });
   }
 
   /* Озвучка перевода (дубляж) для комнаты, которую слушаем. Речь приходит

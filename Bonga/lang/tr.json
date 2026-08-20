@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Dublaj sesi",
  "настройки.dubVoice.пояснение": "Gemini’nin çeviriyi okuduğu ses (♀ kadın, ♂ erkek). Hemen uygulanır: oturum yeni sesle yeniden başlar.",
  "настройки.dubDuck.подпись": "Dublaj sırasında kısma",
- "настройки.dubDuck.пояснение": "Ses konuşurken yayın ne kadar kısılsın. %0 — kısıma yok. Müzikte ses düzeyi her zaman tamamen geri gelir."
+ "настройки.dubDuck.пояснение": "Ses konuşurken yayın ne kadar kısılsın. %0 — kısıma yok. Müzikte ses düzeyi her zaman tamamen geri gelir.",
+ "меню.23": "Ses: {голос} →",
+ "меню.24": "Kısma: {процент} % →",
+ "подпись.49": "Dublaj sesini değiştir",
+ "подпись.50": "Kısmayı değiştir: 0/10/15/25/40 %"
 }

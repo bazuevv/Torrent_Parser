@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Głos dubbingu",
  "настройки.dubVoice.пояснение": "Głos, którym Gemini czyta tłumaczenie (♀ kobiecy, ♂ męski). Zmiana działa od razu: sesja uruchomi się ponownie z nowym głosem.",
  "настройки.dubDuck.подпись": "Wyciszanie podczas dubbingu",
- "настройки.dubDuck.пояснение": "O ile ciszej robić strumień, gdy mówi dubbing. 0 % — nie wyciszać. Przy muzyce głośność zawsze wraca w całości."
+ "настройки.dubDuck.пояснение": "O ile ciszej robić strumień, gdy mówi dubbing. 0 % — nie wyciszać. Przy muzyce głośność zawsze wraca w całości.",
+ "меню.23": "Głos: {голос} →",
+ "меню.24": "Wyciszanie: {процент} % →",
+ "подпись.49": "Przełączaj głos dubbingu",
+ "подпись.50": "Przełączaj wyciszenie: 0/10/15/25/40 %"
 }

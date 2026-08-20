@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Dubleringsstemme",
  "настройки.dubVoice.пояснение": "Stemmen Gemini leser oversettelsen med (♀ kvinne, ♂ mann). Virker straks: økten starter på ny med den nye stemmen.",
  "настройки.dubDuck.подпись": "Demping under dublering",
- "настройки.dubDuck.пояснение": "Hvor mye strømmen dempes mens stemmen snakker. 0 % — ingen demping. Ved musikk kommer volumet alltid fullt tilbake."
+ "настройки.dubDuck.пояснение": "Hvor mye strømmen dempes mens stemmen snakker. 0 % — ingen demping. Ved musikk kommer volumet alltid fullt tilbake.",
+ "меню.23": "Stemme: {голос} →",
+ "меню.24": "Demping: {процент} % →",
+ "подпись.49": "Bytt dubleringsstemmen",
+ "подпись.50": "Bytt dempingen: 0/10/15/25/40 %"
 }

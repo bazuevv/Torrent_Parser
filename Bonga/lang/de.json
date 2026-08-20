@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Stimme der Übersetzungsausgabe",
  "настройки.dubVoice.пояснение": "Die Stimme, mit der Gemini die Übersetzung liest (♀ weiblich, ♂ männlich). Wirkt sofort: die Sitzung startet mit der neuen Stimme neu.",
  "настройки.dubDuck.подпись": "Abdämpfung bei der Ausgabe",
- "настройки.dubDuck.пояснение": "Wie viel leiser der Stream wird, während die Stimme spricht. 0 % — nicht abdämpfen. Bei Musik kommt die Lautstärke immer voll zurück."
+ "настройки.dubDuck.пояснение": "Wie viel leiser der Stream wird, während die Stimme spricht. 0 % — nicht abdämpfen. Bei Musik kommt die Lautstärke immer voll zurück.",
+ "меню.23": "Stimme: {голос} →",
+ "меню.24": "Abdämpfung: {процент} % →",
+ "подпись.49": "Übersetzungsstimme durchblättern",
+ "подпись.50": "Abdämpfung durchblättern: 0/10/15/25/40 %"
 }

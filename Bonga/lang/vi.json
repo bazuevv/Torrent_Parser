@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Giọng thuyết minh",
  "настройки.dubVoice.пояснение": "Giọng Gemini đọc bản dịch (♀ nữ, ♂ nam). Áp dụng ngay: phiên dịch khởi động lại với giọng mới.",
  "настройки.dubDuck.подпись": "Giảm âm khi thuyết minh",
- "настройки.dubDuck.пояснение": "Giảm bao nhiêu âm lượng khi giọng thuyết minh nói. 0% — không giảm. Khi có nhạc, âm lượng luôn trở lại nguyên vẹn."
+ "настройки.dubDuck.пояснение": "Giảm bao nhiêu âm lượng khi giọng thuyết minh nói. 0% — không giảm. Khi có nhạc, âm lượng luôn trở lại nguyên vẹn.",
+ "меню.23": "Giọng: {голос} →",
+ "меню.24": "Giảm âm: {процент} % →",
+ "подпись.49": "Đổi giọng thuyết minh",
+ "подпись.50": "Đổi mức giảm âm: 0/10/15/25/40 %"
 }

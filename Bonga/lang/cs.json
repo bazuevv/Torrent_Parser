@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Hlas dabingu",
  "настройки.dubVoice.пояснение": "Hlas, kterým Gemini čte překlad (♀ ženský, ♂ mužský). Platí hned: relace se restartuje s novým hlasem.",
  "настройки.dubDuck.подпись": "Ztlumení při dabingu",
- "настройки.dubDuck.пояснение": "O kolik ztišit stream, když mluví dabing. 0 % — neztlumovat. Při hudbě se hlasitost vždy vrátí naplno."
+ "настройки.dubDuck.пояснение": "O kolik ztišit stream, když mluví dabing. 0 % — neztlumovat. Při hudbě se hlasitost vždy vrátí naplno.",
+ "меню.23": "Hlas: {голос} →",
+ "меню.24": "Ztlumení: {процент} % →",
+ "подпись.49": "Přepínat hlas dabingu",
+ "подпись.50": "Přepínat ztlumení: 0/10/15/25/40 %"
 }

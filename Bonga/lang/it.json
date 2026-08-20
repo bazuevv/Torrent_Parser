@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Voce del doppiaggio",
  "настройки.dubVoice.пояснение": "La voce con cui Gemini legge la traduzione (♀ femminile, ♂ maschile). Applicata subito: la sessione riparte con la nuova voce.",
  "настройки.dubDuck.подпись": "Attenuazione durante il doppiaggio",
- "настройки.dubDuck.пояснение": "Di quanto abbassare il flusso mentre parla il doppiaggio. 0 % — nessuna attenuazione. Con la musica il volume torna sempre pieno."
+ "настройки.dubDuck.пояснение": "Di quanto abbassare il flusso mentre parla il doppiaggio. 0 % — nessuna attenuazione. Con la musica il volume torna sempre pieno.",
+ "меню.23": "Voce del doppiaggio: {голос} →",
+ "меню.24": "Attenuazione: {процент} % →",
+ "подпись.49": "Scorri la voce del doppiaggio",
+ "подпись.50": "Scorri l’attenuazione: 0/10/15/25/40 %"
 }

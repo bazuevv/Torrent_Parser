@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Dubbausääni",
  "настройки.dubVoice.пояснение": "Ääni, jolla Gemini lukee käännöksen (♀ nainen, ♂ mies). Tulee voimaan heti: istunto käynnistyy uudelleen uudella äänellä.",
  "настройки.dubDuck.подпись": "Hiljennys dubbauksen aikana",
- "настройки.dubDuck.пояснение": "Kuinka paljon virtaa hiljennetään, kun ääni puhuu. 0 % — ei hiljennystä. Musiikin aikana äänenvoimakkuus palaa aina täysin."
+ "настройки.dubDuck.пояснение": "Kuinka paljon virtaa hiljennetään, kun ääni puhuu. 0 % — ei hiljennystä. Musiikin aikana äänenvoimakkuus palaa aina täysin.",
+ "меню.23": "Ääni: {голос} →",
+ "меню.24": "Hiljennys: {процент} % →",
+ "подпись.49": "Vaihda dubbausääntä",
+ "подпись.50": "Vaihda hiljennystä: 0/10/15/25/40 %"
 }

@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Dubbelningsröst",
  "настройки.dubVoice.пояснение": "Rösten Gemini läser översättningen med (♀ kvinnlig, ♂ manlig). Slår igenom direkt: sessionen startar om med den nya rösten.",
  "настройки.dubDuck.подпись": "Dämpning under dubbelning",
- "настройки.dubDuck.пояснение": "Hur mycket strömmen tystas medan rösten talar. 0 % — ingen dämpning. Vid musik återkommer volymen alltid fullt."
+ "настройки.dubDuck.пояснение": "Hur mycket strömmen tystas medan rösten talar. 0 % — ingen dämpning. Vid musik återkommer volymen alltid fullt.",
+ "меню.23": "Röst: {голос} →",
+ "меню.24": "Dämpning: {процент} % →",
+ "подпись.49": "Växla dubbningsrösten",
+ "подпись.50": "Växla dämpningen: 0/10/15/25/40 %"
 }

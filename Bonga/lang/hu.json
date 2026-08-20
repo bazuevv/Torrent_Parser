@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Szinkronhang",
  "настройки.dubVoice.пояснение": "A hang, amellyel a Gemini felolvassa a fordítást (♀ női, ♂ férfi). Azonnal érvényes: a munkamenet új hanggal indul újra.",
  "настройки.dubDuck.подпись": "Elnémítás szinkron közben",
- "настройки.dubDuck.пояснение": "Mennyire halkuljon a közvetítés, amíg a hang beszél. 0 % — nincs halkítás. Zenénél a hangerő mindig teljesen visszatér."
+ "настройки.dubDuck.пояснение": "Mennyire halkuljon a közvetítés, amíg a hang beszél. 0 % — nincs halkítás. Zenénél a hangerő mindig teljesen visszatér.",
+ "меню.23": "Hang: {голос} →",
+ "меню.24": "Halkítás: {процент} % →",
+ "подпись.49": "Szinkronhang léptetése",
+ "подпись.50": "Halkítás léptetése: 0/10/15/25/40 %"
 }

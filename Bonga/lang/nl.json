@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Stem van de nagesynchronisatie",
  "настройки.dubVoice.пояснение": "De stem waarin Gemini de vertaling voorleest (♀ vrouw, ♂ man). Direct actief: de sessie herstart met de nieuwe stem.",
  "настройки.dubDuck.подпись": "Dempen tijdens de nagesynchronisatie",
- "настройки.dubDuck.пояснение": "Hoeveel zachter de stream klinkt terwijl de stem praat. 0 % — niet dempen. Bij muziek komt het volume altijd volledig terug."
+ "настройки.dubDuck.пояснение": "Hoeveel zachter de stream klinkt terwijl de stem praat. 0 % — niet dempen. Bij muziek komt het volume altijd volledig terug.",
+ "меню.23": "Stem: {голос} →",
+ "меню.24": "Demping: {процент} % →",
+ "подпись.49": "Stem voor de vertaling doorbladeren",
+ "подпись.50": "Demping doorbladeren: 0/10/15/25/40 %"
 }

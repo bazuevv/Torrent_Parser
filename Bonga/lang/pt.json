@@ -677,5 +677,9 @@
  "настройки.dubVoice.подпись": "Voz da dublagem",
  "настройки.dubVoice.пояснение": "A voz com que o Gemini lê a tradução (♀ feminina, ♂ masculina). Aplica-se já: a sessão reinicia com a nova voz.",
  "настройки.dubDuck.подпись": "Abafamento durante a dublagem",
- "настройки.dubDuck.пояснение": "Quanto abaixar o som enquanto a dublagem fala. 0 % — sem abafar. Na música o volume volta sempre ao máximo."
+ "настройки.dubDuck.пояснение": "Quanto abaixar o som enquanto a dublagem fala. 0 % — sem abafar. Na música o volume volta sempre ao máximo.",
+ "меню.23": "Voz da dublagem: {голос} →",
+ "меню.24": "Abafamento: {процент} % →",
+ "подпись.49": "Alternar a voz da dublagem",
+ "подпись.50": "Alternar o abafamento: 0/10/15/25/40 %"
 }
