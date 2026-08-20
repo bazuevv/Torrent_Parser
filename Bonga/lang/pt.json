@@ -681,5 +681,11 @@
  "меню.23": "Voz da dublagem: {голос} →",
  "меню.24": "Abafamento: {процент} % →",
  "подпись.49": "Alternar a voz da dublagem",
- "подпись.50": "Alternar o abafamento: 0/10/15/25/40 %"
+ "подпись.50": "Alternar o abafamento: 0/10/15/25/40 %",
+ "меню.25": "Limite de voz: {знач1} →",
+ "меню.26": "Limite de silêncio: {знач1} →",
+ "меню.27": "Confirmação: {знач1} →",
+ "подпись.51": "Quão forte a voz deve ser para o classificador aceitá-la (menor — mais sensível, mas a música passa mais por voz)",
+ "подпись.52": "Abaixo deste volume — silêncio ou pausa, não música",
+ "подпись.53": "Quantos quadros seguidos confirmam uma mudança (menos — mais rápido, porém mais nervoso)"
 }

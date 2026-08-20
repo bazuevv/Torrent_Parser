@@ -681,5 +681,11 @@
  "меню.23": "Voix du doublage : {голос} →",
  "меню.24": "Atténuation : {процент} % →",
  "подпись.49": "Faire défiler la voix du doublage",
- "подпись.50": "Faire défiler l’atténuation : 0/10/15/25/40 %"
+ "подпись.50": "Faire défiler l’atténuation : 0/10/15/25/40 %",
+ "меню.25": "Seuil de parole : {знач1} →",
+ "меню.26": "Seuil de silence : {знач1} →",
+ "меню.27": "Confirmation : {знач1} →",
+ "подпись.51": "Force nécessaire de la parole pour que le classifieur l’accepte (plus bas — plus sensible, mais la musique passe plus souvent pour de la parole)",
+ "подпись.52": "Sous ce niveau sonore — silence ou pause, pas de la musique",
+ "подпись.53": "Nombre d’images consécutives confirmant un changement (moins — plus rapide mais plus nerveux)"
 }

@@ -681,5 +681,11 @@
  "меню.23": "Stemme: {голос} →",
  "меню.24": "Dæmpning: {процент} % →",
  "подпись.49": "Skift dubberingsstemmen",
- "подпись.50": "Skift dæmpningen: 0/10/15/25/40 %"
+ "подпись.50": "Skift dæmpningen: 0/10/15/25/40 %",
+ "меню.25": "Taltærskel: {знач1} →",
+ "меню.26": "Stilletærskel: {знач1} →",
+ "меню.27": "Bekræftelse: {знач1} →",
+ "подпись.51": "Hvor stærk talen skal være, før klassificeren accepterer den (lavere — følsommere, men musikken tæller oftere som tale)",
+ "подпись.52": "Under dette niveau — stilhed eller pause, ikke musik",
+ "подпись.53": "Hvor mange billeder i træk der bekræfter en ændring (færre — hurtigere men nervøst)"
 }

@@ -681,5 +681,11 @@
  "меню.23": "Ääni: {голос} →",
  "меню.24": "Hiljennys: {процент} % →",
  "подпись.49": "Vaihda dubbausääntä",
- "подпись.50": "Vaihda hiljennystä: 0/10/15/25/40 %"
+ "подпись.50": "Vaihda hiljennystä: 0/10/15/25/40 %",
+ "меню.25": "Puhkeen kynnys: {знач1} →",
+ "меню.26": "Hiljaisuuden kynnys: {знач1} →",
+ "меню.27": "Vahvistus: {знач1} →",
+ "подпись.51": "Kuinka vahva puheen on oltava, jotta luokitin hyväksyy sen (matalampi — herkempi, mutta musiikki menee useammin puheeksi)",
+ "подпись.52": "Tämän tason alla — hiljaisuus tai tauko, ei musiikkia",
+ "подпись.53": "Montako kehystä peräkkäin vahvistaa vaihdon (vähemmän — nopeampi mutta herkempi)"
 }

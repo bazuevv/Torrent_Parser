@@ -681,5 +681,11 @@
  "меню.23": "Hang: {голос} →",
  "меню.24": "Halkítás: {процент} % →",
  "подпись.49": "Szinkronhang léptetése",
- "подпись.50": "Halkítás léptetése: 0/10/15/25/40 %"
+ "подпись.50": "Halkítás léptetése: 0/10/15/25/40 %",
+ "меню.25": "Beszédküszöb: {знач1} →",
+ "меню.26": "Csendküszöb: {знач1} →",
+ "меню.27": "Megerősítés: {знач1} →",
+ "подпись.51": "Mennyire erős legyen a beszéd, hogy az osztályozó elfogadja (kisebb — érzékenyebb, de a zene gyakrabban beszédnek számít)",
+ "подпись.52": "Ezen szint alatt — csend vagy szünet, nem zene",
+ "подпись.53": "Hány egymást követő keret erősíti meg a váltást (kevesebb — gyorsabb, de idegesebb)"
 }

@@ -681,5 +681,11 @@
  "меню.23": "Głos: {голос} →",
  "меню.24": "Wyciszanie: {процент} % →",
  "подпись.49": "Przełączaj głos dubbingu",
- "подпись.50": "Przełączaj wyciszenie: 0/10/15/25/40 %"
+ "подпись.50": "Przełączaj wyciszenie: 0/10/15/25/40 %",
+ "меню.25": "Próg mowy: {знач1} →",
+ "меню.26": "Próg ciszy: {знач1} →",
+ "меню.27": "Potwierdzenie: {знач1} →",
+ "подпись.51": "Jak mocna musi być mowa, by klasyfikator ją uznał (mniej — czulszy, ale muzyka częściej uchodzi za mowę)",
+ "подпись.52": "Poniżej tego poziomu — cisza lub pauza, nie muzyka",
+ "подпись.53": "Ile klatek z rzędu potwierdza zmianę (mniej — szybciej, ale nerwowiej)"
 }

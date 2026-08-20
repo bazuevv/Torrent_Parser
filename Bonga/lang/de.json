@@ -681,5 +681,11 @@
  "меню.23": "Stimme: {голос} →",
  "меню.24": "Abdämpfung: {процент} % →",
  "подпись.49": "Übersetzungsstimme durchblättern",
- "подпись.50": "Abdämpfung durchblättern: 0/10/15/25/40 %"
+ "подпись.50": "Abdämpfung durchblättern: 0/10/15/25/40 %",
+ "меню.25": "Sprachschwelle: {знач1} →",
+ "меню.26": "Stille-Schwelle: {знач1} →",
+ "меню.27": "Bestätigung: {знач1} →",
+ "подпись.51": "Wie stark Sprache sein muss, damit der Klassifikator sie annimmt (niedriger — empfindlicher, aber Musik gilt öfter als Sprache)",
+ "подпись.52": "Unter dieser Lautstärke — Stille oder Pause, keine Musik",
+ "подпись.53": "Wie viele Frames hintereinander einen Wechsel bestätigen (weniger — schneller, aber nervöser)"
 }

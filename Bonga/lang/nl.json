@@ -681,5 +681,11 @@
  "меню.23": "Stem: {голос} →",
  "меню.24": "Demping: {процент} % →",
  "подпись.49": "Stem voor de vertaling doorbladeren",
- "подпись.50": "Demping doorbladeren: 0/10/15/25/40 %"
+ "подпись.50": "Demping doorbladeren: 0/10/15/25/40 %",
+ "меню.25": "Spraakdrempel: {знач1} →",
+ "меню.26": "Stiltedrempel: {знач1} →",
+ "меню.27": "Bevestiging: {знач1} →",
+ "подпись.51": "Hoe sterk spraak moet zijn voordat de classifier die accepteert (lager — gevoeliger, maar muziek vaker ten onrechte spraak)",
+ "подпись.52": "Onder dit volumeniveau — stilte of pauze, geen muziek",
+ "подпись.53": "Hoeveel frames achter elkaar een wissel bevestigen (minder — sneller maar zenuwachtiger)"
 }

@@ -681,5 +681,11 @@
  "меню.23": "Voce del doppiaggio: {голос} →",
  "меню.24": "Attenuazione: {процент} % →",
  "подпись.49": "Scorri la voce del doppiaggio",
- "подпись.50": "Scorri l’attenuazione: 0/10/15/25/40 %"
+ "подпись.50": "Scorri l’attenuazione: 0/10/15/25/40 %",
+ "меню.25": "Soglia voce: {знач1} →",
+ "меню.26": "Soglia silenzio: {знач1} →",
+ "меню.27": "Conferma: {знач1} →",
+ "подпись.51": "Quanto deve essere forte la voce perché il classificatore la accetti (più basso — più sensibile, ma la musica passa più spesso per voce)",
+ "подпись.52": "Sotto questo volume — silenzio o pausa, non musica",
+ "подпись.53": "Quanti fotogrammi consecutivi confermano un cambio (meno — più rapido ma più nervoso)"
 }

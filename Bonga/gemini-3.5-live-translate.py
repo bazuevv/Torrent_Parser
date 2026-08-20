@@ -23,6 +23,12 @@
     ← {"type":"ru","text":"..."}       дельта перевода
     ← {"type":"phrase_end"}            конец реплики (turn_complete)
     ← {"type":"status","text":"..."}   служебное: ready/обрыв/переподключение
+    ← {"type":"kind","kind":"speech"}  вердикт классификатора при смене
+    ← {"type":"kind_cfg",…}            текущие пороги: при подключении и после смены
+    → {"type":"kind_cfg","speech_min":0.25,…}
+                                       пороги классификатора; применяются на
+                                       лету и хранятся у хаба (kind-settings.json
+                                       рядом с журналом), листаются из меню плеера
     ← бинарный кадр                    переведённая речь (PCM16 LE mono 24 кГц);
                                        приходит всегда — native-audio модель
                                        синтезирует его неизбежно, играет ли его
@@ -116,6 +122,23 @@ class AudioKind:
         self._hist = []
         self._kind = 'speech'
         self._on_change = on_change
+        # Пороги решающего правила. Значения по умолчанию — из калибровки на
+        # записях; меняются с лету из контекст-меню плеера (kind_cfg).
+        self._params = {'speech_min': KIND_SPEECH_MIN,
+                        'quiet_rms': KIND_QUIET_RMS,
+                        'hold': 3}
+
+    def params(self):
+        return dict(self._params)
+
+    def set_params(self, **kw):
+        """Применить пороги с отсечением по разумным границам."""
+        if 'speech_min' in kw:
+            self._params['speech_min'] = min(0.6, max(0.05, float(kw['speech_min'])))
+        if 'quiet_rms' in kw:
+            self._params['quiet_rms'] = min(0.05, max(0.002, float(kw['quiet_rms'])))
+        if 'hold' in kw:
+            self._params['hold'] = min(6, max(1, int(kw['hold'])))
 
     def feed(self, pcm):
         """Очередной чанк PCM16 16 кГц (тот же поток, что уходит в Gemini)."""
@@ -127,9 +150,10 @@ class AudioKind:
 
     def _step(self, window):
         np = self._np
+        p = self._params
         x = np.frombuffer(window, np.int16).astype(np.float32) / 32768
         rms = float(np.sqrt(np.mean(x * x))) if len(x) else 0.0
-        if rms < KIND_QUIET_RMS:
+        if rms < p['quiet_rms']:
             kind = 'quiet'               # пауза между фразами — не музыка
         else:
             scores = self._sess.run(None, {'waveform': x})[0].mean(axis=0)
@@ -139,15 +163,16 @@ class AudioKind:
             # Абсолютный порог вместо «у кого больше»: фоновая музыка под
             # речью делит скор с речью, и argmax мигал на паузах. Речь есть —
             # переводим; речи нет — остальное делим между пением и музыкой.
-            if sp >= KIND_SPEECH_MIN:
+            if sp >= p['speech_min']:
                 kind = 'speech'
             elif si >= mu and si >= 0.1:
                 kind = 'singing'
             else:
                 kind = 'music'
-        self._hist = (self._hist + [kind])[-3:]
-        # Три одинаковых кадра подряд — только тогда объявляем смену.
-        if len(self._hist) == 3 and len(set(self._hist)) == 1 and kind != self._kind:
+        self._hist = (self._hist + [kind])[-p['hold']:]
+        # Несколько одинаковых кадров подряд — только тогда объявляем смену.
+        if (len(self._hist) == p['hold'] and len(set(self._hist)) == 1
+                and kind != self._kind):
             self._kind = kind
             self._on_change(kind)
 
@@ -542,6 +567,38 @@ async def serve_hub(args):
         log(f'классификатор недоступен ({type(err).__name__}: {err}) — '
             f'гейт озвучки останется на транскрипциях')
 
+    def kind_store():
+        """Файл порогов рядом с журналом: значения переживут перезапуск."""
+        base = (os.environ.get('BONGA_REC_DIR')
+                or (args.dump_dir and os.path.dirname(os.path.abspath(args.dump_dir)))
+                or os.getcwd())
+        return os.path.join(base, 'kind-settings.json')
+
+    if classifier is not None:
+        try:
+            with open(kind_store(), encoding='utf-8') as f:
+                classifier.set_params(**json.load(f))
+            log(f'пороги классификатора из файла: {classifier.params()}')
+        except (OSError, ValueError, TypeError):
+            pass                         # файла нет — остаются умолчания
+
+    def apply_kind_cfg(msg):
+        """Пороги от клиента: применить, сохранить, разослать всем."""
+        if classifier is None:
+            return
+        classifier.set_params(**{k: msg[k] for k in
+                                 ('speech_min', 'quiet_rms', 'hold') if k in msg})
+        cfg = json.dumps({'type': 'kind_cfg', **classifier.params()},
+                         ensure_ascii=False)
+        for ws in list(clients):
+            asyncio.create_task(_send_safe(ws, cfg))
+        try:
+            with open(kind_store(), 'w', encoding='utf-8') as f:
+                json.dump(classifier.params(), f, ensure_ascii=False)
+        except OSError:
+            pass
+        log(f'пороги классификатора: {classifier.params()}')
+
     def music_hold():
         """Музыка/тишина держится дольше трёх секунд — перевод пауз не платит."""
         return (kind_box['kind'] != 'speech'
@@ -570,6 +627,9 @@ async def serve_hub(args):
         addr = getattr(ws, 'remote_address', None)
         clients.add(ws)
         log(f'клиент + {addr}, всего {len(clients)}')
+        if classifier is not None:       # меню плеера сразу покажет актуальное
+            await _send_safe(ws, json.dumps({'type': 'kind_cfg',
+                                             **classifier.params()}))
         try:
             async for message in ws:
                 if isinstance(message, (bytes, bytearray)):
@@ -615,6 +675,8 @@ async def serve_hub(args):
                 elif kind == 'stop':
                     log(f'stop от {addr}')
                     await stop_translator()
+                elif kind == 'kind_cfg':
+                    apply_kind_cfg(msg)
         except websockets.ConnectionClosed:
             pass
         finally:

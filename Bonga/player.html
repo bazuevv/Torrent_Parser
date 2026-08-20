@@ -1420,6 +1420,9 @@
     <div data-act="dub" data-i18n-title="подпись.48" data-i18n="меню.22"></div>
     <div data-act="dubVoice" data-i18n-title="подпись.49"></div>
     <div data-act="dubDuck" data-i18n-title="подпись.50"></div>
+    <div data-act="kindSpeech" data-i18n-title="подпись.51"></div>
+    <div data-act="kindQuiet" data-i18n-title="подпись.52"></div>
+    <div data-act="kindHold" data-i18n-title="подпись.53"></div>
     <hr>
     <div data-act="profile" data-i18n-title="подпись.42" data-i18n="меню.16"></div>
     <div data-act="copy" data-i18n-title="подпись.43" data-i18n="меню.17"></div>
@@ -6144,6 +6147,22 @@
       const i = Math.max(0, DUB_DUCKS.indexOf(cur));
       subsSetDuck(DUB_DUCKS[(i + 1) % DUB_DUCKS.length]);
     }
+    /* Пороги классификатора речи/музыки: тоже листаются по кругу, но
+       применяет их хаб (он же их хранит) — меню просто отправляет новое
+       значение, подтверждение придёт kind_cfg. */
+    else if (act === 'kindSpeech') {
+      const steps = [0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5];
+      const i = Math.max(0, steps.indexOf(subs.kindCfg.speech_min));
+      subsSend({ type: 'kind_cfg', speech_min: steps[(i + 1) % steps.length] });
+    } else if (act === 'kindQuiet') {
+      const steps = [0.004, 0.006, 0.008, 0.012, 0.016, 0.02, 0.03];
+      const i = Math.max(0, steps.indexOf(subs.kindCfg.quiet_rms));
+      subsSend({ type: 'kind_cfg', quiet_rms: steps[(i + 1) % steps.length] });
+    } else if (act === 'kindHold') {
+      const steps = [1, 2, 3, 4, 5, 6];
+      const i = Math.max(0, steps.indexOf(subs.kindCfg.hold));
+      subsSend({ type: 'kind_cfg', hold: steps[(i + 1) % steps.length] });
+    }
     else if (act === 'profile') openProfile(currentRoom().user);
     else if (act === 'copy') {
       navigator.clipboard.writeText(streamUrl)
@@ -6217,6 +6236,7 @@
     ctx: null, tap: null, sink: null,
     src: null, video: null, streams: new WeakMap(), timer: 0,
     kind: 'speech', kindAt: 0,
+    kindCfg: { speech_min: 0.25, quiet_rms: 0.012, hold: 3 },
   };
 
   function subsPickVideo() {
@@ -6368,6 +6388,16 @@
       }
       else if (m.type === 'phrase_end') subsDone();
       else if (m.type === 'kind') subsKind(m.kind);
+      else if (m.type === 'kind_cfg') {
+        // Прилетает при подключении (актуальные значения) и после каждой
+        // смены — меню всегда показывает правду, даже с другого устройства.
+        if (m.speech_min !== undefined) subs.kindCfg.speech_min = m.speech_min;
+        if (m.quiet_rms !== undefined) subs.kindCfg.quiet_rms = m.quiet_rms;
+        if (m.hold !== undefined) subs.kindCfg.hold = m.hold;
+        subsLine(`пороги: речь ≥ ${subs.kindCfg.speech_min}, ` +
+                 `тишина < ${subs.kindCfg.quiet_rms}, ` +
+                 `устойчивость ${subs.kindCfg.hold} кадр.`);
+      }
       else if (m.type === 'status') subsLine(m.text);
     };
     ws.onclose = () => {
@@ -6445,6 +6475,13 @@
     }
     const duck = ctx.querySelector('[data-act="dubDuck"]');
     if (duck) duck.textContent = t('меню.24', { процент: String(Number(cfg('dubDuck')) || 0) });
+    // Пороги классификатора — значения от хаба.
+    const ks = ctx.querySelector('[data-act="kindSpeech"]');
+    if (ks) ks.textContent = t('меню.25', { знач1: String(subs.kindCfg.speech_min) });
+    const kq = ctx.querySelector('[data-act="kindQuiet"]');
+    if (kq) kq.textContent = t('меню.26', { знач1: String(subs.kindCfg.quiet_rms) });
+    const kh = ctx.querySelector('[data-act="kindHold"]');
+    if (kh) kh.textContent = t('меню.27', { знач1: String(subs.kindCfg.hold) });
   }
 
   /* Озвучка перевода (дубляж) для комнаты, которую слушаем. Речь приходит

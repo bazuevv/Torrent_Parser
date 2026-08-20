@@ -681,5 +681,11 @@
  "меню.23": "Voce: {голос} →",
  "меню.24": "Atenuare: {процент} % →",
  "подпись.49": "Comută vocea dublajului",
- "подпись.50": "Comută atenuarea: 0/10/15/25/40 %"
+ "подпись.50": "Comută atenuarea: 0/10/15/25/40 %",
+ "меню.25": "Prag de vorbire: {знач1} →",
+ "меню.26": "Prag de liniște: {знач1} →",
+ "меню.27": "Confirmare: {знач1} →",
+ "подпись.51": "Cât de puternică trebuie să fie vorbirea ca clasificatorul s-o accepte (mai mic — mai sensibil, dar muzica trece mai des drept vorbire)",
+ "подпись.52": "Sub acest nivel — liniște sau pauză, nu muzică",
+ "подпись.53": "Câte cadre la rând confirmă o schimbare (mai puține — mai rapid dar mai nervos)"
 }

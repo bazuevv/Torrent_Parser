@@ -681,5 +681,11 @@
  "меню.23": "Stemme: {голос} →",
  "меню.24": "Demping: {процент} % →",
  "подпись.49": "Bytt dubleringsstemmen",
- "подпись.50": "Bytt dempingen: 0/10/15/25/40 %"
+ "подпись.50": "Bytt dempingen: 0/10/15/25/40 %",
+ "меню.25": "Talgrense: {знач1} →",
+ "меню.26": "Stillgrense: {знач1} →",
+ "меню.27": "Bekreftelse: {знач1} →",
+ "подпись.51": "Hvor sterk talen må være før klassifikatoren godtar den (lavere — mer følsom, men musikk tas oftere for tale)",
+ "подпись.52": "Under dette nivået — stillhet eller pause, ikke musikk",
+ "подпись.53": "Hvor mange bilder på rad som bekrefter en endring (færre — raskere men nervøst)"
 }

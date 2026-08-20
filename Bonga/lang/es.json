@@ -681,5 +681,11 @@
  "меню.23": "Voz del doblaje: {голос} →",
  "меню.24": "Atenuación: {процент} % →",
  "подпись.49": "Rotar la voz del doblaje",
- "подпись.50": "Rotar la atenuación: 0/10/15/25/40 %"
+ "подпись.50": "Rotar la atenuación: 0/10/15/25/40 %",
+ "меню.25": "Umbral de voz: {знач1} →",
+ "меню.26": "Umbral de silencio: {знач1} →",
+ "меню.27": "Confirmación: {знач1} →",
+ "подпись.51": "Qué tan fuerte debe ser la voz para que el clasificador la acepte (menor — más sensible, pero la música pasa más por voz)",
+ "подпись.52": "Por debajo de este volumen — silencio o pausa, no música",
+ "подпись.53": "Cuántos fotogramas seguidos confirman un cambio (menos — más rápido pero más nervioso)"
 }

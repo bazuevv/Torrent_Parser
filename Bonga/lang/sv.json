@@ -681,5 +681,11 @@
  "меню.23": "Röst: {голос} →",
  "меню.24": "Dämpning: {процент} % →",
  "подпись.49": "Växla dubbningsrösten",
- "подпись.50": "Växla dämpningen: 0/10/15/25/40 %"
+ "подпись.50": "Växla dämpningen: 0/10/15/25/40 %",
+ "меню.25": "Tröskel för tal: {знач1} →",
+ "меню.26": "Tystnadströskel: {знач1} →",
+ "меню.27": "Bekräftelse: {знач1} →",
+ "подпись.51": "Hur starkt talet måste vara för att klassificeraren ska godta det (lägre — känsligare, men musiken passerar oftare som tal)",
+ "подпись.52": "Under denna nivå — tystnad eller paus, inte musik",
+ "подпись.53": "Hur många bildrutor i följd som bekräftar en ändring (färre — snabbare men nervösare)"
 }

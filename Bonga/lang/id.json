@@ -681,5 +681,11 @@
  "меню.23": "Suara: {голос} →",
  "меню.24": "Peredaman: {процент} % →",
  "подпись.49": "Ganti suara sulih",
- "подпись.50": "Ganti peredaman: 0/10/15/25/40 %"
+ "подпись.50": "Ganti peredaman: 0/10/15/25/40 %",
+ "меню.25": "Ambang wicara: {знач1} →",
+ "меню.26": "Ambang sunyi: {знач1} →",
+ "меню.27": "Konfirmasi: {знач1} →",
+ "подпись.51": "Seberapa kuat wicara agar classifier menerimanya (lebih rendah — lebih peka, tapi musik lebih sering dianggap wicara)",
+ "подпись.52": "Di bawah tingkat ini — sunyi atau jeda, bukan musik",
+ "подпись.53": "Berapa frame berurutan mengonfirmasi perubahan (lebih sedikit — lebih cepat tapi lebih gelisah)"
 }

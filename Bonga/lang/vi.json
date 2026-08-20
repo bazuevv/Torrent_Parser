@@ -681,5 +681,11 @@
  "меню.23": "Giọng: {голос} →",
  "меню.24": "Giảm âm: {процент} % →",
  "подпись.49": "Đổi giọng thuyết minh",
- "подпись.50": "Đổi mức giảm âm: 0/10/15/25/40 %"
+ "подпись.50": "Đổi mức giảm âm: 0/10/15/25/40 %",
+ "меню.25": "Ngưỡng tiếng nói: {знач1} →",
+ "меню.26": "Ngưỡng im lặng: {знач1} →",
+ "меню.27": "Xác nhận: {знач1} →",
+ "подпись.51": "Tiếng nói phải mạnh đến đâu để bộ phân loại chấp nhận (thấp hơn — nhạy hơn, nhưng nhạc hay bị coi là tiếng nói)",
+ "подпись.52": "Dưới mức này — im lặng hoặc tạm dừng, không phải nhạc",
+ "подпись.53": "Bao nhiêu khung hình liên tiếp xác nhận thay đổi (ít — nhanh nhưng hay nhảy)"
 }

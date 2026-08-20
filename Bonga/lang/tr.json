@@ -681,5 +681,11 @@
  "меню.23": "Ses: {голос} →",
  "меню.24": "Kısma: {процент} % →",
  "подпись.49": "Dublaj sesini değiştir",
- "подпись.50": "Kısmayı değiştir: 0/10/15/25/40 %"
+ "подпись.50": "Kısmayı değiştir: 0/10/15/25/40 %",
+ "меню.25": "Konuşma eşiği: {знач1} →",
+ "меню.26": "Sessizlik eşiği: {знач1} →",
+ "меню.27": "Doğrulama: {знач1} →",
+ "подпись.51": "Sınıflandırıcının kabul etmesi için konuşma ne kadar güçlü olmalı (düşük — daha hassas, ama müzik daha sık konuşma sanılır)",
+ "подпись.52": "Bu seviyenin altında — sessizlik veya ara, müzik değil",
+ "подпись.53": "Kaç kare üst üste değişimi doğrular (az — hızlı ama diken üstünde)"
 }

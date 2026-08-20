@@ -681,5 +681,11 @@
  "меню.23": "Hlas: {голос} →",
  "меню.24": "Ztlumení: {процент} % →",
  "подпись.49": "Přepínat hlas dabingu",
- "подпись.50": "Přepínat ztlumení: 0/10/15/25/40 %"
+ "подпись.50": "Přepínat ztlumení: 0/10/15/25/40 %",
+ "меню.25": "Práh řeči: {знач1} →",
+ "меню.26": "Práh ticha: {знач1} →",
+ "меню.27": "Potvrzení: {знач1} →",
+ "подпись.51": "Jak silná musí být řeč, aby ji klasifikátor uznal (méně — citlivější, ale hudba častěji projde za řeč)",
+ "подпись.52": "Pod touto hlasitostí — ticho nebo pauza, ne hudba",
+ "подпись.53": "Kolik snímků za sebou potvrzuje změnu (méně — rychlejší, ale nervóznější)"
 }

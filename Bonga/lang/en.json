@@ -681,5 +681,11 @@
  "меню.23": "Dubbing voice: {голос} →",
  "меню.24": "Ducking: {процент} % →",
  "подпись.49": "Cycle the dubbing voice",
- "подпись.50": "Cycle ducking: 0/10/15/25/40 %"
+ "подпись.50": "Cycle ducking: 0/10/15/25/40 %",
+ "меню.25": "Speech threshold: {знач1} →",
+ "меню.26": "Quiet threshold: {знач1} →",
+ "меню.27": "Change confirmation: {знач1} →",
+ "подпись.51": "How strong speech must be for the classifier to accept it (lower — more sensitive, but music masquerades as speech more often)",
+ "подпись.52": "Below this loudness — silence or a pause, not music",
+ "подпись.53": "How many consecutive frames confirm a speech/music change (fewer — faster but jumpier)"
 }
