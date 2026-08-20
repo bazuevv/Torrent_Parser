@@ -1164,6 +1164,19 @@ class Handler(SimpleHTTPRequestHandler):
         if path.startswith('/lib/'):
             return self._serve_library(path)
 
+        # Страница и словари меняются вместе с кодом, а статика из
+        # SimpleHTTPRequestHandler не запрещает кэш — браузер держит копию
+        # по эвристике и после правки показывает старую страницу (прецедент
+        # 2026-08-20: «в настройках нет ни одного регулятора» при готовых).
+        # Отдаём сами, с no-store: файлы маленькие, перезагрузка дёшева.
+        if path == '/player.html' or (path.startswith('/lang/')
+                                       and path.endswith('.json')):
+            full = os.path.join(ROOT, path.lstrip('/'))
+            if os.path.isfile(full):
+                ctype = ('text/html; charset=utf-8' if path.endswith('.html')
+                         else 'application/json; charset=utf-8')
+                return self._serve_file(full, ctype, False)
+
         return super().do_GET()
 
     def do_POST(self):
