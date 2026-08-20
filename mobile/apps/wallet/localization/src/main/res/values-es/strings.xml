@@ -143,6 +143,8 @@
     <string name="music_stations_retry">Actualizar</string>
     <string name="music_player_error">El stream no está disponible. Reinténtalo en un momento</string>
     <string name="music_player_retry">Reintentar</string>
+    <string name="music_stations_not_found">No se encontró nada</string>
+    <string name="music_stations_not_found_subtitle">Prueba con otro nombre de emisora</string>
     <string name="tv_channels_empty">Sin canales</string>
     <string name="tv_channels_empty_subtitle">La lista está vacía. Intenta actualizarla.</string>
     <string name="tv_channels_error">Error al cargar</string>

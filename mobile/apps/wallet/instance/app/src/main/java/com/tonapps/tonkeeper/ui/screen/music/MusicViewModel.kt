@@ -20,6 +20,9 @@ class MusicViewModel(
     private val _uiStateFlow = MutableStateFlow<MusicUiState>(MusicUiState.Loading)
     val uiStateFlow = _uiStateFlow.asStateFlow()
 
+    private var stations: List<RadioStationEntity> = emptyList()
+    private var query: String = ""
+
     init {
         load(forceRefresh = false)
     }
@@ -28,27 +31,46 @@ class MusicViewModel(
         load(forceRefresh = true)
     }
 
+    fun setQuery(text: String?) {
+        val value = text?.trim().orEmpty()
+        if (value.equals(query, ignoreCase = true)) {
+            return
+        }
+        query = value
+        _uiStateFlow.value = buildState()
+    }
+
     private fun load(forceRefresh: Boolean) {
         viewModelScope.launch {
             if (!forceRefresh) {
                 _uiStateFlow.value = MusicUiState.Loading
             }
             _uiStateFlow.value = try {
-                buildState(radioRepository.getStations(forceRefresh))
+                stations = radioRepository.getStations(forceRefresh)
+                buildState()
             } catch (e: Throwable) {
                 L.e(e, "Radio stations load failed")
+                stations = emptyList()
                 MusicUiState.Error
             }
         }
     }
 
-    private fun buildState(stations: List<RadioStationEntity>): MusicUiState {
+    private fun buildState(): MusicUiState {
         if (stations.isEmpty()) {
             return MusicUiState.Empty
         }
-        val items = stations.mapIndexed { index, station ->
+        val filtered = if (query.isEmpty()) {
+            stations
+        } else {
+            stations.filter { it.name.contains(query, ignoreCase = true) }
+        }
+        if (filtered.isEmpty()) {
+            return MusicUiState.NotFound
+        }
+        val items = filtered.mapIndexed { index, station ->
             Item.Station(
-                position = ListCell.getPosition(stations.size, index),
+                position = ListCell.getPosition(filtered.size, index),
                 station = station,
             )
         }

@@ -6,6 +6,7 @@ import android.view.View
 import android.widget.Button
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.appcompat.widget.LinearLayoutCompat
+import androidx.core.view.doOnLayout
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.tonapps.blockchain.model.legacy.WalletEntity
@@ -23,6 +24,7 @@ import org.koin.androidx.viewmodel.ext.android.viewModel
 import uikit.drawable.BarDrawable
 import uikit.extensions.collectFlow
 import uikit.widget.HeaderView
+import uikit.widget.SearchInput
 
 /**
  * Вкладка «Музыка»: список радиостанций из каталога Radio-Browser.
@@ -39,6 +41,7 @@ class MusicScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_mus
     private lateinit var headerView: HeaderView
     private lateinit var refreshView: SwipeRefreshLayout
     private lateinit var listView: RecyclerView
+    private lateinit var searchView: SearchInput
     private lateinit var placeholderView: LinearLayoutCompat
     private lateinit var placeholderTitleView: AppCompatTextView
     private lateinit var placeholderSubtitleView: AppCompatTextView
@@ -66,6 +69,12 @@ class MusicScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_mus
         listView = view.findViewById(R.id.list)
         listView.adapter = adapter
 
+        searchView = view.findViewById(R.id.search)
+        searchView.doOnTextChanged = { viewModel.setQuery(it?.toString()) }
+        // Поиск закреплён под шапкой, а её высота = barHeight + вырез статус-бара,
+        // поэтому отступ берём фактический, а не из константы
+        headerView.doOnLayout { searchView.translationY = it.measuredHeight.toFloat() }
+
         placeholderView = view.findViewById(R.id.placeholder)
         placeholderTitleView = view.findViewById(R.id.placeholder_title)
         placeholderSubtitleView = view.findViewById(R.id.placeholder_subtitle)
@@ -84,6 +93,16 @@ class MusicScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_mus
                     showPlaceholder(
                         Localization.music_stations_empty,
                         Localization.music_stations_empty_subtitle
+                    )
+                }
+                is MusicUiState.NotFound -> {
+                    refreshView.isRefreshing = false
+                    headerView.setSubtitle(null)
+                    // По пустому поиску обновлять нечего — там помогает только другой запрос
+                    showPlaceholder(
+                        Localization.music_stations_not_found,
+                        Localization.music_stations_not_found_subtitle,
+                        withRetry = false
                     )
                 }
                 is MusicUiState.Error -> {
@@ -105,9 +124,10 @@ class MusicScreen(wallet: WalletEntity) : MainScreen.Child(R.layout.fragment_mus
         }
     }
 
-    private fun showPlaceholder(titleResId: Int, subtitleResId: Int) {
+    private fun showPlaceholder(titleResId: Int, subtitleResId: Int, withRetry: Boolean = true) {
         placeholderTitleView.setText(titleResId)
         placeholderSubtitleView.setText(subtitleResId)
+        placeholderButton.visibility = if (withRetry) View.VISIBLE else View.GONE
         placeholderView.visibility = View.VISIBLE
         listView.visibility = View.GONE
     }

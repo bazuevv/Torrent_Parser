@@ -292,6 +292,8 @@
     <string name="music_stations_retry">Refresh</string>
     <string name="music_player_error">The stream is unavailable. Try again in a moment</string>
     <string name="music_player_retry">Try again</string>
+    <string name="music_stations_not_found">Nothing found</string>
+    <string name="music_stations_not_found_subtitle">Try a different station name</string>
     <string name="tv_channels_empty">No channels</string>
     <string name="tv_channels_empty_subtitle">The playlist is empty. Try refreshing it.</string>
     <string name="tv_channels_error">Failed to load</string>

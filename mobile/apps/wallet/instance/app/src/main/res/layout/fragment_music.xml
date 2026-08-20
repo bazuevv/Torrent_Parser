@@ -13,9 +13,17 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:paddingHorizontal="@dimen/offsetMedium"
+            android:paddingTop="80dp"
             android:clipToPadding="false" />
 
     </com.tonapps.tonkeeper.ui.component.MainSwipeRefreshLayout>
+
+    <uikit.widget.SearchInput
+        android:id="@+id/search"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="@dimen/offsetMedium"
+        android:hint="@string/search" />
 
     <androidx.appcompat.widget.LinearLayoutCompat
         android:id="@+id/placeholder"

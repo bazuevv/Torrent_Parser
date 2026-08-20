@@ -146,6 +146,8 @@
     <string name="music_stations_retry">刷新</string>
     <string name="music_player_error">电台暂时不可用，请稍后重试</string>
     <string name="music_player_retry">重试</string>
+    <string name="music_stations_not_found">未找到结果</string>
+    <string name="music_stations_not_found_subtitle">请尝试其他电台名称</string>
     <string name="tv_channels_empty">没有频道</string>
     <string name="tv_channels_empty_subtitle">播放列表为空，请尝试刷新</string>
     <string name="tv_channels_error">加载失败</string>

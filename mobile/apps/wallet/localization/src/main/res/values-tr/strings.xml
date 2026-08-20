@@ -146,6 +146,8 @@
     <string name="music_stations_retry">Yenile</string>
     <string name="music_player_error">Yayın kullanılamıyor. Bir dakika sonra tekrar deneyin</string>
     <string name="music_player_retry">Tekrar dene</string>
+    <string name="music_stations_not_found">Sonuç bulunamadı</string>
+    <string name="music_stations_not_found_subtitle">Başka bir istasyon adı deneyin</string>
     <string name="tv_channels_empty">Kanal yok</string>
     <string name="tv_channels_empty_subtitle">Çalma listesi boş. Yenilemeyi deneyin.</string>
     <string name="tv_channels_error">Yüklenemedi</string>

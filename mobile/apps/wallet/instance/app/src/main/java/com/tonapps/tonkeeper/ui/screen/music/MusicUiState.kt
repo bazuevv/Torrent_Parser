@@ -8,6 +8,8 @@ sealed class MusicUiState {
 
     data object Empty : MusicUiState()
 
+    data object NotFound : MusicUiState()
+
     data object Error : MusicUiState()
 
     data class Items(val items: List<BaseListItem>) : MusicUiState()

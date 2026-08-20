@@ -136,13 +136,15 @@
     <string name="history">Історія</string>
     <string name="tv">ТБ</string>
     <string name="music">Музика</string>
-    <string name="music_stations_empty">Список станцій з&#39;явиться тут</string>
+    <string name="music_stations_empty">Список станцій з\'явиться тут</string>
     <string name="music_stations_empty_subtitle">Каталог порожній — спробуйте оновити</string>
     <string name="music_stations_error">Не вдалося завантажити</string>
     <string name="music_stations_error_subtitle">Перевірте підключення до інтернету та спробуйте ще раз</string>
     <string name="music_stations_retry">Оновити</string>
     <string name="music_player_error">Потік недоступний. Спробуйте ще раз за хвилину</string>
     <string name="music_player_retry">Повторити</string>
+    <string name="music_stations_not_found">Нічого не знайдено</string>
+    <string name="music_stations_not_found_subtitle">Спробуйте іншу назву станції</string>
     <string name="tv_channels_empty">Немає каналів</string>
     <string name="tv_channels_empty_subtitle">Плейлист порожній — спробуйте оновити</string>
     <string name="tv_channels_error">Не вдалося завантажити</string>
