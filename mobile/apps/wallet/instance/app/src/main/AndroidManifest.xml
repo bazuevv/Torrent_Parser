@@ -17,6 +17,10 @@
         <service
             android:name="com.tonapps.tonkeeper.ui.screen.music.playback.RadioPlaybackService"
             android:foregroundServiceType="mediaPlayback"
-            android:exported="false" />
+            android:exported="false">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

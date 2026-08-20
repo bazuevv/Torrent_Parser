@@ -124,10 +124,18 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
     }
 
     private fun connectController() {
-        val future = MediaController.Builder(
-            requireContext(),
-            SessionToken(requireContext(), ComponentName(requireContext(), RadioPlaybackService::class.java))
-        ).buildAsync()
+        // Ошибка подключения к сервису не должна ронять приложение — она
+        // превращается в экран «Повторить», как и ошибка самого потока
+        val future = try {
+            MediaController.Builder(
+                requireContext(),
+                SessionToken(requireContext(), ComponentName(requireContext(), RadioPlaybackService::class.java))
+            ).buildAsync()
+        } catch (e: Throwable) {
+            L.e(e, "Radio session token failed")
+            showError()
+            return
+        }
         future.addListener({
             try {
                 val mediaController = future.get()
