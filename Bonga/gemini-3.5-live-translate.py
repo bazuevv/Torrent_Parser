@@ -86,6 +86,11 @@ KIND_SING = {24, 25, 26, 27, 28, 29, 30, 31, 32, 35, 250}
 KIND_MUSIC = {132, 133}                  # Music, Musical instrument
 KIND_WIN = RATE * 96 // 100              # окно YAMNet 0.96 с
 KIND_HOP = RATE * 48 // 100              # шаг окна 0.48 с
+# Пороги решающего правила — подобраны на записях 2026-08-19 (kind-debug.py,
+# срезы 120/1300/4700 с MinniMia): речь с фоном даёт 0.46–1.06, паузы между
+# фразами — 0.01–0.18, тихий музыкальный фон — до 0.07.
+KIND_QUIET_RMS = 0.012                   # ниже — тишина/пауза, не музыка
+KIND_SPEECH_MIN = 0.25                   # абсолютный порог: есть речь — переводим
 
 
 class AudioKind:
@@ -124,14 +129,22 @@ class AudioKind:
         np = self._np
         x = np.frombuffer(window, np.int16).astype(np.float32) / 32768
         rms = float(np.sqrt(np.mean(x * x))) if len(x) else 0.0
-        if rms < 0.004:
-            kind = 'quiet'
+        if rms < KIND_QUIET_RMS:
+            kind = 'quiet'               # пауза между фразами — не музыка
         else:
             scores = self._sess.run(None, {'waveform': x})[0].mean(axis=0)
-            sums = {'speech': sum(scores[i] for i in KIND_SPEECH),
-                    'singing': sum(scores[i] for i in KIND_SING),
-                    'music': sum(scores[i] for i in KIND_MUSIC)}
-            kind = max(sums, key=sums.get)
+            sp = float(sum(scores[i] for i in KIND_SPEECH))
+            si = float(sum(scores[i] for i in KIND_SING))
+            mu = float(sum(scores[i] for i in KIND_MUSIC))
+            # Абсолютный порог вместо «у кого больше»: фоновая музыка под
+            # речью делит скор с речью, и argmax мигал на паузах. Речь есть —
+            # переводим; речи нет — остальное делим между пением и музыкой.
+            if sp >= KIND_SPEECH_MIN:
+                kind = 'speech'
+            elif si >= mu and si >= 0.1:
+                kind = 'singing'
+            else:
+                kind = 'music'
         self._hist = (self._hist + [kind])[-3:]
         # Три одинаковых кадра подряд — только тогда объявляем смену.
         if len(self._hist) == 3 and len(set(self._hist)) == 1 and kind != self._kind:
@@ -513,7 +526,8 @@ async def serve_hub(args):
 
     # Классификатор речи/музыки на входящем потоке. Если модели нет —
     # плеер остаётся на резервном гейте по транскрипциям.
-    kind_box = {'kind': 'speech', 'since': time.monotonic(), 'dropped': 0}
+    kind_box = {'kind': 'speech', 'since': time.monotonic(), 'dropped': 0,
+                'ring': bytearray(), 'held': False}
 
     def on_kind(kind):
         kind_box['kind'] = kind
@@ -533,6 +547,25 @@ async def serve_hub(args):
         return (kind_box['kind'] != 'speech'
                 and time.monotonic() - kind_box['since'] >= 3.0)
 
+    def feed_gated(tr, data):
+        """Кормим сессию, экономя на паузах и не теряя начало речи.
+
+        Во время удержания звук копится в кольцевом буфере (~6 с): вердикт
+        «речь» подтверждается пару секунд, и без буфера первые слова фразы
+        после музыки ушли бы в никуда. При возврате буфер отдаётся вперёд
+        данных — небольшое наложение с уже отправленным не страшно."""
+        ring = kind_box['ring']
+        ring += data
+        del ring[:-RATE * 2 * 6]
+        if music_hold():
+            kind_box['held'] = True
+            kind_box['dropped'] += len(data)
+            return
+        if kind_box['held']:
+            kind_box['held'] = False
+            tr.feed(bytes(ring))
+        tr.feed(data)
+
     async def handler(ws):
         addr = getattr(ws, 'remote_address', None)
         clients.add(ws)
@@ -546,10 +579,7 @@ async def serve_hub(args):
                     data = bytes(message)
                     if classifier is not None:
                         classifier.feed(data)
-                    if music_hold():
-                        kind_box['dropped'] += len(data)   # пауза — не платим
-                        continue
-                    box['tr'].feed(data)
+                    feed_gated(box['tr'], data)
                     continue
                 try:
                     msg = json.loads(message)
