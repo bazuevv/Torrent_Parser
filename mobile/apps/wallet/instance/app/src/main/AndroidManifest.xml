@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- С 14-го Android foreground-сервис с типом mediaPlayback требует отдельного разрешения -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
     <application>
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
@@ -10,5 +13,10 @@
                 <action android:name="android.intent.action.ACTION_START_FOREGROUND" />
             </intent-filter>
         </service>
+
+        <service
+            android:name="com.tonapps.tonkeeper.ui.screen.music.playback.RadioPlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
     </application>
 </manifest>

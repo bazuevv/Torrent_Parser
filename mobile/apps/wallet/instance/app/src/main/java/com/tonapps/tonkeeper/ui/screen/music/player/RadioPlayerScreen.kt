@@ -1,21 +1,25 @@
 package com.tonapps.tonkeeper.ui.screen.music.player
 
+import android.content.ComponentName
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import androidx.appcompat.widget.AppCompatImageView
 import androidx.appcompat.widget.AppCompatTextView
-import androidx.media3.common.AudioAttributes
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import com.tonapps.extensions.getParcelableCompat
 import com.tonapps.log.L
 import com.tonapps.tonkeeper.ui.base.BaseWalletScreen
 import com.tonapps.tonkeeper.ui.base.BaseWalletVM
 import com.tonapps.tonkeeper.ui.base.ScreenContext
 import com.tonapps.tonkeeper.ui.screen.music.entity.RadioStationEntity
+import com.tonapps.tonkeeper.ui.screen.music.playback.RadioPlaybackService
 import com.tonapps.tonkeeperx.R
 import uikit.base.BaseFragment
 import uikit.widget.AsyncImageView
@@ -23,9 +27,10 @@ import uikit.widget.HeaderView
 import uikit.widget.LoaderView
 
 /**
- * Экран одной радиостанции: живой поток без позиции, поэтому интерфейс —
- * только play/pause. Экран не держит дисплей включённым: музыка должна
- * играть и с погашенным экраном.
+ * Экран одной радиостанции. Плеер живёт в RadioPlaybackService, экран лишь
+ * подключается к нему контроллером: закрытие экрана не останавливает эфир —
+ * он играет фоном под уведомлением. Живой поток без позиции, поэтому
+ * интерфейс — только play/pause.
  */
 class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
     R.layout.fragment_radio_player,
@@ -40,7 +45,12 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
         requireArguments().getParcelableCompat(ARG_STATION)!!
     }
 
-    private var player: ExoPlayer? = null
+    private var pendingFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
+
+    private var controller: MediaController? = null
+
+    // Пользователь нажал play до того, как контроллер подключился к сервису
+    private var pendingPlay = false
 
     private lateinit var headerView: HeaderView
     private lateinit var logoView: AsyncImageView
@@ -100,7 +110,7 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
         errorButtonView = view.findViewById(R.id.error_button)
         errorButtonView.setOnClickListener { retry() }
 
-        createPlayer()
+        connectController()
     }
 
     private fun bindLogo() {
@@ -113,36 +123,68 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
         logoView.setImageURI(url, null)
     }
 
-    private fun createPlayer() {
-        val player = ExoPlayer.Builder(requireContext())
-            // Плеер сам приглушается на входящий звонок и уступает фокус другим приложениям
-            .setAudioAttributes(AudioAttributes.DEFAULT, true)
-            // Вынули наушники — в динамиках эфир внезапно не орёт, ставим паузу
-            .setHandleAudioBecomingNoisy(true)
+    private fun connectController() {
+        val future = MediaController.Builder(
+            requireContext(),
+            SessionToken(requireContext(), ComponentName(requireContext(), RadioPlaybackService::class.java))
+        ).buildAsync()
+        future.addListener({
+            try {
+                val mediaController = future.get()
+                mediaController.addListener(playerListener)
+                controller = mediaController
+                applyPlayIcon(mediaController.isPlaying)
+                if (pendingPlay) {
+                    pendingPlay = false
+                    startPlayback()
+                }
+            } catch (e: Throwable) {
+                L.e(e, "Radio controller connect failed")
+                showError()
+            }
+        }, ContextCompat.getMainExecutor(requireContext()))
+        pendingFuture = future
+    }
+
+    private fun startPlayback() {
+        val controller = controller ?: return
+        // Метаданные попадают в уведомление: название станции, кодек и обложка
+        val metadata = MediaMetadata.Builder()
+            .setTitle(station.name)
+            .setArtist(station.info)
+            .setArtworkUri(station.logoUrl?.let { android.net.Uri.parse(it) })
             .build()
-        player.addListener(playerListener)
-        player.setMediaItem(MediaItem.fromUri(station.url))
-        player.playWhenReady = true
-        player.prepare()
-        this.player = player
+        controller.setMediaItem(MediaItem.Builder().setUri(station.url).setMediaMetadata(metadata).build())
+        controller.prepare()
+        controller.play()
     }
 
     private fun togglePlay() {
-        val player = player ?: return
-        if (player.isPlaying) {
-            player.pause()
+        val controller = controller ?: run {
+            pendingPlay = true
+            return
+        }
+        if (controller.isPlaying) {
+            controller.pause()
         } else {
-            if (player.playbackState == Player.STATE_IDLE) {
+            if (controller.playbackState == Player.STATE_IDLE &&
+                controller.currentMediaItem?.mediaMetadata?.title != station.name
+            ) {
+                // В сессии лежит другая станция или ничего — переключаем на эту
+                startPlayback()
+                return
+            }
+            if (controller.playbackState == Player.STATE_IDLE) {
                 retry()
                 return
             }
-            player.play()
+            controller.play()
         }
     }
 
     private fun retry() {
         hideError()
-        player?.let {
+        controller?.let {
             it.seekToDefaultPosition()
             it.prepare()
             it.play()
@@ -167,17 +209,13 @@ class RadioPlayerScreen : BaseWalletScreen<ScreenContext.None>(
         errorButtonView.visibility = View.GONE
     }
 
-    override fun onPause() {
-        super.onPause()
-        // Аудио могло бы играть и в фоне, но экран закрывается только вместе
-        // с отказом от прослушивания — пауза здесь честнее, чем молчащий эфир
-        player?.pause()
-    }
-
     override fun onDestroyView() {
-        player?.removeListener(playerListener)
-        player?.release()
-        player = null
+        // Отпускаем только контроллер: сам плеер в сервисе продолжает играть фоном
+        controller?.removeListener(playerListener)
+        controller?.release()
+        controller = null
+        pendingFuture?.cancel(true)
+        pendingFuture = null
         super.onDestroyView()
     }
 
