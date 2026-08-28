@@ -772,6 +772,7 @@
   #tipBox[hidden] { display: none; }
   #settings .check { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; color: #e6e8ec; }
   #settings .check input { accent-color: #2f6fd0; }
+  #volumeCalibrate.busy { color: #7ee787; border-color: #2f6fd0; }
 
   /* Список файлов поверх видео. Отдельная панель, а не колонка: нужна изредка,
      и отнимать под неё постоянное место незачем. */
@@ -1046,6 +1047,7 @@
     <div class="row">
       <label for="normVolume" data-i18n="настройки.normVolume.подпись"></label>
       <label class="check"><input type="checkbox" id="normVolume"><span data-i18n="настройки.normVolume.рядом"></span></label>
+      <button id="volumeCalibrate" data-i18n="настройки.normVolume.калибровать"></button>
       <i class="tip" data-hint="normVolume" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
     <p class="hint" data-i18n="настройки.normVolume.пояснение" hidden></p>
@@ -1740,7 +1742,7 @@
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
                      catalog: 60, act: 15, ladder: 43200, warm: 5,
-                     wallQ: 480, wallCols: 0, normVolume: 1, msgs: 1, subsOrig: 0,
+                     wallQ: 480, wallCols: 0, normVolume: 0, msgs: 1, subsOrig: 0,
                      dubVoice: 'Kore', dubDuck: 15, lang: 'auto' };
   let settings = { ...DEFAULTS };
 
@@ -2321,7 +2323,10 @@
         el.checked = Boolean(cfg(key));
         el.onchange = () => {
           pushSettings({ [key]: el.checked ? 1 : 0 });
-          if (key === 'normVolume') applyWallNormalization(el.checked);
+          if (key === 'normVolume') {
+            applyWallNormalization(el.checked);
+            if (el.checked) scheduleRoomVolumeCalibration(300);
+          }
           armTimers();
         };
         continue;
@@ -3920,6 +3925,7 @@
       if (zoom.tile === tile) zoomQuality(tile);
       tile.video.play().catch(() => { /* без звука автозапуск обычно проходит */ });
       paintQuality(tile);
+      scheduleRoomVolumeCalibration();
     });
     /* Подпись качества снимаем с события смены дорожки, а не ставим один раз:
        при развороте ячейка переходит на дорожку покрупнее, и подпись обязана
@@ -4031,21 +4037,20 @@
     } catch { /* приватный режим — уровень останется до смены страницы */ }
   }
 
-  /* Автоматическая громкость стены. Один и тот же ползунок не выравнивает
-     комнаты: у каждой свой уровень записи. Web Audio измеряет RMS слышимой
-     ячейки, медленно подтягивает его к общей цели, а компрессор ловит пики.
-
-     Пределы намеренно умеренные: тишину не разгоняем вместе с шумом, тихую
-     комнату усиливаем максимум в четыре раза (+12 dB), громкую приглушаем
-     максимум примерно втрое (-9 dB). Индивидуальный video.volume комнаты
-     остаётся итоговым уровнем и в расчёте не теряется. */
+  /* Web Audio здесь только измеряет комнаты и обслуживает оставленную ручную
+     поправку. Автоматический режим больше не усиливает GainNode: он измеряет
+     исходный уровень при video.volume=1 и сохраняет индивидуальные значения
+     штатных ползунков 0…1. Поэтому автоматика умеет только приглушать громкие
+     комнаты до тихих, зато не вносит компрессию и металлический оттенок. */
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  const NORM_TARGET = 0.10;          // около -20 dBFS по среднему уровню
   const NORM_GATE = 0.006;           // ниже — пауза/фон, усиление не трогаем
-  const NORM_MIN = 0.35;
-  const NORM_MAX = 4;
   const ROOM_GAIN_KEY = 'roomGainDb';
+  const VOLUME_CAL_MS = 8000;
+  const VOLUME_CAL_TICK = 250;
+  const VOLUME_CAL_MIN = 8;          // две секунды активного звука
   let wallAudioContext = null;
+  let roomCalibration = null;
+  let roomCalibrationDelay = 0;
 
   const gainDbText = db => {
     const rounded = Math.abs(db) < 0.05 ? 0 : db;
@@ -4090,7 +4095,7 @@
     const audible = tile.box.classList.contains('audible');
     const manual = Number.isFinite(tile.manualDb);
     const show = audible && Boolean(tile.normalizer)
-      && (Boolean(cfg('normVolume')) || manual);
+      && manual && !cfg('normVolume');
     badge.classList.toggle('on', show);
     if (!show) return;
     const value = Math.max(0.0001,
@@ -4128,8 +4133,9 @@
       tile.normalizer = {
         source, analyser, gain, compressor,
         samples: new Float32Array(analyser.fftSize), level: 0,
+        outputConnected: true,
       };
-      configureTileNormalizer(tile.normalizer, Boolean(cfg('normVolume')));
+      configureTileNormalizer(tile.normalizer, false);
       return tile.normalizer;
     } catch (err) {
       console.warn('Нормализация громкости недоступна:', err);
@@ -4146,14 +4152,32 @@
     paintTileNormalization(tile, 1);
   }
 
+  /* На время фонового измерения выход конкретной комнаты отсоединяется от
+     колонок. Анализатор продолжает получать декодированный сигнал, а человек
+     не слышит ни эту комнату, ни технический video.volume=1. */
+  function connectTileOutput(norm, connected) {
+    if (!norm) return false;
+    if (norm.outputConnected === connected) return true;
+    try {
+      if (connected) norm.compressor.connect(wallAudioContext.destination);
+      else norm.compressor.disconnect();
+      norm.outputConnected = connected;
+      return true;
+    } catch (err) {
+      console.warn('Не удалось переключить выход измеряемой комнаты:', err);
+      return false;
+    }
+  }
+
   function setTileManualGain(tile, db, remember = true) {
     tile.manualDb = db === null ? null : Math.max(-12, Math.min(12, Number(db)));
     if (remember) storeRoomGain(tile);
     const norm = ensureTileNormalizer(tile);
     if (!norm) return;
-    configureTileNormalizer(norm, Boolean(cfg('normVolume')));
+    configureTileNormalizer(norm, false);
     norm.level = 0;
-    const wanted = tile.manualDb === null ? 1 : dbToGain(tile.manualDb);
+    const wanted = tile.manualDb === null || cfg('normVolume')
+      ? 1 : dbToGain(tile.manualDb);
     const now = wallAudioContext.currentTime;
     norm.gain.gain.cancelScheduledValues(now);
     norm.gain.gain.setTargetAtTime(wanted, now, 0.08);
@@ -4165,19 +4189,10 @@
   function applyWallNormalization(enabled) {
     for (const tile of screens.flatMap(screen => screen.tiles)) {
       resetTileNormalizer(tile);
-      if (tile.normalizer) configureTileNormalizer(tile.normalizer, enabled);
-      if (tile.normalizer && Number.isFinite(tile.manualDb)) {
+      if (tile.normalizer) configureTileNormalizer(tile.normalizer, false);
+      if (!enabled && tile.normalizer && Number.isFinite(tile.manualDb)) {
         tile.normalizer.gain.gain.value = dbToGain(tile.manualDb);
       }
-    }
-    if (!enabled) { paintBars(); return; }
-    const loud = tiles.find(tile => tile.box.classList.contains('loud'));
-    if (!loud) return;
-    const norm = ensureTileNormalizer(loud);
-    if (norm) configureTileNormalizer(norm, true);
-    if (norm && Number.isFinite(loud.manualDb)) setTileManualGain(loud, loud.manualDb, false);
-    if (norm && wallAudioContext.state === 'suspended') {
-      wallAudioContext.resume().catch(() => {});
     }
     paintBars();
   }
@@ -4189,33 +4204,152 @@
     const norm = tile.normalizer;
     if (!norm) return;
 
+    // Автокалибровка управляет только video.volume; GainNode остаётся ×1.
+    if (cfg('normVolume') || roomCalibration) {
+      norm.gain.gain.setTargetAtTime(1, wallAudioContext.currentTime, 0.05);
+      paintTileNormalization(tile, 1);
+      return;
+    }
+
     if (Number.isFinite(tile.manualDb)) {
       const current = norm.gain.gain.value;
       paintTileNormalization(tile, current);
       paintGainMenu(tile);
       norm.gain.gain.setTargetAtTime(dbToGain(tile.manualDb), wallAudioContext.currentTime, 0.08);
+    }
+  }
+
+  const percentile = (values, part) => {
+    if (!values.length) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.min(sorted.length - 1,
+      Math.max(0, Math.floor((sorted.length - 1) * part)))];
+  };
+
+  function paintVolumeCalibrationButton(left = null) {
+    const button = $('volumeCalibrate');
+    if (!button) return;
+    const busy = left !== null;
+    button.disabled = busy;
+    button.classList.toggle('busy', busy);
+    button.textContent = busy
+      ? t('настройки.normVolume.калибровка', { seconds: Math.max(0, Math.ceil(left / 1000)) })
+      : t('настройки.normVolume.калибровать');
+  }
+
+  function scheduleRoomVolumeCalibration(delay = 5000) {
+    clearTimeout(roomCalibrationDelay);
+    if (!cfg('normVolume') || $('wallGrid').hidden) return;
+    roomCalibrationDelay = setTimeout(() => calibrateRoomVolumes(false), delay);
+  }
+
+  async function calibrateRoomVolumes(manual = true) {
+    clearTimeout(roomCalibrationDelay);
+    if (roomCalibration) return;
+    const candidates = tiles.filter(tile => tile.user && tile.ready
+      && !tile.goneAt && !tile.halted && !tile.video.paused);
+    if (!candidates.length) {
+      if (manual) say(t('громкость.нетКомнат'), 'err');
       return;
     }
-    if (!cfg('normVolume')) return;
 
-    norm.analyser.getFloatTimeDomainData(norm.samples);
-    let power = 0;
-    for (const sample of norm.samples) power += sample * sample;
-    const rms = Math.sqrt(power / norm.samples.length);
-    const volume = Math.max(0.01, tile.video.volume);
-    if (!Number.isFinite(rms) || rms < NORM_GATE * volume) return;
+    const entries = [];
+    for (const tile of candidates) {
+      const norm = ensureTileNormalizer(tile);
+      if (!norm) continue;
+      entries.push({
+        tile, norm, user: tile.user, edge: tile.edge,
+        wasMuted: tile.video.muted, oldVolume: tile.roomVolume,
+        samples: [], level: null,
+      });
+    }
+    if (!entries.length) return say(t('громкость.недоступна'), 'err');
 
-    // Первое осмысленное окно задаёт старт сразу; следующие усредняем примерно
-    // за секунду, чтобы речь не «дышала» вслед за каждым отдельным слогом.
-    norm.level = norm.level ? norm.level * 0.78 + rms * 0.22 : rms;
-    const wanted = Math.max(NORM_MIN,
-      Math.min(NORM_MAX, NORM_TARGET * volume / norm.level));
-    const now = wallAudioContext.currentTime;
-    const current = norm.gain.gain.value;
-    paintTileNormalization(tile, current);
-    // Громкий сигнал приглушаем быстро, тихий усиливаем осторожнее.
-    norm.gain.gain.setTargetAtTime(wanted, now, wanted < current ? 0.08 : 0.55);
+    roomCalibration = { entries, started: Date.now() };
+    if (wallAudioContext.state === 'suspended') {
+      try { await wallAudioContext.resume(); }
+      catch { roomCalibration = null; return say(t('громкость.недоступна'), 'err'); }
+    }
+
+    /* Все комнаты измеряются параллельно, поэтому стена молчит только восемь
+       секунд независимо от числа ячеек. Выход отключаем раньше, чем снимаем
+       muted: ни один промежуточный кадр не должен попасть в колонки. */
+    for (const entry of entries) {
+      const { tile, norm } = entry;
+      tile.calibrating = true;
+      if (!connectTileOutput(norm, false)) {
+        tile.calibrating = false;
+        entry.failed = true;
+        continue;
+      }
+      configureTileNormalizer(norm, false);
+      norm.gain.gain.cancelScheduledValues(wallAudioContext.currentTime);
+      norm.gain.gain.value = 1;
+      tile.video.volume = 1;
+      tile.video.muted = false;
+      tile.video.play().catch(() => {});
+    }
+    paintBars();
+    say(t('громкость.калибровка'), 'ok');
+
+    await new Promise(resolve => {
+      const sample = () => {
+        const left = VOLUME_CAL_MS - (Date.now() - roomCalibration.started);
+        paintVolumeCalibrationButton(left);
+        for (const entry of entries) {
+          const { tile, norm } = entry;
+          if (entry.failed || tile.user !== entry.user
+              || tile.edge !== entry.edge || tile.video.paused) continue;
+          norm.analyser.getFloatTimeDomainData(norm.samples);
+          let power = 0;
+          for (const value of norm.samples) power += value * value;
+          const rms = Math.sqrt(power / norm.samples.length);
+          if (Number.isFinite(rms) && rms >= NORM_GATE) {
+            entry.samples.push(20 * Math.log10(rms));
+          }
+        }
+      };
+      sample();
+      const ticker = setInterval(sample, VOLUME_CAL_TICK);
+      setTimeout(() => { clearInterval(ticker); resolve(); }, VOLUME_CAL_MS);
+    });
+
+    const reliable = entries.filter(entry => entry.samples.length >= VOLUME_CAL_MIN);
+    for (const entry of reliable) entry.level = percentile(entry.samples, 0.70);
+    const levels = reliable.map(entry => entry.level).sort((a, b) => a - b);
+    // 20-й процентиль защищает стену от одной аномально тихой комнаты.
+    const target = levels.length ? levels[Math.floor((levels.length - 1) * 0.20)] : null;
+
+    for (const entry of entries) {
+      const { tile, norm } = entry;
+      const sameRoom = tile.user === entry.user && tile.edge === entry.edge;
+      tile.video.muted = true;
+      if (sameRoom && entry.level !== null && target !== null) {
+        const wanted = Math.min(1, Math.pow(10, (target - entry.level) / 20));
+        tile.roomVolume = Number(Math.max(0.02,
+          Math.min(1, Math.round(wanted / 0.02) * 0.02)).toFixed(2));
+        storeRoomVolume(tile);
+      } else if (sameRoom) {
+        tile.roomVolume = entry.oldVolume;
+      }
+      tile.video.volume = sameRoom ? tile.roomVolume : entry.oldVolume;
+      connectTileOutput(norm, true);
+      tile.video.muted = sameRoom ? entry.wasMuted : true;
+      tile.calibrating = false;
+    }
+
+    roomCalibration = null;
+    applyWallNormalization(Boolean(cfg('normVolume')));
+    paintVolumeCalibrationButton();
+    paintBars();
+    if (reliable.length) {
+      say(t('громкость.готово', { rooms: reliable.length }), 'ok');
+    } else {
+      say(t('громкость.малоЗвука'), 'err');
+    }
   }
+
+  $('volumeCalibrate').onclick = () => calibrateRoomVolumes(true);
 
   const clock = sec => {
     const s = Math.max(0, Math.round(sec));
@@ -4275,7 +4409,8 @@
     if (!bar) return;
     const video = tile.video;
     tile.box.classList.toggle('audible', tile.box.classList.contains('loud')
-      && !video.muted && Boolean(video.volume) && !tile.goneAt && !tile.halted);
+      && !tile.calibrating && !video.muted && Boolean(video.volume)
+      && !tile.goneAt && !tile.halted);
     if (!tile.box.classList.contains('audible')) tile.box.querySelector('.tnormMenu').hidden = true;
     paintTileNormalization(tile);
     // «Нет · 7 минут» должно стареть само: панель и так тикает раз в секунду.
@@ -4342,9 +4477,16 @@
 
   // Звук — только у одной ячейки: четыре сразу дают кашу, да и браузер не даст.
   function tileLoud(tile) {
+    if (roomCalibration) return;
     const norm = cfg('normVolume') || Number.isFinite(tile.manualDb)
       ? ensureTileNormalizer(tile) : tile.normalizer;
-    if (norm && Number.isFinite(tile.manualDb)) setTileManualGain(tile, tile.manualDb, false);
+    if (norm && cfg('normVolume')) {
+      configureTileNormalizer(norm, false);
+      norm.gain.gain.cancelScheduledValues(wallAudioContext.currentTime);
+      norm.gain.gain.value = 1;
+    } else if (norm && Number.isFinite(tile.manualDb)) {
+      setTileManualGain(tile, tile.manualDb, false);
+    }
     if (norm && wallAudioContext.state === 'suspended') {
       wallAudioContext.resume().catch(() => {});
     }
@@ -4754,7 +4896,7 @@
        поэтому такие события пропускаем: переключение звука между ячейками
        не должно затрагивать их индивидуальные настройки. */
     tile.video.onvolumechange = () => {
-      if (!tile.video.muted) {
+      if (!tile.calibrating && !tile.video.muted) {
         tile.roomVolume = tile.video.volume;
         storeRoomVolume(tile);
       }
@@ -5039,6 +5181,7 @@
     barTimer = setInterval(paintBars, 1000);
     clearInterval(normTimer);
     normTimer = setInterval(normalizeWallAudio, 250);
+    scheduleRoomVolumeCalibration();
     say(shown
       ? t('текст.117', { shown: shown }) +
         t('текст.118') +
