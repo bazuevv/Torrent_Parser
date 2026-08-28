@@ -21,6 +21,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from html import unescape as html_unescape
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -62,6 +63,131 @@ REC_LOCK = threading.Lock()
 MAX_BODY = 32 * 1024 * 1024                  # 78 тыс. ников укладываются в ~3 МБ
 
 RECORDINGS = {}                              # id -> dict(proc, user, dir, started, …)
+
+# Chaturbate отдаёт каталог и подписанный HLS через собственные публичные
+# HTTP-методы. Браузеру плеера ходить туда напрямую нельзя из-за CORS, поэтому
+# сервер выступает тонким адаптером: каталог ненадолго кэширует, HLS-токен — нет.
+CHATURBATE_BASE = 'https://chaturbate.com'
+CHATURBATE_LOCK = threading.Lock()
+CHATURBATE_CACHE = {'at': 0.0, 'rooms': []}
+CHATURBATE_TTL = 300
+CHATURBATE_PAGE = 100
+CHATURBATE_POOL = 8
+
+
+def chaturbate_request(path, data=None):
+    body = urlencode(data).encode('ascii') if data is not None else None
+    last = None
+    for attempt in range(3):
+        request = urllib.request.Request(
+            CHATURBATE_BASE + path,
+            data=body,
+            headers={
+                'User-Agent': ('Mozilla/5.0 (X11; Linux x86_64) '
+                               'AppleWebKit/537.36 Chrome/124 Safari/537.36'),
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'Accept-Language': 'en-US,en;q=0.8',
+                'Referer': CHATURBATE_BASE + '/',
+                'Origin': CHATURBATE_BASE,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                raw = response.read(4 * 1024 * 1024 + 1)
+            if len(raw) > 4 * 1024 * 1024:
+                raise ValueError('слишком большой ответ Chaturbate')
+            return json.loads(raw.decode('utf-8'))
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            last = exc
+            if attempt < 2:
+                time.sleep(0.6 * (attempt + 1))
+    raise RuntimeError(f'Chaturbate не ответил после 3 попыток: {last}')
+
+
+def chaturbate_online(force=False):
+    now = time.time()
+    with CHATURBATE_LOCK:
+        if (not force and CHATURBATE_CACHE['rooms']
+                and now - CHATURBATE_CACHE['at'] < CHATURBATE_TTL):
+            return {'at': int(CHATURBATE_CACHE['at']),
+                    'rooms': list(CHATURBATE_CACHE['rooms'])}
+
+        first = chaturbate_request(
+            f'/api/ts/roomlist/room-list/?limit={CHATURBATE_PAGE}&offset=0')
+        if not isinstance(first, dict) or not isinstance(first.get('rooms'), list):
+            raise ValueError('Chaturbate вернул каталог неизвестного формата')
+
+        try:
+            total = max(0, int(first.get('total_count') or len(first['rooms'])))
+        except (TypeError, ValueError):
+            total = len(first['rooms'])
+
+        def page(offset):
+            try:
+                data = chaturbate_request(
+                    f'/api/ts/roomlist/room-list/?limit={CHATURBATE_PAGE}&offset={offset}')
+                return offset, data.get('rooms', []) if isinstance(data, dict) else [], ''
+            except Exception as exc:
+                return offset, [], str(exc)
+
+        offsets = range(CHATURBATE_PAGE, total, CHATURBATE_PAGE)
+        with ThreadPoolExecutor(CHATURBATE_POOL) as pool:
+            pages = list(pool.map(page, offsets))
+
+        raw_rooms = list(first['rooms'])
+        failed = []
+        for offset, batch, error in pages:
+            raw_rooms.extend(batch)
+            if error:
+                failed.append({'offset': offset, 'error': error})
+
+        rooms = []
+        seen_users = set()
+        for item in raw_rooms:
+            user = item.get('username') if isinstance(item, dict) else None
+            image = item.get('img') if isinstance(item, dict) else None
+            if not isinstance(user, str) or not USER_RE.fullmatch(user):
+                continue
+            key = user.lower()
+            if key in seen_users:
+                continue
+            seen_users.add(key)
+            if not isinstance(image, str) or not image.startswith('https://'):
+                image = f'https://thumb.live.mmcdn.com/riw/{urlquote(user)}.jpg'
+            try:
+                viewers = max(0, int(item.get('num_users') or 0))
+            except (TypeError, ValueError):
+                viewers = 0
+            rooms.append({'user': user, 'viewers': viewers, 'image': image,
+                          'show': str(item.get('current_show') or '')})
+
+        # Неполный обход не кладём на пять минут в кэш: клиент увидит признак
+        # complete=false и повторит запрос, вместо того чтобы принять обрывок
+        # каталога за весь сайт.
+        if not failed:
+            CHATURBATE_CACHE.update(at=now, rooms=rooms)
+        return {'at': int(now), 'rooms': list(rooms),
+                'total': total, 'pages': 1 + len(pages),
+                'failed_pages': failed, 'complete': not failed}
+
+
+def chaturbate_stream(user):
+    if not USER_RE.fullmatch(user):
+        raise ValueError('недопустимый ник Chaturbate')
+    data = chaturbate_request('/get_edge_hls_url_ajax/',
+                              {'room_slug': user, 'bandwidth': 'high'})
+    if not isinstance(data, dict):
+        raise ValueError('неожиданный ответ Chaturbate')
+    url = data.get('url')
+    if not data.get('success') or not isinstance(url, str) or not url.startswith('https://'):
+        return {'user': user, 'online': False,
+                'status': str(data.get('room_status') or 'offline')}
+    host = (urlparse(url).hostname or '').lower()
+    if not (host.endswith('.mmcdn.com') or host.endswith('.highwebmedia.com')):
+        raise ValueError('неожиданный HLS-хост Chaturbate')
+    return {'user': user, 'online': True, 'url': url,
+            'status': str(data.get('room_status') or 'public')}
 
 
 def load():
@@ -150,6 +276,7 @@ SETTINGS_RANGE = {
     'warm': (0, 120),            # окно разгона канала, секунды; 0 — верить оценке сразу
     'wallQ': (144, 2160),        # потолок высоты дорожки в ячейках стены
     'wallCols': (0, 8),          # столбцов в стене; 0 — подбирать по числу ячеек
+    'normVolume': (0, 1),        # автоматически выравнивать громкость комнат стены
     'msgs': (0, 1),              # показывать ли сообщения о событиях в верхней панели
     'subsOrig': (0, 1),          # субтитры перевода: показывать оригинал над переводом
     'dubDuck': (0, 100),         # озвучка: приглушать оригинал до этих процентов
@@ -1092,6 +1219,27 @@ class Handler(SimpleHTTPRequestHandler):
 
         if path == '/api/online':
             return self._json(load_online())
+
+        if path == '/api/chaturbate/online':
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                payload = chaturbate_online((query.get('force') or ['0'])[0] == '1')
+                code = 200
+            except Exception as exc:
+                payload, code = {'error': str(exc), 'rooms': []}, 502
+            return self._json(payload, code)
+
+        if path == '/api/chaturbate/stream':
+            query = parse_qs(urlparse(self.path).query)
+            user = (query.get('user') or [''])[0].strip()
+            try:
+                result = chaturbate_stream(user)
+                code = 200 if result.get('online') else 404
+            except ValueError as exc:
+                result, code = {'error': str(exc)}, 400
+            except Exception as exc:
+                result, code = {'error': str(exc)}, 502
+            return self._json(result, code)
 
         if path == '/api/settings':
             return self._json(load_settings())

@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>HLS-плеер BongaCams</title>
+<title>HLS-плеер BongaCams + Chaturbate</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -202,6 +202,40 @@
   }
   .panel-head span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .panel-head button { padding: 1px 7px; font-size: 12px; line-height: 1.4; }
+  /* В правой колонке заголовок, параметры и поиск закреплены одним блоком:
+     при раскрытии параметров поиск сдвигается вниз, а не наезжает на них. */
+  #onlineControls { position: sticky; top: 0; z-index: 3; background: #171a20; }
+  #onlineControls .panel-head, #onlineControls .panel-find { position: static; }
+  #onlineOptionsToggle {
+    width: 25px; padding: 1px 0; transition: color .12s, transform .12s;
+  }
+  #onlineOptionsToggle.open { color: #7fb0ff; transform: rotate(180deg); }
+  #onlineOptionsPanel {
+    display: block; padding: 8px 6px;
+    background: #1c1f26; border-bottom: 1px solid #2a2f3a;
+    font-size: 11px;
+  }
+  #onlineOptionsPanel[hidden] { display: none; }
+  .online-option + .online-option { margin-top: 8px; }
+  .online-option > span {
+    display: block; margin: 0 0 4px; color: #98a1b0;
+  }
+  .online-choice { display: grid; gap: 4px; }
+  #onlineSource { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #onlineSort { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .online-choice button {
+    min-width: 0; padding: 4px 3px; overflow: hidden; text-overflow: ellipsis;
+    color: #c6ccd6; background: #252b36; border-color: #465064;
+    font-size: 11px; white-space: nowrap;
+  }
+  .online-choice button:hover { color: #fff; border-color: #65728a; }
+  .online-choice button.active {
+    color: #fff; background: #2f6fd0; border-color: #6da0ef;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+  }
+  #onlineShown {
+    display: block; margin-top: 7px; color: #798394; text-align: right; line-height: 1;
+  }
   #histProgress { flex: 0 0 auto; color: #7ee787; font-size: 11px; letter-spacing: 0; }
   #histCheck.busy { color: #7ee787; border-color: #2f6fd0; }
   /* Крутится только значок. inline-block обязателен: к строчным элементам
@@ -485,6 +519,43 @@
     font-style: normal; font-size: 11px; font-variant-numeric: tabular-nums;
   }
   .tcap .tq:empty { display: none; }
+  /* Источник Chaturbate отмечен так же, как на карточке справа, но метка
+     стоит непосредственно рядом с ником комнаты. */
+  .tcap .tcb {
+    display: none; flex: 0 0 auto; padding: 1px 5px; border-radius: 4px;
+    background: rgba(247, 129, 31, .92); color: #fff;
+    font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .04em;
+  }
+  .tile.cb .tcap .tcb { display: inline-block; }
+  /* Постоянный индикатор слышимой ячейки. Класс loud уже является источником
+     правды для звука и может принадлежать только одной комнате одновременно. */
+  .tcap .tsound { display: none; flex: 0 0 auto; font-style: normal; font-size: 12px; }
+  .tile.audible .tcap .tsound { display: inline-block; }
+  .tcap .tnorm {
+    display: none; flex: 0 0 auto; padding: 1px 4px; border-radius: 4px;
+    background: rgba(110, 168, 254, .18); color: #a9c8fb;
+    font-style: normal; font-size: 10px; font-variant-numeric: tabular-nums;
+  }
+  .tile.audible .tcap .tnorm.on { display: inline-block; }
+  .tile.audible .tcap .tsound { cursor: pointer; }
+  .tile.audible .tcap .tsound:hover { filter: brightness(1.3); }
+  .tnormMenu {
+    position: absolute; left: 50%; bottom: calc(100% + 6px); z-index: 5;
+    transform: translateX(-50%); width: min(230px, calc(100% - 12px));
+    padding: 8px; border: 1px solid #465064; border-radius: 7px;
+    background: rgba(23, 26, 32, .97); box-shadow: 0 8px 22px rgba(0, 0, 0, .55);
+  }
+  .tnormMenu[hidden] { display: none; }
+  .tnormLabel { margin-bottom: 5px; color: #e6e8ec; font-size: 11px; }
+  .tnormTop { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
+  .tnormTop output {
+    flex: 1 1 auto; color: #c9d8ef; font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tnormTop button { padding: 2px 8px; font-size: 11px; }
+  .tnormTop button.on { color: #fff; background: #2f6fd0; border-color: #6da0ef; }
+  .tnormRange { display: block; width: 100%; height: 16px; accent-color: #6ea8fe; cursor: pointer; }
+  .tnormHint { display: block; margin-top: 5px; color: #7f8998; font-size: 9px; line-height: 1.3; }
   /* Номер ячейки — по порядку заполнения, тому же, в котором они добавляются.
      У пустых его нет: номер нужен, чтобы следить за трансляцией, а не за
      местом. */
@@ -564,6 +635,12 @@
   .card.offline .cap b { color: #98a1b0; }
   .card:hover { outline: 2px solid #2f6fd0; outline-offset: -2px; }
   .card.current { outline: 2px solid #7ee787; outline-offset: -2px; }
+  .card.cb::after {
+    content: "CB"; position: absolute; top: 5px; right: 5px;
+    padding: 1px 5px; border-radius: 4px; background: rgba(247, 129, 31, .92);
+    color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .04em;
+    pointer-events: none;
+  }
   .card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
   .card img:not([src]) { visibility: hidden; }   /* пока кадр не пришёл — просто тёмное поле */
   .card .cap { display: flex; gap: 6px; padding: 4px 6px; font-size: 12px; }
@@ -965,6 +1042,13 @@
       <i class="tip" data-hint="wallQ" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
     </div>
     <p class="hint" data-i18n="настройки.wallQ.пояснение" hidden></p>
+
+    <div class="row">
+      <label for="normVolume" data-i18n="настройки.normVolume.подпись"></label>
+      <label class="check"><input type="checkbox" id="normVolume"><span data-i18n="настройки.normVolume.рядом"></span></label>
+      <i class="tip" data-hint="normVolume" tabindex="0" role="button" aria-expanded="false" data-i18n-aria="подсказка.пояснение" data-i18n-tip="подсказка.нажмите">i</i>
+    </div>
+    <p class="hint" data-i18n="настройки.normVolume.пояснение" hidden></p>
 
     <div class="row">
       <label for="warm" data-i18n="настройки.warm.подпись"></label>
@@ -1440,15 +1524,41 @@
   <div class="grip" id="gripRight"><span data-i18n-title="ручка.эфир"></span></div>
 
   <aside id="online">
-    <div class="panel-head">
-      <span id="onlineCount" data-i18n="эфир.заголовок"></span>
-      <button id="onlineRefresh" data-i18n-title="эфир.обновить">↻</button>
-    </div>
-    <div class="panel-find">
-      <input id="onlineFind" spellcheck="false" data-i18n-ph="эфир.поиск"
-             autocomplete="off">
-      <button id="findClear" data-i18n-title="эфир.поиск.очистить" hidden>×</button>
-      <div id="findTips" hidden></div>
+    <div id="onlineControls">
+      <div class="panel-head">
+        <span id="onlineCount" data-i18n="эфир.заголовок"></span>
+        <button id="onlineRefresh" data-i18n-title="эфир.обновить">↻</button>
+        <button id="onlineOptionsToggle" data-i18n-title="эфир.параметры"
+                data-i18n-aria="эфир.параметры" aria-expanded="false">▾</button>
+      </div>
+      <div id="onlineOptionsPanel" hidden>
+        <div class="online-option">
+          <span id="onlineSourceLabel" data-i18n="эфир.источник"></span>
+          <div id="onlineSource" class="online-choice" role="group"
+               aria-labelledby="onlineSourceLabel">
+            <button data-value="all" data-i18n="эфир.источник.все"></button>
+            <button data-value="bonga">Bonga</button>
+            <button data-value="cb">Chaturbate</button>
+          </div>
+        </div>
+        <div class="online-option">
+          <span id="onlineSortLabel" data-i18n="эфир.сортировка"></span>
+          <div id="onlineSort" class="online-choice" role="group"
+               aria-labelledby="onlineSortLabel">
+            <button data-value="viewers-desc" data-i18n="эфир.сортировка.зрителиУбыв"></button>
+            <button data-value="viewers-asc" data-i18n="эфир.сортировка.зрителиВозр"></button>
+            <button data-value="name" data-i18n="эфир.сортировка.имя"></button>
+            <button data-value="source" data-i18n="эфир.сортировка.сайт"></button>
+          </div>
+        </div>
+        <span id="onlineShown"></span>
+      </div>
+      <div class="panel-find">
+        <input id="onlineFind" spellcheck="false" data-i18n-ph="эфир.поиск"
+               autocomplete="off">
+        <button id="findClear" data-i18n-title="эфир.поиск.очистить" hidden>×</button>
+        <div id="findTips" hidden></div>
+      </div>
     </div>
     <div class="panel-body" id="onlineBody"></div>
   </aside>
@@ -1507,6 +1617,20 @@
   let libFile = '';          // играющий файл из папки просмотра, если это он
   let userInitiated = false;      // переключение сделано человеком -> звук разрешён
   let liveList = [];              // кто сейчас в эфире: порядок перелистывания комнат
+  const ONLINE_VIEW_KEY = 'onlineView';
+  const ONLINE_VIEW_DEFAULTS = { source: 'all', sort: 'viewers-desc', open: false };
+  const loadOnlineView = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(ONLINE_VIEW_KEY)) || {};
+      return { ...ONLINE_VIEW_DEFAULTS, ...saved };
+    } catch { return { ...ONLINE_VIEW_DEFAULTS }; }
+  };
+  let onlineView = loadOnlineView();
+
+  function saveOnlineView() {
+    try { localStorage.setItem(ONLINE_VIEW_KEY, JSON.stringify(onlineView)); }
+    catch { /* приватный режим — настройки останутся до перезагрузки */ }
+  }
 
   // --- база ников ------------------------------------------------------------
   // models.js — снимок сохранённой страницы, в нём только те, кто попал в первую
@@ -1616,7 +1740,7 @@
                      buffer: 300, auto: 0, hideLeft: 0, hideRight: 0,
                      keepMin: 60, deep: 5, deepBatch: 12, recMode: 1, maxRate: 5000, recRate: 0,
                      catalog: 60, act: 15, ladder: 43200, warm: 5,
-                     wallQ: 480, wallCols: 0, msgs: 1, subsOrig: 0,
+                     wallQ: 480, wallCols: 0, normVolume: 1, msgs: 1, subsOrig: 0,
                      dubVoice: 'Kore', dubDuck: 15, lang: 'auto' };
   let settings = { ...DEFAULTS };
 
@@ -2195,7 +2319,11 @@
          без этой ветки в настройки уходило бы NaN. */
       if (el && el.type === 'checkbox') {
         el.checked = Boolean(cfg(key));
-        el.onchange = () => { pushSettings({ [key]: el.checked ? 1 : 0 }); armTimers(); };
+        el.onchange = () => {
+          pushSettings({ [key]: el.checked ? 1 : 0 });
+          if (key === 'normVolume') applyWallNormalization(el.checked);
+          armTimers();
+        };
         continue;
       }
       if (el) el.onchange = () => { pushSettings({ [key]: Number(el.value) }); armTimers(); };
@@ -2272,6 +2400,22 @@
   const playlistUrl = (user, edge) =>
     `https://${host(edge)}.bcvcdn.com/hls/stream_${encodeURIComponent(user)}/playlist.m3u8`;
 
+  const CHATURBATE_EDGE = 'cb';
+  const isChaturbate = edge => String(edge || '').toLowerCase() === CHATURBATE_EDGE;
+  const chaturbateThumb = user =>
+    `https://thumb.live.mmcdn.com/riw/${encodeURIComponent(user)}.jpg`;
+
+  async function resolvePlaylist(user, edge) {
+    if (!isChaturbate(edge)) return playlistUrl(user, edge);
+    const res = await fetch(`api/chaturbate/stream?user=${encodeURIComponent(user)}`,
+                            { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.online || !data.url) {
+      throw new Error(data.error || `${user} сейчас не в эфире на Chaturbate`);
+    }
+    return data.url;
+  }
+
   const candidates = [
     ...Array.from({ length: 80 }, (_, i) => String(i + 1)),
     ...Array.from({ length: 25 }, (_, i) => `us${i + 1}`),
@@ -2292,6 +2436,11 @@
     const timer = setTimeout(stop, PROBE_MS);
 
     try {
+      if (isChaturbate(edge)) {
+        const url = `api/chaturbate/stream?user=${encodeURIComponent(user)}`;
+        const r = await fetch(url, { cache: 'no-store', signal: ctl.signal });
+        return { ok: r.ok && Boolean((await r.json()).online), dead: false };
+      }
       const r = await fetch(playlistUrl(user, edge), { cache: 'no-store', signal: ctl.signal });
       if (!r.ok) return { ok: false, dead: false };          // 404 — сервер живой, ника нет
       return { ok: (await r.text()).includes('EXT-X-STREAM-INF'), dead: false };
@@ -2805,13 +2954,18 @@
 
     // Пути на CDN регистрозависимы: bambitwo != BambiTwo. Если ник знаком по
     // снимку — молча приводим к правильному написанию.
-    const proper = canon.get(user.toLowerCase());
+    const cbRoom = isChaturbate(wantEdge);
+    const proper = cbRoom ? null : canon.get(user.toLowerCase());
     if (proper && proper !== user) user = proper;
 
-    let edge = String(wantEdge || '').trim() || known.get(user.toLowerCase()) || '';
+    let edge = cbRoom ? CHATURBATE_EDGE
+      : String(wantEdge || '').trim() || known.get(user.toLowerCase()) || '';
+    let resolved = '';
 
     try {
-      if (edge && await alive(user, edge)) {
+      if (cbRoom) {
+        resolved = await resolvePlaylist(user, edge);
+      } else if (edge && await alive(user, edge)) {
         // ок, edge подошёл
       } else {
         say(edge ? t('текст.56', { edge: edge }) : t('текст.57'));
@@ -2830,7 +2984,7 @@
          всю страницу, а ячейка делает то же самое и не мешает соседям. */
       if (!$('wallGrid').hidden) {
         wallAssign(user, edge);        // историю пишет он сам
-        learn(user, edge);
+        if (!cbRoom) learn(user, edge);
         markCurrent();
         return;
       }
@@ -2839,13 +2993,13 @@
       // Замеры с сервера забираем до запуска: запрос свой, локальный, стоит
       // единицы миллисекунд, а разбор манифеста ждёт ответа с CDN — успеваем
       // с запасом. Зато решения с первой же секунды идут по настоящим числам.
-      await loadLadderRates(user);
-      attach(playlistUrl(user, edge));
+      if (!cbRoom) await loadLadderRates(user);
+      attach(resolved || playlistUrl(user, edge));
       paintSource();
       recStopped = false;                        // новый поток — снова пишем
-      if (cfg('recMode')) armRecording(user, edge);   // в ручном режиме ждём кнопку
+      if (cfg('recMode') && !cbRoom) armRecording(user, edge);
       pushHist(user, edge);
-      learn(user, edge);
+      if (!cbRoom) learn(user, edge);
       updateMediaSession(user, edge);
       markCurrent();
     } catch (e) {
@@ -3093,6 +3247,9 @@
   let lastRecTry = 0;
 
   async function armRecording(user, edge) {
+    if (isChaturbate(edge)) {
+      return say('Запись Chaturbate в этом плеере не поддерживается.', 'err');
+    }
     lastRecTry = Date.now();
     if (session) {
       const prev = session;
@@ -3158,11 +3315,15 @@
     say(t('статус.24'), 'ok');
   }
 
-  function backToLive() {
+  async function backToLive() {
     const { user, edge } = current;
     if (!user || !edge) return;
     playingFrom = 'live';
-    attach(playlistUrl(user, edge));
+    try {
+      attach(await resolvePlaylist(user, edge));
+    } catch (err) {
+      return say(err.message, 'err');
+    }
     paintSource();
     say(t('статус.25'), 'ok');
   }
@@ -3303,6 +3464,7 @@
      минуту), затем память браузера, затем то, что лежало в составе стены.
      Сохранённый номер устаревает первым — комнаты переезжают между серверами. */
   const bestEdge = (user, fallback) => {
+    if (isChaturbate(fallback)) return CHATURBATE_EDGE;
     const key = String(user).toLowerCase();
     const row = (liveList || []).find(item => String(item[0]).toLowerCase() === key);
     return (row && String(row[1])) || known.get(key) || String(fallback || '');
@@ -3337,7 +3499,7 @@
       if (tile.hls) tile.hls.stopLoad();
       tile.video.pause();
       tile.video.muted = true;
-      tile.box.classList.remove('loud');
+      tile.box.classList.remove('loud', 'audible');
     }
     wallQuiet = was;
   }
@@ -3402,8 +3564,10 @@
      здесь нужна только картинка, а свежесть и статус считают карточки правой
      колонки. Метка времени в адресе — чтобы браузер не показал вчерашний
      кадр из своего кэша. */
-  const roomShot = (user, edge) =>
-    `${siteShot(user) || thumbUrl(user, edge)}?t=${Date.now()}`;
+  const roomShot = (user, edge) => {
+    const url = siteShot(user, edge) || thumbUrl(user, edge);
+    return `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+  };
 
   /* Обзор пересобирается, только когда изменился состав экранов. Раньше он
      строился заново при каждом открытии, и все превью грузились с нуля —
@@ -3565,6 +3729,10 @@
   function tileHold(tile, user, edge) {
     tile.user = user;
     tile.edge = String(edge);
+    tile.manualDb = storedRoomGain(user, edge);
+    tile.roomVolume = storedRoomVolume(user, edge);
+    tile.video.volume = tile.roomVolume;
+    tile.box.classList.toggle('cb', isChaturbate(edge));
     tile.asleep = true;
     tile.ready = false;
     tile.box.querySelector('b').textContent = user;
@@ -3585,7 +3753,7 @@
     tile.video.removeAttribute('src');
     tile.video.load();
     tile.box.classList.add('offline');
-    tile.box.classList.remove('loud');
+    tile.box.classList.remove('loud', 'audible');
     tile.box.querySelector('.off').textContent = t('узел.16');
     paintQuality(tile);
 
@@ -3657,7 +3825,7 @@
     tile.video.removeAttribute('src');
     tile.video.load();
     tile.box.classList.add('halted');
-    tile.box.classList.remove('loud');
+    tile.box.classList.remove('loud', 'audible');
     tile.box.querySelector('.off').textContent = t('узел.17');
     paintQuality(tile);           // играть нечему — качества нет
 
@@ -3676,6 +3844,7 @@
   }
 
   function tileStop(tile) {
+    tile.run = (tile.run || 0) + 1;    // обесцениваем ожидающий HLS-адрес
     tileLive(tile);
     tile.asleep = false;
     tile.ready = false;
@@ -3686,15 +3855,18 @@
     tile.video.removeAttribute('src');
     tile.video.load();
     tile.user = '';
+    tile.edge = '';
     tile.box.querySelector('b').textContent = '';
     tile.box.querySelector('.tq').textContent = '';
     tile.box.querySelector('.empty').hidden = false;
-    tile.box.classList.remove('loud', 'busy');   // пустой ячейке панель ни к чему
+    tile.box.classList.remove('loud', 'audible', 'busy', 'cb'); // пустой ячейке панель ни к чему
+    resetTileNormalizer(tile);
+    tile.manualDb = null;
     saveWall();
     if (!wallQuiet) layoutWall();     // форма сетки зависит от числа занятых
   }
 
-  function tilePlay(tile, user, edge) {
+  async function tilePlay(tile, user, edge) {
     /* Очистку проводим молча. tileStop пересчитывает раскладку, а ячейка в
        этот миг ещё пуста — раскладка сочла бы её лишней и удалила ровно ту,
        которую мы собрались заполнить. Из-за этого третья трансляция не
@@ -3703,9 +3875,14 @@
     wallQuiet = true;
     tileStop(tile);
     wallQuiet = was;
+    const run = tile.run;
 
     tile.user = user;
     tile.edge = String(edge);
+    tile.manualDb = storedRoomGain(user, edge);
+    tile.roomVolume = storedRoomVolume(user, edge);
+    tile.video.volume = tile.roomVolume;
+    tile.box.classList.toggle('cb', isChaturbate(edge));
     tile.asleep = false;
     tile.retried = false;              // попытка сменить сервер — по одной на запуск
     tile.since = Date.now();           // с этого мига считаем время просмотра
@@ -3716,9 +3893,23 @@
     saveWall();
     if (!wallQuiet) layoutWall();
 
+    let sourceUrl;
+    try {
+      sourceUrl = await resolvePlaylist(user, edge);
+    } catch (err) {
+      if (tile.user === user && tile.edge === String(edge)) {
+        say(err.message, 'err');
+        tileGone(tile);
+      }
+      return;
+    }
+    // Пока сервер выдавал подписанный адрес, ячейку могли занять другой
+    // комнатой. Запоздавший ответ не должен подменить новый поток.
+    if (tile.run !== run || tile.user !== user || tile.edge !== String(edge)) return;
+
     const hlsTile = new Hls({ lowLatencyMode: false, backBufferLength: 10 });
     tile.hls = hlsTile;
-    hlsTile.loadSource(playlistUrl(user, edge));
+    hlsTile.loadSource(sourceUrl);
     hlsTile.attachMedia(tile.video);
     hlsTile.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
       // С этого мига загрузку можно останавливать и возобновлять: список
@@ -3739,7 +3930,7 @@
     /* Замеренный вес дорожек с сервера: нужен развороту, чтобы выбрать
        дорожку по настоящему весу, и подписи качества — до того, как наберётся
        собственный замер. Запрос свой, локальный, единицы миллисекунд. */
-    roomRates(user).then(rates => {
+    if (!isChaturbate(edge)) roomRates(user).then(rates => {
       if (!rates || tile.user !== user) return;
       tile.rates = rates;
       paintQuality(tile);
@@ -3778,6 +3969,17 @@
       // Вторая осечка подряд — сервер тут ни при чём, комната ушла.
       if (tile.retried) return tileGone(tile);
 
+      // У Chaturbate адрес подписан и может протухнуть. Получаем новый токен
+      // один раз; перебирать Bongacams edge для такой комнаты нельзя.
+      if (isChaturbate(edge)) {
+        tile.retried = true;
+        try {
+          const freshUrl = await resolvePlaylist(user, edge);
+          if (tile.user === user && tile.hls === hlsTile) hlsTile.loadSource(freshUrl);
+        } catch { tileGone(tile); }
+        return;
+      }
+
       const row = (liveList || []).find(
         item => String(item[0]).toLowerCase() === user.toLowerCase());
       let fresh = row ? String(row[1]) : '';
@@ -3793,17 +3995,227 @@
     });
   }
 
-  /* Уровень громкости общий на всю стену и переживает перезагрузку: звук всё
-     равно у одной ячейки за раз, и выставлять его заново при каждом развороте
-     было бы издевательством. */
-  let wallVolume = 1;
+  /* У каждой комнаты свой итоговый уровень громкости. Старый общий уровень
+     используем только как начальный для комнат, которые ещё не встречались:
+     так обновление не делает уже настроенную стену внезапно громче. */
+  let defaultRoomVolume = 1;
   try {
     // Пустое хранилище даёт null, а Number(null) — ноль: без проверки на
     // первом же запуске стена оказалась бы немой.
     const raw = localStorage.getItem('wallVolume');
     const saved = Number(raw);
-    if (raw && saved >= 0 && saved <= 1) wallVolume = saved;
+    if (raw && saved >= 0 && saved <= 1) defaultRoomVolume = saved;
   } catch { /* приватный режим */ }
+
+  const ROOM_VOLUME_KEY = 'roomVolumes';
+  const roomVolumeKey = (user, edge) =>
+    `${isChaturbate(edge) ? 'cb' : 'bonga'}:${String(user).toLowerCase()}`;
+  const loadRoomVolumes = () => {
+    try { return JSON.parse(localStorage.getItem(ROOM_VOLUME_KEY)) || {}; }
+    catch { return {}; }
+  };
+  const storedRoomVolume = (user, edge) => {
+    const saved = loadRoomVolumes();
+    const key = roomVolumeKey(user, edge);
+    if (!Object.prototype.hasOwnProperty.call(saved, key)) return defaultRoomVolume;
+    const value = Number(saved[key]);
+    return Number.isFinite(value) && value >= 0 && value <= 1
+      ? value : defaultRoomVolume;
+  };
+  function storeRoomVolume(tile) {
+    if (!tile.user) return;
+    try {
+      const saved = loadRoomVolumes();
+      saved[roomVolumeKey(tile.user, tile.edge)] = tile.roomVolume;
+      localStorage.setItem(ROOM_VOLUME_KEY, JSON.stringify(saved));
+    } catch { /* приватный режим — уровень останется до смены страницы */ }
+  }
+
+  /* Автоматическая громкость стены. Один и тот же ползунок не выравнивает
+     комнаты: у каждой свой уровень записи. Web Audio измеряет RMS слышимой
+     ячейки, медленно подтягивает его к общей цели, а компрессор ловит пики.
+
+     Пределы намеренно умеренные: тишину не разгоняем вместе с шумом, тихую
+     комнату усиливаем максимум в четыре раза (+12 dB), громкую приглушаем
+     максимум примерно втрое (-9 dB). Индивидуальный video.volume комнаты
+     остаётся итоговым уровнем и в расчёте не теряется. */
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  const NORM_TARGET = 0.10;          // около -20 dBFS по среднему уровню
+  const NORM_GATE = 0.006;           // ниже — пауза/фон, усиление не трогаем
+  const NORM_MIN = 0.35;
+  const NORM_MAX = 4;
+  const ROOM_GAIN_KEY = 'roomGainDb';
+  let wallAudioContext = null;
+
+  const gainDbText = db => {
+    const rounded = Math.abs(db) < 0.05 ? 0 : db;
+    const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : '';
+    const amount = Math.abs(rounded).toLocaleString(langNow,
+      { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    return `${sign}${amount} дБ`;
+  };
+  const dbToGain = db => Math.pow(10, Number(db) / 20);
+  const gainToDb = gain => 20 * Math.log10(Math.max(0.0001, gain));
+  const roomGainKey = (user, edge) =>
+    `${isChaturbate(edge) ? 'cb' : 'bonga'}:${String(user).toLowerCase()}`;
+  const loadRoomGains = () => {
+    try { return JSON.parse(localStorage.getItem(ROOM_GAIN_KEY)) || {}; }
+    catch { return {}; }
+  };
+  const storedRoomGain = (user, edge) => {
+    const value = Number(loadRoomGains()[roomGainKey(user, edge)]);
+    return Number.isFinite(value) && value >= -12 && value <= 12 ? value : null;
+  };
+  function storeRoomGain(tile) {
+    try {
+      const saved = loadRoomGains();
+      const key = roomGainKey(tile.user, tile.edge);
+      if (tile.manualDb === null) delete saved[key];
+      else saved[key] = tile.manualDb;
+      localStorage.setItem(ROOM_GAIN_KEY, JSON.stringify(saved));
+    } catch { /* приватный режим — поправка останется до смены страницы */ }
+  }
+
+  function configureTileNormalizer(norm, enabled) {
+    norm.compressor.threshold.value = enabled ? -8 : 0;
+    norm.compressor.knee.value = enabled ? 12 : 0;
+    norm.compressor.ratio.value = enabled ? 6 : 1;
+    norm.compressor.attack.value = enabled ? 0.004 : 0;
+    norm.compressor.release.value = enabled ? 0.25 : 0;
+  }
+
+  function paintTileNormalization(tile, gain = null) {
+    const badge = tile.box.querySelector('.tnorm');
+    if (!badge) return;
+    const audible = tile.box.classList.contains('audible');
+    const manual = Number.isFinite(tile.manualDb);
+    const show = audible && Boolean(tile.normalizer)
+      && (Boolean(cfg('normVolume')) || manual);
+    badge.classList.toggle('on', show);
+    if (!show) return;
+    const value = Math.max(0.0001,
+      gain === null ? tile.normalizer.gain.gain.value : gain);
+    badge.textContent = gainDbText(gainToDb(value));
+    badge.title = `${t('настройки.normVolume.подпись')}: ${badge.textContent}`;
+  }
+
+  function paintGainMenu(tile) {
+    const menu = tile.box.querySelector('.tnormMenu');
+    if (!menu) return;
+    const normGain = tile.normalizer ? tile.normalizer.gain.gain.value : 1;
+    const db = Number.isFinite(tile.manualDb) ? tile.manualDb : gainToDb(normGain);
+    menu.querySelector('.tnormRange').value = String(Math.max(-12, Math.min(12, db)));
+    const factor = dbToGain(db).toLocaleString(langNow,
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    menu.querySelector('output').textContent = `${gainDbText(db)} · ×${factor}`;
+    menu.querySelector('button').classList.toggle('on', tile.manualDb === null);
+  }
+
+  function ensureTileNormalizer(tile) {
+    if (tile.normalizer !== undefined) return tile.normalizer;
+    if (!AudioContextClass) return (tile.normalizer = null);
+    try {
+      if (!wallAudioContext) wallAudioContext = new AudioContextClass();
+      const source = wallAudioContext.createMediaElementSource(tile.video);
+      const analyser = wallAudioContext.createAnalyser();
+      const gain = wallAudioContext.createGain();
+      const compressor = wallAudioContext.createDynamicsCompressor();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyser.connect(gain);
+      gain.connect(compressor);
+      compressor.connect(wallAudioContext.destination);
+      tile.normalizer = {
+        source, analyser, gain, compressor,
+        samples: new Float32Array(analyser.fftSize), level: 0,
+      };
+      configureTileNormalizer(tile.normalizer, Boolean(cfg('normVolume')));
+      return tile.normalizer;
+    } catch (err) {
+      console.warn('Нормализация громкости недоступна:', err);
+      return (tile.normalizer = null);
+    }
+  }
+
+  function resetTileNormalizer(tile) {
+    const norm = tile.normalizer;
+    if (!norm) return;
+    norm.level = 0;
+    norm.gain.gain.cancelScheduledValues(wallAudioContext.currentTime);
+    norm.gain.gain.value = 1;
+    paintTileNormalization(tile, 1);
+  }
+
+  function setTileManualGain(tile, db, remember = true) {
+    tile.manualDb = db === null ? null : Math.max(-12, Math.min(12, Number(db)));
+    if (remember) storeRoomGain(tile);
+    const norm = ensureTileNormalizer(tile);
+    if (!norm) return;
+    configureTileNormalizer(norm, Boolean(cfg('normVolume')));
+    norm.level = 0;
+    const wanted = tile.manualDb === null ? 1 : dbToGain(tile.manualDb);
+    const now = wallAudioContext.currentTime;
+    norm.gain.gain.cancelScheduledValues(now);
+    norm.gain.gain.setTargetAtTime(wanted, now, 0.08);
+    if (wallAudioContext.state === 'suspended') wallAudioContext.resume().catch(() => {});
+    paintTileNormalization(tile, norm.gain.gain.value);
+    paintGainMenu(tile);
+  }
+
+  function applyWallNormalization(enabled) {
+    for (const tile of screens.flatMap(screen => screen.tiles)) {
+      resetTileNormalizer(tile);
+      if (tile.normalizer) configureTileNormalizer(tile.normalizer, enabled);
+      if (tile.normalizer && Number.isFinite(tile.manualDb)) {
+        tile.normalizer.gain.gain.value = dbToGain(tile.manualDb);
+      }
+    }
+    if (!enabled) { paintBars(); return; }
+    const loud = tiles.find(tile => tile.box.classList.contains('loud'));
+    if (!loud) return;
+    const norm = ensureTileNormalizer(loud);
+    if (norm) configureTileNormalizer(norm, true);
+    if (norm && Number.isFinite(loud.manualDb)) setTileManualGain(loud, loud.manualDb, false);
+    if (norm && wallAudioContext.state === 'suspended') {
+      wallAudioContext.resume().catch(() => {});
+    }
+    paintBars();
+  }
+
+  function normalizeWallAudio() {
+    if (!wallAudioContext || wallAudioContext.state !== 'running') return;
+    const tile = tiles.find(item => item.box.classList.contains('loud'));
+    if (!tile || tile.video.muted || !tile.video.volume || tile.video.paused) return;
+    const norm = tile.normalizer;
+    if (!norm) return;
+
+    if (Number.isFinite(tile.manualDb)) {
+      const current = norm.gain.gain.value;
+      paintTileNormalization(tile, current);
+      paintGainMenu(tile);
+      norm.gain.gain.setTargetAtTime(dbToGain(tile.manualDb), wallAudioContext.currentTime, 0.08);
+      return;
+    }
+    if (!cfg('normVolume')) return;
+
+    norm.analyser.getFloatTimeDomainData(norm.samples);
+    let power = 0;
+    for (const sample of norm.samples) power += sample * sample;
+    const rms = Math.sqrt(power / norm.samples.length);
+    const volume = Math.max(0.01, tile.video.volume);
+    if (!Number.isFinite(rms) || rms < NORM_GATE * volume) return;
+
+    // Первое осмысленное окно задаёт старт сразу; следующие усредняем примерно
+    // за секунду, чтобы речь не «дышала» вслед за каждым отдельным слогом.
+    norm.level = norm.level ? norm.level * 0.78 + rms * 0.22 : rms;
+    const wanted = Math.max(NORM_MIN,
+      Math.min(NORM_MAX, NORM_TARGET * volume / norm.level));
+    const now = wallAudioContext.currentTime;
+    const current = norm.gain.gain.value;
+    paintTileNormalization(tile, current);
+    // Громкий сигнал приглушаем быстро, тихий усиливаем осторожнее.
+    norm.gain.gain.setTargetAtTime(wanted, now, wanted < current ? 0.08 : 0.55);
+  }
 
   const clock = sec => {
     const s = Math.max(0, Math.round(sec));
@@ -3861,12 +4273,16 @@
   function paintBar(tile) {
     const bar = tile.box.querySelector('.tbar');
     if (!bar) return;
+    const video = tile.video;
+    tile.box.classList.toggle('audible', tile.box.classList.contains('loud')
+      && !video.muted && Boolean(video.volume) && !tile.goneAt && !tile.halted);
+    if (!tile.box.classList.contains('audible')) tile.box.querySelector('.tnormMenu').hidden = true;
+    paintTileNormalization(tile);
     // «Нет · 7 минут» должно стареть само: панель и так тикает раз в секунду.
     if (tile.goneAt) {
       tile.box.querySelector('.offAt').textContent = ageText(tile.goneAt, true);
       return;
     }
-    const video = tile.video;
     const play = bar.querySelector('.tplay');
     play.textContent = video.paused ? '▶' : '⏸';
     play.title = tile.halted ? t('текст.96')
@@ -3879,7 +4295,10 @@
 
     const off = video.muted || !video.volume;
     bar.querySelector('.tmute').textContent = off ? '🔇' : '🔊';
-    bar.querySelector('.tvol').value = String(off ? 0 : video.volume);
+    /* Приглушённая ячейка сохраняет и показывает свой уровень: состояние
+       звука уже обозначает отдельная кнопка 🔇, а ноль на ползунке ошибочно
+       выглядел бы как потерянная индивидуальная настройка. */
+    bar.querySelector('.tvol').value = String(video.volume);
     bar.querySelector('.ttime').textContent = clock((Date.now() - (tile.since || Date.now())) / 1000);
 
     // Кнопку догона показываем, только когда есть что догонять: у живого
@@ -3923,10 +4342,16 @@
 
   // Звук — только у одной ячейки: четыре сразу дают кашу, да и браузер не даст.
   function tileLoud(tile) {
+    const norm = cfg('normVolume') || Number.isFinite(tile.manualDb)
+      ? ensureTileNormalizer(tile) : tile.normalizer;
+    if (norm && Number.isFinite(tile.manualDb)) setTileManualGain(tile, tile.manualDb, false);
+    if (norm && wallAudioContext.state === 'suspended') {
+      wallAudioContext.resume().catch(() => {});
+    }
     for (const other of tiles) {
       const on = other === tile;
       other.video.muted = !on;
-      if (on) other.video.volume = wallVolume;
+      if (on) other.video.volume = other.roomVolume;
       other.box.classList.toggle('loud', on && Boolean(other.user));
     }
     paintBars();
@@ -4235,9 +4660,18 @@
                     '<span class="offAt"></span></div>' +
                     '<div class="empty" data-i18n-title="ячейка.свободна">＋</div>' +
                     '<div class="tcap"><i class="tnum"></i>' +
-                    '<span class="tname"><b></b>' +
+                    '<span class="tname"><i class="tcb">CB</i><b></b>' +
+                    '<i class="tsound" role="button" tabindex="0" data-i18n-title="ячейка.ручнаяГромкость">🔊</i>' +
+                    '<i class="tnorm"></i>' +
                     '<span class="tcopy" data-i18n-title="ячейка.копировать">⧉</span>' +
                     '<i class="tq"></i></span>' +
+                    '<div class="tnormMenu" hidden>' +
+                      '<div class="tnormLabel" data-i18n="ячейка.коррекцияГромкости"></div>' +
+                      '<div class="tnormTop">' +
+                      '<output></output><button data-i18n="ячейка.автоГромкость"></button></div>' +
+                      '<input class="tnormRange" type="range" min="-12" max="12" step="0.5" ' +
+                        'data-i18n-aria="ячейка.ручнаяГромкость">' +
+                      '<small class="tnormHint" data-i18n="ячейка.коррекцияГромкости.пояснение"></small></div>' +
                     '<span class="tclose" data-i18n-title="ячейка.убрать">×</span></div>' +
                     '<div class="tbar">' +
                       '<span class="tb tplay" data-i18n-title="ячейка.пауза">⏸</span>' +
@@ -4253,7 +4687,10 @@
                       '<span class="tb tzoom" data-i18n-title="ячейка.развернуть">⤢</span>' +
                     '</div>';
     applyLang(box);           // узел создан после старта — переводим его сам
-    const tile = { box, video: box.querySelector('video'), hls: null, user: '', edge: '' };
+    const tile = {
+      box, video: box.querySelector('video'), hls: null,
+      user: '', edge: '', manualDb: null, roomVolume: defaultRoomVolume,
+    };
 
     /* Ячейку можно взять и переставить. Тащим за картинку, а не за отдельную
        ручку: так привычнее, зато панель приходится из жеста исключать —
@@ -4313,13 +4750,13 @@
       tilePlay(tile, room.user, edge);
       pushHist(room.user, edge);
     };
-    /* Уровень громкости запоминаем. Глушение уровень не меняет, поэтому такие
-       события пропускаем: иначе tileLoud, глуша соседей, обнулял бы
-       запомненное. */
+    /* Уровень запоминаем отдельно для комнаты. Глушение его не меняет,
+       поэтому такие события пропускаем: переключение звука между ячейками
+       не должно затрагивать их индивидуальные настройки. */
     tile.video.onvolumechange = () => {
       if (!tile.video.muted) {
-        wallVolume = tile.video.volume;
-        try { localStorage.setItem('wallVolume', String(wallVolume)); } catch { /* приватный */ }
+        tile.roomVolume = tile.video.volume;
+        storeRoomVolume(tile);
       }
       paintBar(tile);
     };
@@ -4328,7 +4765,7 @@
     // --- своя панель управления ---
     const bar = box.querySelector('.tbar');
     const vol = bar.querySelector('.tvol');
-    vol.value = String(wallVolume);
+    vol.value = String(tile.roomVolume);
 
     /* Пока держат панель, ячейка не перетаскивается: иначе нажатие на
        ползунке громкости уезжало бы в перенос всей ячейки, и подвинуть его
@@ -4345,10 +4782,42 @@
       tile.video.muted = true;
     };
     vol.oninput = () => {
-      tile.video.volume = Number(vol.value);
+      tile.roomVolume = Number(vol.value);
+      storeRoomVolume(tile);
+      tile.video.volume = tile.roomVolume;
       // Сдвинули с нуля — значит звук нужен здесь, даже если ячейка молчала.
-      if (Number(vol.value) > 0 && tile.video.muted) tileLoud(tile);
+      if (tile.roomVolume > 0 && tile.video.muted) tileLoud(tile);
     };
+
+    // Нажатие на постоянный 🔊 открывает коррекцию именно этой комнаты.
+    // Нижний ползунок задаёт отдельный итоговый уровень этой комнаты.
+    const sound = box.querySelector('.tsound');
+    const gainMenu = box.querySelector('.tnormMenu');
+    const gainRange = gainMenu.querySelector('.tnormRange');
+    const gainAuto = gainMenu.querySelector('button');
+    const toggleGainMenu = () => {
+      const open = gainMenu.hidden;
+      for (const menu of document.querySelectorAll('.tnormMenu')) menu.hidden = true;
+      gainMenu.hidden = !open;
+      if (open) paintGainMenu(tile);
+    };
+    sound.onclick = e => { e.stopPropagation(); toggleGainMenu(); };
+    sound.onkeydown = e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault(); toggleGainMenu();
+    };
+    sound.onmousedown = e => { e.stopPropagation(); box.draggable = false; };
+    sound.onmouseup = () => { box.draggable = true; };
+    gainMenu.onclick = e => e.stopPropagation();
+    gainMenu.onmousedown = e => { e.stopPropagation(); box.draggable = false; };
+    gainMenu.onmouseup = gainMenu.onmouseleave = () => { box.draggable = true; };
+    gainRange.oninput = () => setTileManualGain(tile, Number(gainRange.value));
+    gainAuto.onclick = () => setTileManualGain(tile, null);
+    document.addEventListener('click', e => {
+      if (!gainMenu.hidden && !gainMenu.contains(e.target) && e.target !== sound) {
+        gainMenu.hidden = true;
+      }
+    });
     bar.querySelector('.tlive').onclick = () => { toLive(tile); paintBar(tile); };
     bar.querySelector('.tpip').onclick = () => tilePip(tile);
     bar.querySelector('.tfull').onclick = () => {
@@ -4370,7 +4839,7 @@
     // ячейки, а кнопка в шапке знает только ту комнату, на которую смотрят.
     const nick = box.querySelector('b');
     nick.title = t('узел.19');
-    nick.onclick = () => { if (tile.user) openProfile(tile.user); };
+    nick.onclick = () => { if (tile.user) openProfile(tile.user, tile.edge); };
 
     box.querySelector('.tcopy').onclick = e => {
       e.stopPropagation();                 // рядом ник — он открывает профиль
@@ -4470,6 +4939,7 @@
      принесённая на полосу-приёмник; она встаёт последней, чтобы текущая
      трансляция осталась в первой ячейке. */
   let barTimer = 0;                // секундные часы на панелях ячеек
+  let normTimer = 0;               // плавная автоматическая громкость
 
   function wallOn(opts = {}) {
     // Всё нужное забираем до пересборки и остановки потока: clearScreens
@@ -4567,6 +5037,8 @@
     // перерисовок текста в секунду — цена, которой можно пренебречь.
     clearInterval(barTimer);
     barTimer = setInterval(paintBars, 1000);
+    clearInterval(normTimer);
+    normTimer = setInterval(normalizeWallAudio, 250);
     say(shown
       ? t('текст.117', { shown: shown }) +
         t('текст.118') +
@@ -4605,6 +5077,8 @@
     zoomShut();                    // разворот без стены под ним не живёт
     clearInterval(barTimer);
     barTimer = 0;
+    clearInterval(normTimer);
+    normTimer = 0;
     wallQuiet = true;              // выключение — не повод забывать состав
     for (const screen of screens) {
       for (const tile of screen.tiles) tileStop(tile);   // и спящие тоже
@@ -4783,7 +5257,7 @@
       row.className = 'item';
       row.dataset.user = rec.u;
       row.dataset.ts = String(rec.t);
-      row.dataset.base = `edge ${rec.e} · ${when(rec.t)}`;
+      row.dataset.base = `${isChaturbate(rec.e) ? 'Chaturbate' : `edge ${rec.e}`} · ${when(rec.t)}`;
 
       const dot = document.createElement('span');
       dot.className = 'dot';
@@ -5051,7 +5525,7 @@
     if (!force && (!period || Date.now() - state.last < period)) return;
 
     const targets = loadHist()
-      .filter(rec => !liveStatus.get(rec.u.toLowerCase()))
+      .filter(rec => !isChaturbate(rec.e) && !liveStatus.get(rec.u.toLowerCase()))
       .sort((a, b) => (state.at[a.u.toLowerCase()] || 0) - (state.at[b.u.toLowerCase()] || 0));
     const batch = cfg('deepBatch');
     if (batch) targets.length = Math.min(targets.length, batch);
@@ -5101,7 +5575,11 @@
     if (!hist.length) return;
     histChecking = true;
     await runPool(hist, 8, async rec => {
-      liveStatus.set(rec.u.toLowerCase(), await alive(rec.u, rec.e));
+      const online = isChaturbate(rec.e)
+        ? (liveList || []).some(row => isChaturbate(row[1])
+            && String(row[0]).toLowerCase() === rec.u.toLowerCase())
+        : await alive(rec.u, rec.e);
+      liveStatus.set(rec.u.toLowerCase(), online);
     });
     paintHist();
     histChecking = false;
@@ -5140,7 +5618,9 @@
   // в эфире на своём edge. Ник из снимка, сменивший сервер, покажется офлайн —
   // такой случай разбирает сама ячейка: на первой же осечке ищет сервер заново.
   const thumbUrl = (user, edge) =>
-    `https://${host(String(edge))}.bcvcdn.com/stream_${encodeURIComponent(user)}.jpg`;
+    isChaturbate(edge)
+      ? chaturbateThumb(user)
+      : `https://${host(String(edge))}.bcvcdn.com/stream_${encodeURIComponent(user)}.jpg`;
 
   /* Запасной адрес превью — тот, что каталог получил от самого сайта. Нужен,
      когда edge кадра не отдаёт: у venusx1 поток на edge 69, а картинки там нет
@@ -5151,9 +5631,11 @@
      годится показать лицо, но не годится решать, ушла ли модель, — по такому
      возрасту «ушедшими» вышли бы все шестьдесят. Свежесть остаётся за
      edge-кадром: он переписывается непрерывно, у живых 0–1 секунда. */
-  const siteShot = user => {
+  const siteShot = (user, edge = '') => {
     const key = String(user).toLowerCase();
-    const row = (liveList || []).find(item => String(item[0]).toLowerCase() === key);
+    const row = (liveList || []).find(item =>
+      String(item[0]).toLowerCase() === key
+      && (!edge || isChaturbate(item[1]) === isChaturbate(edge)));
     return (row && row[4]) || '';
   };
 
@@ -5174,6 +5656,37 @@
       const data = await res.json();
       return data && data.at && Array.isArray(data.live) && data.live.length ? data : null;
     } catch { return null; }
+  }
+
+  let chaturbateProblem = '';
+
+  async function loadChaturbateOnline(force = false) {
+    let problem = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const suffix = force || attempt ? '?force=1' : '';
+        const res = await fetch(`api/chaturbate/online${suffix}`, { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (data.complete === false) {
+          throw new Error(`не загрузилось страниц: ${data.failed_pages?.length || '?'}`);
+        }
+        if (!Array.isArray(data.rooms) || !data.rooms.length) {
+          throw new Error('сервер вернул пустой каталог');
+        }
+        chaturbateProblem = '';
+        const seen = Math.round(data.at || Date.now() / 1000);
+        return data.rooms.map(room => [room.user, CHATURBATE_EDGE,
+          Number(room.viewers) || 0, seen, room.image || chaturbateThumb(room.user)]);
+      } catch (err) {
+        problem = err.message || String(err);
+        if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 700 * (attempt + 1)));
+      }
+    }
+    chaturbateProblem = problem;
+    console.warn('Каталог Chaturbate недоступен:', problem);
+    $('onlineCount').title = `Chaturbate: ${problem}`;
+    return [];
   }
 
   function saveOnlineCache(live) {
@@ -5223,10 +5736,13 @@
     live.sort((a, b) => b[2] - a[2]);                  // по зрителям из снимка
     lastProbeAt = Date.now();
     saveOnlineCache(live);
-    renderOnline(live);
-    $('onlineCount').textContent = t('узел.31', { length: live.length, знач1: all.length });
+    const cbLive = await loadChaturbateOnline(force);
+    const combined = [...live, ...cbLive].sort((a, b) => b[2] - a[2]);
+    renderOnline(combined);
+    $('onlineCount').textContent = `${combined.length} · Bonga ${live.length} · CB ${chaturbateProblem ? 'ошибка' : cbLive.length}`;
     $('onlineCount').title = t('узел.32', { length: all.length }) +
-      t('текст.149', { знач1: catalog.length - all.length });
+      t('текст.149', { знач1: catalog.length - all.length }) +
+      (chaturbateProblem ? `\nChaturbate: ${chaturbateProblem}` : '');
     $('onlineRefresh').disabled = false;
     probing = false;
     pruneWall();            // первый пришедший список чистит стену от ушедших
@@ -5235,17 +5751,24 @@
   // При загрузке страницы показываем прошлый результат, если он свежий:
   // полный обход тысяч ников на каждый F5 — это минуты ожидания впустую.
   async function showOnlineFromCache() {
-    const cache = await loadOnlineCache();
-    if (!cache) return false;
+    const [cache, cbLive] = await Promise.all([loadOnlineCache(), loadChaturbateOnline()]);
+    if (!cache) {
+      if (cbLive.length) renderOnline(cbLive);
+      return false;
+    }
 
     const at = cache.at * 1000;                    // сервер отдаёт секунды
-    if (Date.now() - at > onlineTtl()) return false;
+    if (Date.now() - at > onlineTtl()) {
+      if (cbLive.length) renderOnline(cbLive);
+      return false;
+    }
 
     lastProbeAt = at;
-    renderOnline(cache.live);
-    $('onlineCount').textContent = t('узел.33', { length: cache.live.length, знач1: ageText(at) });
-    $('onlineCount').title = t('узел.34') +
-      t('текст.150');
+    const combined = [...cache.live, ...cbLive].sort((a, b) => b[2] - a[2]);
+    renderOnline(combined);
+    $('onlineCount').textContent = `${combined.length} · Bonga ${cache.live.length} · CB ${chaturbateProblem ? 'ошибка' : cbLive.length}`;
+    $('onlineCount').title = t('узел.34') + t('текст.150') +
+      (chaturbateProblem ? `\nChaturbate: ${chaturbateProblem}` : '');
     return true;
   }
 
@@ -5389,18 +5912,26 @@
      и было не видно ни последнего кадра, ни того, когда комната пропала. */
   function buildCard(user, edge, viewers, seen, shot) {
     const card = document.createElement('div');
-    card.className = 'card';
+    const cbRoom = isChaturbate(edge);
+    card.className = 'card' + (cbRoom ? ' cb' : '');
     card.dataset.user = user;
     card.dataset.edge = String(edge);
-    card.title = `${user} · edge ${edge}`;
+    card.dataset.source = cbRoom ? 'cb' : 'bonga';
+    card.dataset.viewers = String(Number(viewers) || 0);
+    card.title = cbRoom ? `${user} · Chaturbate` : `${user} · edge ${edge}`;
 
     // Картинку не подставляем сразу: её загрузит refreshThumbs, и статус
     // комнаты появится тем же запросом, вместе с кадром.
     const img = document.createElement('img');
     img.alt = user;
+    img.decoding = 'async';
     img.dataset.base = thumbUrl(user, edge);
     img.dataset.shot = shot || '';   // запасной, если edge кадра не отдаст
     img.dataset.visible = '0';
+    /* Оба сайта идут через одну очередь видимых превью. Нативный loading=lazy
+       у тысяч CB-картинок начинал запрос лишь после пересчёта длинного списка,
+       поэтому при фильтрации сайта карточки заметно стояли пустыми. Наблюдатель
+       запускает fetch сразу при попадании в экран и заранее на 150 px ниже. */
     visObserver.observe(img);
 
     const cap = document.createElement('div');
@@ -5460,25 +5991,57 @@
     body.textContent = '';
     if (!live.length) {
       body.innerHTML = `<div class="empty">${t('пусто.эфир')}</div>`;
+      $('onlineShown').textContent = t('эфир.показано', { shown: 0 });
       return;
     }
+    const batch = document.createDocumentFragment();
     for (const [user, edgeAtSweep, viewers, seen, shot] of live) {
       // Снимку эфира может быть до часа, а база обновляется каждую минуту —
       // поэтому сервер берём из неё, если он там известен. Иначе карточка
       // стучалась бы на старый сервер и считала модель ушедшей.
-      body.appendChild(buildCard(user, known.get(user.toLowerCase()) || edgeAtSweep,
-                                 viewers, seen, shot));
+      batch.appendChild(buildCard(user, isChaturbate(edgeAtSweep) ? CHATURBATE_EDGE
+                                  : known.get(user.toLowerCase()) || edgeAtSweep,
+                                  viewers, seen, shot));
     }
+    body.appendChild(batch);
     paintNotes();
     markCurrent();
-    filterOnline();          // свежий список сразу под текущий поиск
-    queueThumbs();                   // грузим то, что попало на экран
+    applyOnlineView(false);  // свежий список сразу под текущие параметры
+  }
+
+  const onlineNameOrder = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+
+  /* Переставляем существующие карточки, а не строим их заново: в полном
+     каталоге их тысячи, и повторно подключать наблюдатели и изображения при
+     каждом выборе сортировки было бы заметно и по времени, и по памяти. */
+  function applyOnlineView(store = true) {
+    const body = $('onlineBody');
+    const cards = [...body.querySelectorAll('.card:not(.found)')];
+    const viewers = card => Number(card.dataset.viewers) || 0;
+    const byPopular = (a, b) => viewers(b) - viewers(a)
+      || onlineNameOrder.compare(a.dataset.user || '', b.dataset.user || '');
+    const compare = {
+      'viewers-desc': byPopular,
+      'viewers-asc': (a, b) => viewers(a) - viewers(b)
+        || onlineNameOrder.compare(a.dataset.user || '', b.dataset.user || ''),
+      name: (a, b) => onlineNameOrder.compare(a.dataset.user || '', b.dataset.user || ''),
+      source: (a, b) => (a.dataset.source || '').localeCompare(b.dataset.source || '')
+        || byPopular(a, b),
+    }[onlineView.sort] || byPopular;
+
+    const batch = document.createDocumentFragment();
+    cards.sort(compare).forEach(card => batch.appendChild(card));
+    body.appendChild(batch);
+    filterOnline();
+    queueThumbs();
+    if (store) saveOnlineView();
   }
 
   // Поиск по колонке: прячем неподходящие карточки, а если совпадений нет —
   // предлагаем открыть введённый ник напрямую, он может быть и не в списке.
   function filterOnline() {
     const query = $('onlineFind').value.trim().toLowerCase();
+    const source = onlineView.source;
 
     /* Добавленное прошлым поиском убираем до подсчёта совпадений. Иначе своя
        же карточка шла бы в зачёт, следующий набранный символ считал бы, что
@@ -5493,11 +6056,14 @@
 
     let shown = 0;
     for (const card of $('onlineBody').querySelectorAll('.card')) {
-      const match = !query || (card.dataset.user || '').toLowerCase().includes(query);
+      const sourceMatch = source === 'all' || card.dataset.source === source;
+      const match = sourceMatch
+        && (!query || (card.dataset.user || '').toLowerCase().includes(query));
       card.classList.toggle('hidden', !match);
       if (match) shown++;
     }
-    if (!query || shown) return;
+    $('onlineShown').textContent = t('эфир.показано', { shown: shown });
+    if (!query || shown || source === 'cb') return;
 
     /* Совпадений в эфире нет. Если ник знаком базе — показываем такую же
        карточку: её кадр и есть последнее, что от комнаты осталось, а плашка
@@ -5666,6 +6232,53 @@
     filterOnline();
     $('onlineFind').focus();
   };
+  function setOnlineOptions(open, store = true) {
+    onlineView.open = Boolean(open);
+    const button = $('onlineOptionsToggle');
+    const titleKey = onlineView.open ? 'эфир.параметры.свернуть' : 'эфир.параметры';
+    const title = onlineView.open ? t('эфир.параметры.свернуть') : t('эфир.параметры');
+    $('onlineOptionsPanel').hidden = !onlineView.open;
+    button.classList.toggle('open', onlineView.open);
+    button.setAttribute('aria-expanded', String(onlineView.open));
+    button.dataset.i18nTitle = titleKey;
+    button.dataset.i18nAria = titleKey;
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    if (store) saveOnlineView();
+  }
+
+  function paintOnlineChoices() {
+    for (const button of $('onlineSource').querySelectorAll('button')) {
+      const active = button.dataset.value === onlineView.source;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    }
+    for (const button of $('onlineSort').querySelectorAll('button')) {
+      const active = button.dataset.value === onlineView.sort;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    }
+  }
+
+  function bindOnlineChoice(id, key) {
+    $(id).onclick = event => {
+      const button = event.target.closest('button[data-value]');
+      if (!button || button.dataset.value === onlineView[key]) return;
+      onlineView[key] = button.dataset.value;
+      paintOnlineChoices();
+      applyOnlineView();
+    };
+  }
+
+  if (!['all', 'bonga', 'cb'].includes(onlineView.source)) onlineView.source = 'all';
+  if (!['viewers-desc', 'viewers-asc', 'name', 'source'].includes(onlineView.sort)) {
+    onlineView.sort = 'viewers-desc';
+  }
+  paintOnlineChoices();
+  setOnlineOptions(onlineView.open, false);
+  $('onlineOptionsToggle').onclick = () => setOnlineOptions(!onlineView.open);
+  bindOnlineChoice('onlineSource', 'source');
+  bindOnlineChoice('onlineSort', 'sort');
   $('onlineRefresh').onclick = () => refreshOnline(true);
 
   // --- переключение комнат, в том числе из окна «картинка в картинке» -------
@@ -5673,8 +6286,13 @@
   // обработчики Media Session. Видеоэлемент при смене комнаты не пересоздаётся
   // (меняется лишь источник у hls.js), поэтому окно PiP остаётся открытым.
   function switchRoom(dir) {
-    const list = liveList.length
-      ? liveList.map(m => [m[0], m[1]])
+    // Перелистывание следует видимому порядку карточек: фильтр сайта и
+    // выбранная сортировка не должны расходиться с кнопками «назад/вперёд».
+    const visible = [...$('onlineBody').querySelectorAll('.card:not(.hidden):not(.found)')]
+      .map(card => [card.dataset.user, card.dataset.edge]);
+    const list = visible.length
+      ? visible
+      : liveList.length ? liveList.map(m => [m[0], m[1]])
       : loadHist().map(r => [r.u, r.e]);          // пока эфир не проверен — идём по истории
     if (!list.length) return say(t('статус.45'), 'err');
 
@@ -5730,7 +6348,7 @@
     try {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: user,
-        artist: `edge ${edge} · BongaCams`,
+        artist: isChaturbate(edge) ? 'Chaturbate' : `edge ${edge} · BongaCams`,
         artwork: [{ src: `${thumbUrl(user, edge)}?t=${Date.now()}`, sizes: '320x180', type: 'image/jpeg' }],
       });
       navigator.mediaSession.playbackState = 'playing';
@@ -6163,7 +6781,10 @@
       const i = Math.max(0, steps.indexOf(subs.kindCfg.hold));
       subsSend({ type: 'kind_cfg', hold: steps[(i + 1) % steps.length] });
     }
-    else if (act === 'profile') openProfile(currentRoom().user);
+    else if (act === 'profile') {
+      const room = currentRoom();
+      openProfile(room.user, room.edge);
+    }
     else if (act === 'copy') {
       navigator.clipboard.writeText(streamUrl)
         .then(() => say(t('статус.53'), 'ok'))
@@ -6746,7 +7367,7 @@
   async function browserProbe() {
     const picks = (liveList || []).slice(0, 24)
       .map(([user, edgeAtSweep]) => [user, known.get(user.toLowerCase()) || edgeAtSweep])
-      .filter(([, edge]) => edge)
+      .filter(([, edge]) => edge && !isChaturbate(edge))
       .slice(0, 8);
     if (!picks.length) return null;
 
@@ -7247,8 +7868,13 @@
 
   // Профиль на сайте. Регистр в пути важен, поэтому берём правильное написание
   // из базы, если ник там есть, — иначе сайт отдаст 404.
-  function openProfile(room) {
+  function openProfile(room, edge = '') {
     if (!room) return say(t('статус.61'), 'err');
+    if (isChaturbate(edge)) {
+      window.open(`https://chaturbate.com/${encodeURIComponent(room)}/`,
+                  '_blank', 'noopener,noreferrer');
+      return;
+    }
     const user = canon.get(String(room).toLowerCase()) || room;
     window.open(`https://ru17.bongacams.com/profile/${encodeURIComponent(user)}`,
                 '_blank', 'noopener,noreferrer');
