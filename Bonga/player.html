@@ -221,7 +221,7 @@
     display: block; margin: 0 0 4px; color: #98a1b0;
   }
   .online-choice { display: grid; gap: 4px; }
-  #onlineSource { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #onlineSource { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #onlineSort { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .online-choice button {
     min-width: 0; padding: 4px 3px; overflow: hidden; text-overflow: ellipsis;
@@ -663,6 +663,14 @@
   .card .cap b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
                  white-space: nowrap; font-weight: 500; }
   .card .cap i { flex: 0 0 auto; color: #6b7484; font-style: normal; font-size: 11px; }
+  /* Цена подглядывания — та же оранжевая семья, что метка CB на ячейке:
+     приватная комната опознаётся с одного взгляда и в колонке тоже. */
+  .card .cap .spyTag {
+    flex: 0 0 auto; padding: 1px 5px; border-radius: 4px;
+    background: rgba(247, 129, 31, .25); color: #ffb877;
+    font-size: 10px; font-weight: 700; letter-spacing: .03em;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
 
   /* видео занимает ровно остаток высоты окна — контролы плеера не срезаются */
   #stage {
@@ -1561,6 +1569,8 @@
             <button data-value="all" data-i18n="эфир.источник.все"></button>
             <button data-value="bonga">Bonga</button>
             <button data-value="cb">Chaturbate</button>
+            <button data-value="private" data-i18n="эфир.источник.приват"
+                    data-i18n-title="эфир.источник.приват.подсказка"></button>
           </div>
         </div>
         <div class="online-option">
@@ -6079,7 +6089,8 @@
         chaturbateProblem = '';
         const seen = Math.round(data.at || Date.now() / 1000);
         return data.rooms.map(room => [room.user, CHATURBATE_EDGE,
-          Number(room.viewers) || 0, seen, room.image || chaturbateThumb(room.user)]);
+          Number(room.viewers) || 0, seen, room.image || chaturbateThumb(room.user),
+          Number(room.spy_price) || 0]);
       } catch (err) {
         problem = err.message || String(err);
         if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 700 * (attempt + 1)));
@@ -6312,7 +6323,7 @@
   /* Карточка комнаты. Отдельной функцией, потому что такую же строит поиск для
      ника, которого нет в эфире: раньше он предлагал только строку «Открыть»,
      и было не видно ни последнего кадра, ни того, когда комната пропала. */
-  function buildCard(user, edge, viewers, seen, shot) {
+  function buildCard(user, edge, viewers, seen, shot, spy) {
     const card = document.createElement('div');
     const cbRoom = isChaturbate(edge);
     card.className = 'card' + (cbRoom ? ' cb' : '');
@@ -6320,7 +6331,10 @@
     card.dataset.edge = String(edge);
     card.dataset.source = cbRoom ? 'cb' : 'bonga';
     card.dataset.viewers = String(Number(viewers) || 0);
-    card.title = cbRoom ? `${user} · Chaturbate` : `${user} · edge ${edge}`;
+    if (Number(spy) > 0) card.dataset.spy = String(Number(spy));
+    card.title = cbRoom
+      ? `${user} · Chaturbate` + (card.dataset.spy ? ` · ${t('карточка.spy', { цена: card.dataset.spy })}` : '')
+      : `${user} · edge ${edge}`;
 
     // Картинку не подставляем сразу: её загрузит refreshThumbs, и статус
     // комнаты появится тем же запросом, вместе с кадром.
@@ -6338,9 +6352,11 @@
 
     const cap = document.createElement('div');
     cap.className = 'cap';
-    cap.innerHTML = '<b></b><i></i>';
+    cap.innerHTML = '<b></b><i></i>' + (card.dataset.spy ? '<span class="spyTag"></span>' : '');
     cap.querySelector('b').textContent = user;
     cap.querySelector('i').textContent = viewers ? `${viewers}👁` : '';
+    const spyTag = cap.querySelector('.spyTag');
+    if (spyTag) spyTag.textContent = t('карточка.spy.кратко', { цена: card.dataset.spy });
 
     const note = document.createElement('span');
     note.className = 'note';
@@ -6397,13 +6413,13 @@
       return;
     }
     const batch = document.createDocumentFragment();
-    for (const [user, edgeAtSweep, viewers, seen, shot] of live) {
+    for (const [user, edgeAtSweep, viewers, seen, shot, spy] of live) {
       // Снимку эфира может быть до часа, а база обновляется каждую минуту —
       // поэтому сервер берём из неё, если он там известен. Иначе карточка
       // стучалась бы на старый сервер и считала модель ушедшей.
       batch.appendChild(buildCard(user, isChaturbate(edgeAtSweep) ? CHATURBATE_EDGE
                                   : known.get(user.toLowerCase()) || edgeAtSweep,
-                                  viewers, seen, shot));
+                                  viewers, seen, shot, spy));
     }
     body.appendChild(batch);
     paintNotes();
@@ -6489,10 +6505,14 @@
 
     const batch = document.createDocumentFragment();
     for (const room of rooms) {
-      if (onlineView.source !== 'all' && room.source !== onlineView.source) continue;
+      // Фильтр «Приват» cb-комнаты не отсекает: их видимость решает
+      // filterOnline по метке dataset.spy, как и у карточек каталога.
+      if (onlineView.source === 'bonga' && room.source !== 'bonga') continue;
+      if (onlineView.source === 'cb' && room.source !== 'cb') continue;
       const edge = room.source === 'cb' ? CHATURBATE_EDGE : String(room.edge || '');
       const card = buildCard(room.user || query, edge, Number(room.viewers) || 0,
-                             Math.round(Date.now() / 1000), room.image || '');
+                             Math.round(Date.now() / 1000), room.image || '',
+                             Number(room.spy) || 0);
       card.classList.add('found');
       const img = card.querySelector('img');
       img.dataset.visible = '1';
@@ -6522,7 +6542,9 @@
 
     let shown = 0;
     for (const card of $('onlineBody').querySelectorAll('.card')) {
-      const sourceMatch = source === 'all' || card.dataset.source === source;
+      const sourceMatch = source === 'all' ? true
+        : source === 'private' ? !!card.dataset.spy
+        : card.dataset.source === source;
       const match = sourceMatch
         && (!query || (card.dataset.user || '').toLowerCase().includes(query));
       card.classList.toggle('hidden', !match);
@@ -6749,7 +6771,7 @@
     };
   }
 
-  if (!['all', 'bonga', 'cb'].includes(onlineView.source)) onlineView.source = 'all';
+  if (!['all', 'bonga', 'cb', 'private'].includes(onlineView.source)) onlineView.source = 'all';
   if (!['viewers-desc', 'viewers-asc', 'name', 'source'].includes(onlineView.sort)) {
     onlineView.sort = 'viewers-desc';
   }
