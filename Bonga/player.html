@@ -527,6 +527,22 @@
     font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .04em;
   }
   .tile.cb .tcap .tcb { display: inline-block; }
+  /* Spy Chaturbate — кнопка в заголовке, а не в панели: у приватной комнаты
+     панель скрыта тем же правилом, что и у ушедшей, а смотреть есть на что.
+     Оранжевая рамка — предложение (приват, агент готов), красная заливка —
+     списание идёт прямо сейчас, тусклая — запуск невозможен. */
+  .tcap .tspy {
+    flex: 0 0 auto; padding: 1px 6px; border-radius: 4px; cursor: pointer;
+    background: rgba(247, 129, 31, .22); color: #ffb877;
+    font-size: 10px; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase; font-variant-numeric: tabular-nums;
+  }
+  .tcap .tspy[hidden] { display: none; }
+  .tcap .tspy:hover { filter: brightness(1.25); }
+  .tcap .tspy.on { background: #b5372c; color: #fff; }
+  .tcap .tspy.dim { opacity: .55; }
+  /* Плашка «приват» теплее красной «ушла»: комната на месте, просто закрыта. */
+  .tile.private .off { background: rgba(158, 106, 22, .92); }
   /* Постоянный индикатор слышимой ячейки. Класс loud уже является источником
      правды для звука и может принадлежать только одной комнате одновременно. */
   .tcap .tsound { display: none; flex: 0 0 auto; font-style: normal; font-size: 12px; }
@@ -2428,10 +2444,104 @@
                             { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.online || !data.url) {
+      if (data.status === 'private') {
+        /* Приват — не «ушла»: поток открывается платным spy через агента.
+           Статус и цену несём в исключение, ячейка покажет кнопку. */
+        const err = new Error(`${user}: приватное шоу`);
+        err.status = 'private';
+        err.price = Number(data.spy_price) || 0;
+        err.spy = data.spy || null;
+        throw err;
+      }
       throw new Error(data.error || `${user} сейчас не в эфире на Chaturbate`);
     }
     return data.url;
   }
+
+  /* --- spy Chaturbate: приватные шоу через агента-закладку ------------------
+     Платный вход делает вкладка chaturbate.com с закладкой (см. диалог базы),
+     сервер держит очередь и одну spy-сессию. Плеер спрашивает состояние раз
+     в 10 с — заодно это продлевает серверный watchdog: пока плеер жив, spy
+     не остановится сам по таймауту. */
+  let spyInfo = null;          // последний снимок /api/cb/spy
+
+  const spyOf = () => (spyInfo && spyInfo.spy) || {};
+  const agentOf = () => (spyInfo && spyInfo.agent) || { online: false, anon: true };
+  const spyMine = room => {
+    const spy = spyOf();
+    return !!room && String(spy.room || '').toLowerCase() === String(room).toLowerCase();
+  };
+
+  async function spyToggle(room) {
+    const spy = spyOf();
+    if (spy.state === 'spying' && spyMine(room)) return spyStopQuiet(room);
+    say(t('spy.запрос'));
+    try {
+      const res = await fetch('api/cb/spy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: room, action: 'start' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        say(data.error || t('spy.отказ'), 'err');
+        return;
+      }
+      if (data.spy) spyInfo = { agent: agentOf(), spy: data.spy };
+      say(t('spy.запущен', { цена: spyOf().price || 0 }), 'ok');
+      await spyTick();
+    } catch { say(t('spy.сеть'), 'err'); }
+  }
+
+  async function spyStopQuiet(room) {
+    say(t('spy.стоп'));
+    try {
+      await fetch('api/cb/spy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: room, action: 'stop' }),
+      });
+    } catch { /* скажется следующим тиком */ }
+    await spyTick();
+  }
+
+  async function spyTick() {
+    const active = spyOf().state && spyOf().state !== 'idle';
+    const anyCb = tiles.some(tile => tile.user && isChaturbate(tile.edge));
+    if (!active && !anyCb) return;           // нечего спрашивать без cb-ячеек
+    try {
+      const res = await fetch('api/cb/spy', { cache: 'no-store' });
+      spyInfo = await res.json();
+    } catch { return; }                       // сервер моргнул — попробуем позже
+
+    const spy = spyOf();
+    const now = Date.now();
+    for (const tile of tiles) {
+      if (!tile.user || !isChaturbate(tile.edge)) continue;
+      paintSpy(tile);
+      const isPrivate = tile.box.classList.contains('private');
+      if (!isPrivate) continue;
+      /* Включившийся spy открывает поток ячейке своей комнаты; без него
+         раз в полминуты проверяем, не вышла ли комната из привата. */
+      if (spy.state === 'spying' && spyMine(tile.user)) tilePlay(tile, tile.user, tile.edge);
+      else if (now - (tile.recheckAt || 0) > 30000) { tile.recheckAt = now; privateRecheck(tile); }
+    }
+  }
+
+  /* Комната могла выйти из привата — тогда resolvePlaylist перестанет
+     бросаться статусом private и вернёт обычный поток. */
+  async function privateRecheck(tile) {
+    if (tile.recheckBusy || !tile.user) return;
+    tile.recheckBusy = true;
+    try {
+      await resolvePlaylist(tile.user, tile.edge);
+      if (tile.user && tile.box.classList.contains('private'))
+        tilePlay(tile, tile.user, tile.edge);
+    } catch { /* всё ещё приват */ }
+    finally { tile.recheckBusy = false; }
+  }
+
+  setInterval(spyTick, 10000);
 
   const candidates = [
     ...Array.from({ length: 80 }, (_, i) => String(i + 1)),
@@ -3807,10 +3917,28 @@
     paintBar(tile);
   }
 
+  /* Приватная комната Chaturbate: анонимного потока нет, но она не считается
+     ушедшей — агент-закладка может открыть платное spy-подглядывание. Ячейка
+     остаётся за комнатой, а кнопка в заголовке запускает показ. */
+  function tilePrivate(tile, err) {
+    if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
+    tile.ready = false;
+    tile.video.pause();
+    tile.video.removeAttribute('src');
+    tile.video.load();
+    tile.box.classList.add('offline', 'private');
+    tile.box.classList.remove('loud', 'audible');
+    tile.box.querySelector('.off').textContent = t('ячейка.приват');
+    tile.price = err.price || 0;
+    paintQuality(tile);
+    paintSpy(tile);
+    paintBar(tile);
+  }
+
   function tileLive(tile) {
     tile.goneAt = 0;
     tile.halted = false;
-    tile.box.classList.remove('offline', 'halted');
+    tile.box.classList.remove('offline', 'halted', 'private');
     const shot = tile.box.querySelector('.tshot');
     if (shot.blobUrl) { URL.revokeObjectURL(shot.blobUrl); shot.blobUrl = null; }
     shot.removeAttribute('src');
@@ -3838,6 +3966,10 @@
      освобождается, комната остаётся за ячейкой, на экране застывает кадр. */
   function tileHalt(tile) {
     if (!tile.user || tile.halted) return;
+    /* Поток разорван — платить за spy дальше незачем (списание остановим,
+       вернуться можно кнопкой в заголовке ячейки). */
+    if (isChaturbate(tile.edge) && spyOf().state === 'spying' && spyMine(tile.user))
+      spyStopQuiet(tile.user);
     const frame = tileFrame(tile);
     if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
     tile.ready = false;
@@ -3865,6 +3997,11 @@
   }
 
   function tileStop(tile) {
+    /* Spy оплачен поминутно: как только комната уходит из ячейки (смена,
+       закрытие стены, очистка экрана — все пути проходят здесь), списание
+       надо остановить, не дожидаясь серверного watchdog. */
+    if (tile.user && isChaturbate(tile.edge) && spyOf().state === 'spying' && spyMine(tile.user))
+      spyStopQuiet(tile.user);
     const owner = screens.find(screen => screen.tiles.includes(tile));
     if (owner) {
       if (owner.loudTile === tile) owner.loudTile = null;
@@ -3924,8 +4061,8 @@
       sourceUrl = await resolvePlaylist(user, edge);
     } catch (err) {
       if (tile.user === user && tile.edge === String(edge)) {
-        say(err.message, 'err');
-        tileGone(tile);
+        if (err.status === 'private') tilePrivate(tile, err);
+        else { say(err.message, 'err'); tileGone(tile); }
       }
       return;
     }
@@ -4003,7 +4140,11 @@
         try {
           const freshUrl = await resolvePlaylist(user, edge);
           if (tile.user === user && tile.hls === hlsTile) hlsTile.loadSource(freshUrl);
-        } catch { tileGone(tile); }
+        } catch (err) {
+          // комната могла уйти в приват посреди эфира — это не «ушла»
+          if (err.status === 'private') tilePrivate(tile, err);
+          else tileGone(tile);
+        }
         return;
       }
 
@@ -4423,6 +4564,56 @@
     badge.title = `${lvl.width}×${lvl.height}` + (rate
       ? t('текст.94', { знач1: (rate / 1e6).toFixed(2), знач2: mine ? '' : t('кусок.2') })
       : lvl.bitrate ? t('текст.95', { знач1: (lvl.bitrate / 1e6).toFixed(2) }) : '');
+  }
+
+  /* Кнопка spy в заголовке cb-ячейки. Видна только приватной комнате
+     (запуск) и активной spy-сессии этой комнаты (ход и остановка); всё
+     остальное время скрыта, чтобы не засорять сетку. */
+  function paintSpy(tile) {
+    const btn = tile.box.querySelector('.tspy');
+    if (!btn) return;
+    if (!tile.user || !isChaturbate(tile.edge)) { btn.hidden = true; return; }
+    const spy = spyOf();
+    const mine = spyMine(tile.user);
+    if (spy.state === 'spying' && mine) {
+      btn.hidden = false;
+      btn.classList.add('on');
+      btn.classList.remove('dim');
+      btn.textContent = t('ячейка.spy.идёт', { мин: spy.minutes || 0 });
+      btn.title = t('ячейка.spy.стоп.подсказка');
+      return;
+    }
+    btn.classList.remove('on');
+    if (spy.state === 'starting' && mine) {
+      btn.hidden = false;
+      btn.classList.remove('dim');
+      btn.textContent = t('ячейка.spy.запуск');
+      btn.title = '';
+      return;
+    }
+    if (spy.state === 'stopping' && mine) {
+      btn.hidden = false;
+      btn.classList.add('dim');
+      btn.textContent = t('ячейка.spy.останова');
+      btn.title = '';
+      return;
+    }
+    if (!tile.box.classList.contains('private')) { btn.hidden = true; return; }
+    btn.hidden = false;
+    const agent = agentOf();
+    if (!agent.online) {
+      btn.classList.add('dim');
+      btn.textContent = t('ячейка.spy.агент');
+      btn.title = t('ячейка.spy.агент.подсказка');
+    } else if (agent.anon) {
+      btn.classList.add('dim');
+      btn.textContent = t('ячейка.spy.аноним');
+      btn.title = t('ячейка.spy.аноним.подсказка');
+    } else {
+      btn.classList.remove('dim');
+      btn.textContent = t('ячейка.spy.кнопка');
+      btn.title = t('ячейка.spy.подсказка', { цена: tile.price || 0 });
+    }
   }
 
   function paintBar(tile) {
@@ -4857,6 +5048,7 @@
                     '<span class="tname"><i class="tcb">CB</i><b></b>' +
                     '<i class="tsound" role="button" tabindex="0" data-i18n-title="ячейка.ручнаяГромкость">🔊</i>' +
                     '<i class="tnorm"></i>' +
+                    '<span class="tspy" role="button" tabindex="0" hidden></span>' +
                     '<span class="tcopy" data-i18n-title="ячейка.копировать">⧉</span>' +
                     '<i class="tq"></i></span>' +
                     '<div class="tnormMenu" hidden>' +
@@ -5038,6 +5230,14 @@
       navigator.clipboard.writeText(tile.user)
         .then(() => say(t('статус.31', { user: tile.user }), 'ok'))
         .catch(() => say(t('статус.32'), 'err'));
+    };
+
+    /* Spy Chaturbate: запуск/остановка платного подглядывания. Текст и цвет
+       кнопки рисует paintSpy по снимку /api/cb/spy, клик только переключает. */
+    box.querySelector('.tspy').onclick = e => {
+      e.stopPropagation();
+      if (!tile.user || !isChaturbate(tile.edge)) return;
+      spyToggle(tile.user);
     };
     tiles.push(tile);
     screens[screenAt].box.appendChild(box);
@@ -5392,6 +5592,11 @@
   // Закрытая вкладка не должна оставлять ffmpeg писать часами.
   window.addEventListener('pagehide', () => {
     if (session) navigator.sendBeacon('api/record/stop', JSON.stringify({ id: session.id }));
+    /* Активный spy жжёт токены поминутно — вкладка закрылась, значит смотреть
+       некому, останавливаем не дожидаясь серверного watchdog. */
+    const spy = (spyInfo && spyInfo.spy) || {};
+    if (spy.state === 'spying' || spy.state === 'starting')
+      navigator.sendBeacon('api/cb/spy/stop', JSON.stringify({ user: spy.room || '' }));
   });
 
   paintRec();
