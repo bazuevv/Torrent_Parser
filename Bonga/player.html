@@ -6233,8 +6233,8 @@
   // Поиск по колонке: прячем неподходящие карточки, а если совпадений нет —
   // предлагаем открыть введённый ник напрямую, он может быть и не в списке.
   let onlineFindRun = 0;
-  let exactRoomsTimer = 0;
-  const exactRoomChecks = new Map();
+  let exactCbTimer = 0;
+  const exactCbChecks = new Map();
 
   const paintOnlineShown = () => {
     const shown = [...$('onlineBody').querySelectorAll('.card:not(.hidden)')].length;
@@ -6242,61 +6242,52 @@
     return shown;
   };
 
-  /* Сервер возвращает Bonga и Chaturbate одним атомарным ответом. Браузер
-     больше не склеивает два каталога сам — именно эта гонка давала Firefox
-     одну карточку, а Chrome другую для одного и того же ника. */
-  async function showExactRooms(query, run) {
+  /* Полный каталог CB собирается постранично и может приехать позже Bonga.
+     Точный ник проверяем коротким серверным запросом независимо от каталога —
+     так порядок ответов двух сайтов больше не решает, какая карточка останется. */
+  async function addExactChaturbate(query, run) {
     const now = Date.now();
-    let cached = exactRoomChecks.get(query);
+    let cached = exactCbChecks.get(query);
     if (!cached || now - cached.at > 30000) {
-      const pending = fetch(`api/rooms/exact?user=${encodeURIComponent(query)}`,
+      const pending = fetch(`api/chaturbate/stream?user=${encodeURIComponent(query)}`,
                             { cache: 'no-store' })
         .then(async res => {
           const data = await res.json().catch(() => ({}));
-          return res.ok && Array.isArray(data.rooms) ? data.rooms : [];
+          return { online: res.ok && Boolean(data.online && data.url), data };
         })
-        .catch(() => []);
+        .catch(() => ({ online: false, data: {} }));
       cached = { at: now, pending };
-      exactRoomChecks.set(query, cached);
+      exactCbChecks.set(query, cached);
     }
 
-    const rooms = await cached.pending;
-    if (run !== onlineFindRun || !rooms.length
-        || $('onlineFind').value.trim().toLowerCase() !== query) return;
+    const result = await cached.pending;
+    if (run !== onlineFindRun || !result.online
+        || $('onlineFind').value.trim().toLowerCase() !== query
+        || onlineView.source === 'bonga') return;
 
-    /* Ответ точного поиска главнее старого снимка эфира. Заменяем результат
-       целиком, а не дописываем недостающую карточку: промежуточная перерисовка
-       общего каталога тогда не сможет снова оставить только один сайт. */
-    for (const card of $('onlineBody').querySelectorAll('.card')) {
-      card.classList.add('hidden');
-    }
-    for (const card of $('onlineBody').querySelectorAll('.card.found')) {
-      const img = card.querySelector('img');
-      if (img?.blobUrl) URL.revokeObjectURL(img.blobUrl);
-      card.remove();
-    }
+    const alreadyThere = [...$('onlineBody').querySelectorAll('.card')]
+      .some(card => card.dataset.source === 'cb'
+        && (card.dataset.user || '').toLowerCase() === query
+        && !card.classList.contains('hidden'));
+    if (alreadyThere) return;
+
+    const room = result.data.user || query;
+    const card = buildCard(room, CHATURBATE_EDGE, Number(result.data.viewers) || 0,
+                           Math.round(Date.now() / 1000),
+                           result.data.image || chaturbateThumb(room));
+    card.classList.add('found');
+    $('onlineBody').appendChild(card);
     const old = $('openFound');
     if (old) old.remove();
-
-    const batch = document.createDocumentFragment();
-    for (const room of rooms) {
-      if (onlineView.source !== 'all' && room.source !== onlineView.source) continue;
-      const edge = room.source === 'cb' ? CHATURBATE_EDGE : String(room.edge || '');
-      const card = buildCard(room.user || query, edge, Number(room.viewers) || 0,
-                             Math.round(Date.now() / 1000), room.image || '');
-      card.classList.add('found');
-      const img = card.querySelector('img');
-      img.dataset.visible = '1';
-      batch.appendChild(card);
-    }
-    $('onlineBody').appendChild(batch);
-    for (const img of $('onlineBody').querySelectorAll('.card.found img')) loadThumb(img);
+    const img = card.querySelector('img');
+    img.dataset.visible = '1';
+    loadThumb(img);
     paintOnlineShown();
   }
 
   function filterOnline() {
     const run = ++onlineFindRun;
-    clearTimeout(exactRoomsTimer);
+    clearTimeout(exactCbTimer);
     const query = $('onlineFind').value.trim().toLowerCase();
     const source = onlineView.source;
 
@@ -6348,8 +6339,12 @@
       shown = paintOnlineShown();
     }
 
-    if (/^[a-z0-9_.-]{3,}$/i.test(query)) {
-      exactRoomsTimer = setTimeout(() => showExactRooms(query, run), 180);
+    const exactCbShown = [...$('onlineBody').querySelectorAll('.card')]
+      .some(card => card.dataset.source === 'cb'
+        && (card.dataset.user || '').toLowerCase() === query
+        && !card.classList.contains('hidden'));
+    if (source !== 'bonga' && !exactCbShown && /^[a-z0-9_-]{3,}$/i.test(query)) {
+      exactCbTimer = setTimeout(() => addExactChaturbate(query, run), 180);
     }
 
     if (shown || source === 'cb') return;
