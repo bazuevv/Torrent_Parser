@@ -12,6 +12,7 @@
                       -> {"taken": N, "added": M, "total": K}
 """
 
+import itertools
 import json
 import os
 import re
@@ -77,6 +78,40 @@ CHATURBATE_POOL = 8
 CHATURBATE_PROFILE_LOCK = threading.Lock()
 CHATURBATE_PROFILES = {}                    # ник -> (время проверки, существует)
 CHATURBATE_PROFILE_TTL = 3600
+CHATURBATE_DOSSIER_LOCK = threading.Lock()
+CHATURBATE_DOSSIERS = {}                    # ник -> (время, словарь полей комнаты)
+
+# Spy-режим Chaturbate — платное «подглядывание» за приватным шоу. Кука
+# sessionid у сайта HttpOnly, отдать её серверу нельзя, поэтому все платные
+# запросы делает агент-закладка в открытой вкладке chaturbate.com, а сервер
+# лишь держит очередь команд и машину состояний единственной spy-сессии.
+CB_LOCK = threading.Lock()
+CB_COND = threading.Condition(CB_LOCK)      # будим long-poll агентов и ждущих ответа
+CB_AGENTS = {}                              # id вкладки -> {last, username, busy}
+CB_CMDS = {}                                # id команды -> {act, room, at, claimed}
+CB_RESULTS = {}                             # id команды -> результат от агента
+CB_SEQ = itertools.count(1)
+CB_SPY = {}                                 # см. cb_reset()
+CB_POLL_HOLD = 25          # сколько держать long-poll агента (сети фон не троттлит)
+CB_AGENT_OFFLINE = 40      # столько без poll-а считаем вкладку с агентом пропавшей
+CB_CMD_TTL = 30            # команда без результата так долго — перевыдать агенту
+CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /api/cb/spy — стопим сами
+CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
+CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
+CB_DOSSIER_TTL = 60
+
+
+def cb_reset(error=''):
+    """Единственная spy-сессия: CB_SPY перезаписывается целиком, чтобы поля
+    от прошлой сессии не доживали до следующей. Вызывать под CB_LOCK."""
+    CB_SPY.clear()
+    CB_SPY.update({'state': 'idle', 'room': '', 'price': 0, 'started': 0.0,
+                   'url': '', 'url_at': 0.0, 'error': error,
+                   'stop_tries': 0, 'stop_cmd': '', 'agent_lost': False,
+                   'player_seen': 0.0, 'armed': 0.0})
+
+
+cb_reset()
 
 
 def chaturbate_request(path, data=None):
@@ -179,14 +214,32 @@ def chaturbate_online(force=False):
 def chaturbate_stream(user):
     if not USER_RE.fullmatch(user):
         raise ValueError('недопустимый ник Chaturbate')
+
+    # Активный spy: приватный URL уже получен агентом — отдаём его, не
+    # спрашивая CB заново (там анониму в private всегда отвечают пустым url).
+    now = time.time()
+    with CB_LOCK:
+        spying = (CB_SPY['state'] == 'spying'
+                  and CB_SPY['room'].lower() == user.lower()
+                  and CB_SPY['url']
+                  and now - CB_SPY['url_at'] <= CB_URL_FRESH)
+        spy_url = CB_SPY['url'] if spying else ''
+    if spy_url:
+        return {'user': user, 'online': True, 'url': spy_url,
+                'status': 'private', 'spy': True}
+
     data = chaturbate_request('/get_edge_hls_url_ajax/',
                               {'room_slug': user, 'bandwidth': 'high'})
     if not isinstance(data, dict):
         raise ValueError('неожиданный ответ Chaturbate')
     url = data.get('url')
     if not data.get('success') or not isinstance(url, str) or not url.startswith('https://'):
-        return {'user': user, 'online': False,
-                'status': str(data.get('room_status') or 'offline')}
+        status = str(data.get('room_status') or 'offline')
+        offline = {'user': user, 'online': False, 'status': status}
+        if status == 'private':
+            offline['spy'] = cb_public_state()
+            offline['spy_price'] = chaturbate_dossier(user).get('spy_price', 0)
+        return offline
     host = (urlparse(url).hostname or '').lower()
     if not (host.endswith('.mmcdn.com') or host.endswith('.highwebmedia.com')):
         raise ValueError('неожиданный HLS-хост Chaturbate')
@@ -224,6 +277,404 @@ def chaturbate_profile_exists(user):
     with CHATURBATE_PROFILE_LOCK:
         CHATURBATE_PROFILES[key] = (now, exists)
     return exists
+
+
+def _js_unescape(text):
+    """Распаковывает JS-строку из dossier: \\uXXXX, \\/, \\" и \\\\."""
+    def sub(match):
+        return chr(int(match.group(1), 16))
+    return re.sub(r'\\u([0-9a-fA-F]{4})', sub, text)
+
+
+def chaturbate_dossier(user):
+    """Поля комнаты из window.initialRoomDossier на странице Chaturbate.
+
+    Для приватной комнаты это единственный безагентный источник: статус
+    room_status и цены private/spy. Сервер здесь аноним, баланс и имя
+    зрителя в ответе бесполезны — они нужны агенту, он читает их сам.
+    """
+    key = user.lower()
+    now = time.time()
+    with CHATURBATE_DOSSIER_LOCK:
+        cached = CHATURBATE_DOSSIERS.get(key)
+        if cached and now - cached[0] < CB_DOSSIER_TTL:
+            return cached[1]
+
+    request = urllib.request.Request(
+        f'{CHATURBATE_BASE}/{urlquote(user)}/',
+        headers={'User-Agent': ('Mozilla/5.0 (X11; Linux x86_64) '
+                                'AppleWebKit/537.36 Chrome/124 Safari/537.36'),
+                 'Accept': 'text/html,application/xhtml+xml'})
+    fields = {'status': 'offline', 'spy_price': 0, 'private_price': 0}
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            html = response.read(2 * 1024 * 1024).decode('utf-8', 'replace')
+        match = re.search(r'window\.initialRoomDossier\s*=\s*"(\{.*?\})"\s*;',
+                          html, re.S)
+        if match:
+            data = json.loads(_js_unescape(match.group(1)))
+            if isinstance(data, dict):
+                fields = {
+                    'status': str(data.get('room_status') or 'offline'),
+                    'spy_price': int(data.get('spy_private_show_price') or 0),
+                    'private_price': int(data.get('private_show_price') or 0),
+                }
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        write_log(f'cb dossier: {user}: {exc}')
+    with CHATURBATE_DOSSIER_LOCK:
+        CHATURBATE_DOSSIERS[key] = (now, fields)
+    return fields
+
+
+def _cb_snapshot():
+    """Снимок spy-машины и агентов; вызывать строго под CB_LOCK."""
+    now = time.time()
+    agent = {'online': False, 'username': '', 'anon': True}
+    freshest = None
+    for item in CB_AGENTS.values():
+        if now - item['last'] <= CB_AGENT_OFFLINE and (
+                freshest is None or item['last'] > freshest['last']):
+            freshest = item
+    if freshest is not None:
+        name = freshest.get('username') or ''
+        agent = {'online': True, 'username': name,
+                 'anon': not name or name == 'AnonymousUser'}
+    spy = {key: CB_SPY[key] for key in
+           ('state', 'room', 'price', 'error', 'agent_lost')}
+    spy['minutes'] = (int((now - CB_SPY['started']) // 60)
+                      if CB_SPY['started'] else 0)
+    return {'agent': agent, 'spy': spy}
+
+
+def cb_public_state():
+    """Снимок для плеера. Вызывать без CB_LOCK."""
+    with CB_LOCK:
+        return _cb_snapshot()
+
+
+def cb_agent_ready():
+    """Есть ли онлайн-агент с авторизованной вкладкой (не AnonymousUser)."""
+    now = time.time()
+    with CB_LOCK:
+        for item in CB_AGENTS.values():
+            fresh = now - item['last'] <= CB_AGENT_OFFLINE
+            name = item.get('username') or ''
+            if fresh and name and name != 'AnonymousUser':
+                return True
+        return False
+
+
+def cb_queue(act, room):
+    """Кладёт команду в очередь и будит ждущий long-poll. Возвращает id."""
+    with CB_COND:
+        cid = f'c{next(CB_SEQ)}'
+        CB_CMDS[cid] = {'id': cid, 'act': act, 'room': room,
+                        'at': time.time(), 'claimed': 0.0}
+        CB_COND.notify_all()
+        return cid
+
+
+def cb_cancel(cid):
+    """Убирает команду и её осиротевший результат (handler откатился)."""
+    with CB_COND:
+        CB_CMDS.pop(cid, None)
+        CB_RESULTS.pop(cid, None)
+
+
+def cb_wait_result(cid, timeout):
+    """Ждёт результат команды; None по таймауту. Снаружи CB_LOCK."""
+    deadline = time.time() + timeout
+    with CB_COND:
+        while True:
+            if cid in CB_RESULTS:
+                return CB_RESULTS.pop(cid)
+            if cid not in CB_CMDS:
+                return None                     # результат уже забрали — чужой
+            left = deadline - time.time()
+            if left <= 0:
+                return None
+            CB_COND.wait(left)
+
+
+def cb_agent_poll(agent_id, username, busy):
+    """Long-poll агента: ждать команду до CB_POLL_HOLD, потом пустой ответ."""
+    deadline = time.time() + CB_POLL_HOLD
+    with CB_COND:
+        CB_AGENTS[agent_id] = {'last': time.time(), 'username': username,
+                               'busy': bool(busy)}
+        CB_COND.notify_all()                    # ждущие увидят появление агента
+        while True:
+            now = time.time()
+            cmd = None
+            for item in CB_CMDS.values():       # старейшая незанятая команда
+                if not item['claimed'] or now - item['claimed'] > CB_CMD_TTL:
+                    if cmd is None or item['at'] < cmd['at']:
+                        cmd = item
+            if cmd is not None:
+                cmd['claimed'] = now
+                return {'now': int(now), 'cmd': dict(cmd), 'spy': _cb_snapshot()}
+            left = deadline - now
+            if left <= 0:
+                return {'now': int(now), 'cmd': None, 'spy': _cb_snapshot()}
+            CB_COND.wait(left)
+
+
+def cb_agent_result(payload):
+    """Результат команды или вольное сообщение агента (refresh/recovery)."""
+    act = str(payload.get('act') or '')
+    cid = str(payload.get('id') or '')
+    raw = str(payload.get('raw') or '')[:2000]
+
+    if act in ('refresh', 'recovery'):
+        return cb_agent_event(act, payload)
+
+    with CB_COND:
+        if cid not in CB_CMDS:
+            return {'stale': True}              # дубль или результат чужой команды
+        CB_CMDS.pop(cid)
+        payload['_at'] = time.time()
+        CB_RESULTS[cid] = payload
+        CB_COND.notify_all()
+    if raw:
+        write_log(f'cb agent raw [{act}]: {raw}')
+    return {'ok': True}
+
+
+def cb_agent_event(act, payload):
+    """Вольные сообщения агента без команды: refresh потока и recovery."""
+    room = str(payload.get('room') or '')
+    room_status = str(payload.get('room_status') or '')
+    url = payload.get('url')
+    stop_room = ''
+    with CB_LOCK:
+        mine = room and room.lower() == CB_SPY['room'].lower()
+        if act == 'recovery':
+            # агент считает себя в spy, а сервер с ним не согласен: списание
+            # может идти прямо сейчас, orphan останавливаем безусловно
+            if CB_SPY['state'] in ('spying', 'starting'):
+                CB_SPY['state'] = 'stopping'
+                stop_room = room
+                write_log(f'cb spy: recovery {room} — останавливаем')
+            elif CB_SPY['state'] == 'idle' or not mine:
+                stop_room = room
+                write_log(f'cb spy: recovery {room} вне сессии — стоп')
+        elif act == 'refresh' and mine and CB_SPY['state'] == 'spying':
+            if isinstance(url, str) and url.startswith('https://'):
+                CB_SPY['url'] = url
+                CB_SPY['url_at'] = time.time()
+            if room_status and room_status != 'private':
+                # шоу кончилось само, списание остановлено сайтом
+                write_log(f'cb spy: шоу {room} кончилось ({room_status})')
+                cb_reset()
+    if stop_room:
+        cid = cb_queue('spy_stop', stop_room)
+        with CB_LOCK:
+            if CB_SPY['state'] == 'stopping':
+                CB_SPY['stop_cmd'] = cid
+    return {'ok': True}
+
+
+def cb_stop_now(reason, wait=True):
+    """Кладёт команду стопа; при wait дожидается подтверждения агента."""
+    with CB_LOCK:
+        if CB_SPY['state'] == 'idle':
+            return {'ok': True, 'idle': True}
+        room = CB_SPY['room']
+        CB_SPY['state'] = 'stopping'
+    write_log(f'cb spy: стоп {room} ({reason})')
+    if not wait:
+        cid = cb_queue('spy_stop', room)
+        with CB_LOCK:
+            if CB_SPY['room'].lower() == room.lower():
+                CB_SPY['stop_cmd'] = cid
+        return {'ok': True, 'stopping': room}
+    return cb_stop_wait(room)
+
+
+def cb_stop_wait(room):
+    """Перекладывает команду стопа и ждёт результат один TTL."""
+    cid = cb_queue('spy_stop', room)
+    with CB_LOCK:
+        if CB_SPY['room'].lower() == room.lower():
+            CB_SPY['stop_cmd'] = cid
+    result = cb_wait_result(cid, CB_CMD_TTL + 5)
+    soft_done = 'не в привате' in str((result or {}).get('error') or '')
+    if result is not None and (result.get('ok') or soft_done):
+        with CB_LOCK:
+            if CB_SPY['room'].lower() == room.lower():
+                cb_reset()
+        write_log(f'cb spy: {room} остановлен')
+        return {'ok': True, 'stopped': room}
+    if result is None:
+        # агент молчит — команда остаётся в очереди, cb_guard перевыдаст её
+        with CB_LOCK:
+            if CB_SPY['room'].lower() == room.lower():
+                CB_SPY['stop_tries'] += 1
+        return {'ok': False, 'error': 'агент не подтвердил остановку — повторю'}
+    # агент ответил ошибкой: stopping остаётся, guard переложит команду
+    with CB_LOCK:
+        if CB_SPY['room'].lower() == room.lower():
+            CB_SPY['stop_tries'] += 1
+    return {'ok': False, 'error': str(result.get('error') or 'стоп не удался')}
+
+
+def cb_spy_start(user):
+    """Старт spy из плеера: проверки, команда агенту, ожидание URL."""
+    if not cb_agent_ready():
+        raise ValueError('агент Chaturbate не подключён: откройте вкладку '
+                         'chaturbate.com с входом в аккаунт и закладкой')
+
+    dossier = chaturbate_dossier(user)
+    if dossier['status'] != 'private':
+        raise ValueError(f'комната не в приватном шоу ({dossier["status"]})')
+    price = dossier['spy_price']
+    if not price:
+        raise ValueError('комната не называет цену spy-подглядывания')
+
+    with CB_LOCK:
+        if CB_SPY['state'] in ('starting', 'spying'):
+            if CB_SPY['room'].lower() == user.lower():
+                state = _cb_snapshot()
+                return {'ok': True, 'already': True, 'spy': state,
+                        'url': CB_SPY['url'] if CB_SPY['state'] == 'spying' else ''}
+            other = CB_SPY['room']
+        elif CB_SPY['state'] == 'stopping':
+            return {'ok': False, 'error': 'предыдущий spy ещё останавливается, '
+                                          'повторите через несколько секунд'}
+        else:
+            other = ''
+    if other:
+        cb_stop_now('переключение комнаты')
+        with CB_LOCK:
+            if CB_SPY['state'] != 'idle':
+                return {'ok': False, 'error': 'предыдущий spy ещё '
+                                              'останавливается, повторите позже'}
+
+    # Команда кладётся до пометки starting: cb_guard не увидит повисший старт,
+    # а опоздавший результат спокойно ждёт своего cb_wait_result.
+    cid = cb_queue('spy_start', user)
+    with CB_LOCK:
+        cb_reset()
+        CB_SPY.update({'state': 'starting', 'room': user, 'price': price,
+                       'player_seen': time.time(), 'armed': time.time()})
+
+    result = cb_wait_result(cid, CB_CMD_TTL + 5)
+    if result is None:
+        cb_cancel(cid)
+        with CB_LOCK:
+            cb_reset('агент не ответил на команду входа')
+        raise ValueError('агент не ответил на команду входа')
+    if not result.get('ok'):
+        error = str(result.get('error') or 'сайт отклонил вход в spy')
+        with CB_LOCK:
+            cb_reset(error)
+        raise ValueError(f'вход в spy не удался: {error}')
+
+    url = str(result.get('url') or '')
+    if not url.startswith('https://'):
+        # вход оплачен, но URL не пришёл — один повтор, потом спасительный стоп
+        cid2 = cb_queue('url_get', user)
+        result2 = cb_wait_result(cid2, 15)
+        url = str((result2 or {}).get('url') or '')
+        cb_cancel(cid2)
+    if not url.startswith('https://'):
+        cb_stop_now('вход без потока', wait=False)
+        with CB_LOCK:
+            cb_reset('вход выполнен, но поток не получен — spy остановлен')
+        raise ValueError('вход выполнен, но поток не получен — spy остановлен')
+
+    host = (urlparse(url).hostname or '').lower()
+    if not (host.endswith('.mmcdn.com') or host.endswith('.highwebmedia.com')):
+        cb_stop_now('подозрительный хост потока', wait=False)
+        with CB_LOCK:
+            cb_reset('неожиданный HLS-хост Chaturbate')
+        raise ValueError('неожиданный HLS-хост Chaturbate')
+
+    with CB_LOCK:
+        CB_SPY.update({'state': 'spying', 'url': url, 'url_at': time.time(),
+                       'started': time.time()})
+    write_log(f'cb spy: вход в {user} ({price} тк/мин)')
+    return {'ok': True, 'url': url, 'spy': cb_public_state()}
+
+
+def cb_guard():
+    """Фоновый надзор: мёртвые агенты, перевыдача команд, автостопы."""
+    while True:
+        time.sleep(5)
+        now = time.time()
+        stop_reason = ''
+        requeue_stop = ''
+        with CB_COND:
+            for agent_id in [k for k, v in CB_AGENTS.items()
+                             if now - v['last'] > CB_AGENT_OFFLINE * 3]:
+                CB_AGENTS.pop(agent_id, None)
+            anyone = any(now - v['last'] <= CB_AGENT_OFFLINE
+                         for v in CB_AGENTS.values())
+
+            # Перевыдача: агент забрал команду и замолчал дольше TTL.
+            for cmd in CB_CMDS.values():
+                if cmd['claimed'] and now - cmd['claimed'] > CB_CMD_TTL:
+                    cmd['claimed'] = 0.0
+            # Результаты, которых никто не дождался: применяем как можем.
+            for cid, payload in list(CB_RESULTS.items()):
+                if payload.get('_at', 0) and now - payload['_at'] > CB_CMD_TTL:
+                    CB_RESULTS.pop(cid, None)
+                    act = str(payload.get('act') or '')
+                    if act == 'spy_stop':
+                        room = str(payload.get('room') or '')
+                        if room.lower() == CB_SPY['room'].lower():
+                            write_log(f'cb spy: {room} остановлен (guard)')
+                            cb_reset()
+                    elif act in ('spy_start', 'url_get') and payload.get('url'):
+                        # поздний старт: покажется следующим stream-запросом
+                        CB_SPY.update({'url': str(payload['url']),
+                                       'url_at': now})
+
+            state = CB_SPY['state']
+            room = CB_SPY['room']
+
+            if state == 'spying':
+                if not anyone and not CB_SPY['agent_lost']:
+                    CB_SPY['agent_lost'] = True
+                    write_log(f'cb spy: агент потерян, {room} ждёт остановки')
+                if now - CB_SPY['player_seen'] > CB_PLAYER_WATCHDOG:
+                    stop_reason = 'плеер пропал (watchdog)'
+                elif now - CB_SPY['started'] > CB_SPY_MAX:
+                    stop_reason = 'предел часа'
+                elif not anyone:
+                    stop_reason = 'агент офлайн'
+            elif state == 'stopping':
+                cid = CB_SPY['stop_cmd']
+                pending = CB_CMDS.get(cid)
+                if not cid or (pending is None and cid not in CB_RESULTS):
+                    requeue_stop = room        # команда потерялась — заново
+                elif pending is None:          # результат лежит без ждущего
+                    payload = CB_RESULTS.pop(cid, None) or {}
+                    soft = 'не в привате' in str(payload.get('error') or '')
+                    if payload.get('ok') or soft:
+                        write_log(f'cb spy: {room} остановлен (guard)')
+                        cb_reset()
+                    else:
+                        requeue_stop = room
+            elif state == 'starting':
+                pending = any(c['act'] in ('spy_start', 'url_get')
+                              and c['room'].lower() == room.lower()
+                              for c in CB_CMDS.values())
+                if not pending and now - CB_SPY.get('armed', 0) > CB_CMD_TTL * 2:
+                    # handler старта умер, не дождавшись — откатываем
+                    write_log(f'cb spy: старт {room} повис — откат')
+                    cb_reset('старт не завершился')
+
+        if requeue_stop:
+            with CB_LOCK:
+                if CB_SPY['state'] == 'stopping':
+                    CB_SPY['stop_tries'] += 1
+            cid = cb_queue('spy_stop', requeue_stop)
+            with CB_LOCK:
+                if CB_SPY['stop_cmd'] == '' and CB_SPY['room'].lower() == requeue_stop.lower():
+                    CB_SPY['stop_cmd'] = cid
+        if stop_reason:
+            cb_stop_now(stop_reason, wait=False)
 
 
 def exact_rooms(user):
@@ -1152,14 +1603,17 @@ class Handler(SimpleHTTPRequestHandler):
         write_log(f'{self.address_string()} {fmt % args}')
 
     def cors_origin(self):
-        """Разрешаем читать ответ только страницам самого сайта.
+        """Разрешаем читать ответ только страницам самих сайтов.
 
         Нужно, чтобы закладка на bongacams.com могла отправить собранные ники
-        прямо сюда и показать результат. Защитой это не считается: CORS не
-        мешает чужому сайту прислать запрос, он лишь мешает прочитать ответ.
+        прямо сюда и показать результат, а агент-закладка на chaturbate.com —
+        забирать команды spy. Защитой это не считается: CORS не мешает чужому
+        сайту прислать запрос, он лишь мешает прочитать ответ.
         """
         origin = self.headers.get('Origin') or ''
-        return origin if re.match(r'^https://([a-z0-9-]+\.)*bongacams\.com$', origin) else None
+        return origin if re.match(
+            r'^https://([a-z0-9-]+\.)*(bongacams|chaturbate)\.com$', origin
+        ) else None
 
     def _json(self, payload, code=200):
         body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
@@ -1324,6 +1778,13 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 result, code = {'error': str(exc), 'rooms': []}, 502
             return self._json(result, code)
+
+        if path == '/api/cb/spy':
+            # Плеер спрашивает состояние spy-машинки примерно раз в 10 с;
+            # сам факт обращения продлевает watchdog — плеер жив.
+            with CB_LOCK:
+                CB_SPY['player_seen'] = time.time()
+            return self._json(cb_public_state())
 
         if path == '/api/settings':
             return self._json(load_settings())
@@ -1579,6 +2040,46 @@ class Handler(SimpleHTTPRequestHandler):
 
             self.log_message('record stop: %s', rid)
             return self._json(state or {'id': rid, 'running': False})
+
+        if path == '/api/cb/agent/poll':
+            # Long-poll агента-закладки из вкладки chaturbate.com: держим
+            # запрос до CB_POLL_HOLD, пока не появится команда.
+            if not isinstance(body, dict):
+                return self.send_error(400, 'expected object')
+            agent_id = str(body.get('id') or '')
+            username = str(body.get('username') or '')[:60]
+            if not ID_RE.match(agent_id):
+                return self.send_error(400, 'bad id')
+            return self._json(cb_agent_poll(agent_id, username,
+                                            bool(body.get('busy'))))
+
+        if path == '/api/cb/agent/result':
+            if not isinstance(body, dict):
+                return self.send_error(400, 'expected object')
+            return self._json(cb_agent_result(body))
+
+        if path in ('/api/cb/spy', '/api/cb/spy/stop'):
+            if not isinstance(body, dict):
+                return self.send_error(400, 'expected object')
+            user = str(body.get('user') or '')
+            if not USER_RE.match(user):
+                return self.send_error(400, 'bad user')
+
+            if path == '/api/cb/spy/stop':
+                # sendBeacon при закрытии вкладки плеера: без ожиданий
+                cb_stop_now('вкладка плеера закрылась', wait=False)
+                return self._json({'ok': True})
+
+            action = str(body.get('action') or '')
+            if action == 'start':
+                try:
+                    result = cb_spy_start(user)
+                except ValueError as exc:
+                    return self._json({'error': str(exc)}, 400)
+                return self._json(result, 200 if result.get('ok') else 502)
+            if action == 'stop':
+                return self._json(cb_stop_now('кнопка в плеере'))
+            return self.send_error(400, 'bad action')
 
         return self.send_error(404)
 
@@ -2042,6 +2543,7 @@ if __name__ == '__main__':
     LADDER.update(load_ladder())
     NOTES.update(load_notes())
     threading.Thread(target=ladder_worker, daemon=True).start()
+    threading.Thread(target=cb_guard, daemon=True).start()
     print(f'Плеер:  http://127.0.0.1:{PORT}/player.html')
     print(f'Записи: {rec_dir()} (логи всегда в {REC_DIR})')
     try:
