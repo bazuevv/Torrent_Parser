@@ -1412,6 +1412,10 @@
         <a id="bmLink" href="#" data-i18n="меню.1"></a>
         <span data-i18n="закладка.после"></span></li>
     <li data-i18n="меню.2"></li>
+    <li><span data-i18n="закладка.cb.до"></span>
+        <a id="bmLinkCb" href="#" data-i18n="меню.cb.1"></a>
+        <span data-i18n="закладка.cb.после"></span></li>
+    <li data-i18n="меню.cb.2"></li>
   </ol>
   <details>
     <summary data-i18n="текст.4"></summary>
@@ -6679,6 +6683,16 @@
         encodeURIComponent(src.replace('__PLAYER_ORIGIN__', location.origin));
     })
     .catch(() => { $('bmLink').removeAttribute('href'); $('bmLink').textContent = t('узел.38'); });
+
+  // Агент spy-режима Chaturbate: та же схема, но закладка живёт на
+  // chaturbate.com и исполняет платные команды от имени сессии сайта.
+  fetch('cb-bookmarklet.js')
+    .then(r => r.text())
+    .then(src => {
+      $('bmLinkCb').href = 'javascript:' +
+        encodeURIComponent(src.replace('__PLAYER_ORIGIN__', location.origin));
+    })
+    .catch(() => { $('bmLinkCb').removeAttribute('href'); $('bmLinkCb').textContent = t('узел.44'); });
 
   // Разбор списка. Возвращает null, если это не наш JSON — тогда вызывающий
   // сам решает, ругаться или открыть окно с инструкцией.

@@ -108,7 +108,7 @@ def cb_reset(error=''):
     CB_SPY.update({'state': 'idle', 'room': '', 'price': 0, 'started': 0.0,
                    'url': '', 'url_at': 0.0, 'error': error,
                    'stop_tries': 0, 'stop_cmd': '', 'agent_lost': False,
-                   'player_seen': 0.0, 'armed': 0.0})
+                   'player_seen': 0.0, 'armed': 0.0, 'misses': 0})
 
 
 cb_reset()
@@ -462,6 +462,9 @@ def cb_agent_event(act, payload):
             if isinstance(url, str) and url.startswith('https://'):
                 CB_SPY['url'] = url
                 CB_SPY['url_at'] = time.time()
+                CB_SPY['misses'] = 0
+            else:
+                CB_SPY['misses'] += 1          # подписка могла умереть
             if room_status and room_status != 'private':
                 # шоу кончилось само, списание остановлено сайтом
                 write_log(f'cb spy: шоу {room} кончилось ({room_status})')
@@ -641,6 +644,8 @@ def cb_guard():
                     stop_reason = 'плеер пропал (watchdog)'
                 elif now - CB_SPY['started'] > CB_SPY_MAX:
                     stop_reason = 'предел часа'
+                elif CB_SPY['misses'] >= 2:
+                    stop_reason = 'поток пропал из refresh'
                 elif not anyone:
                     stop_reason = 'агент офлайн'
             elif state == 'stopping':
