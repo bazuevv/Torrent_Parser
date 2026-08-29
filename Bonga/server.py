@@ -7,6 +7,7 @@
 рядом с плеером, читается и пополняется всеми клиентами сразу.
 
   GET  /api/accounts  -> {"accounts": [["Ник","67",3301], …]}
+  GET  /api/rooms/exact?user=Ник -> обе комнаты с таким ником по площадкам
   POST /api/accounts  <- [["Ник","67",3301], …]  (сливается с существующей)
                       -> {"taken": N, "added": M, "total": K}
 """
@@ -73,6 +74,9 @@ CHATURBATE_CACHE = {'at': 0.0, 'rooms': []}
 CHATURBATE_TTL = 300
 CHATURBATE_PAGE = 100
 CHATURBATE_POOL = 8
+CHATURBATE_PROFILE_LOCK = threading.Lock()
+CHATURBATE_PROFILES = {}                    # ник -> (время проверки, существует)
+CHATURBATE_PROFILE_TTL = 3600
 
 
 def chaturbate_request(path, data=None):
@@ -188,6 +192,75 @@ def chaturbate_stream(user):
         raise ValueError('неожиданный HLS-хост Chaturbate')
     return {'user': user, 'online': True, 'url': url,
             'status': str(data.get('room_status') or 'public')}
+
+
+def chaturbate_profile_exists(user):
+    """Отличает ушедшую из эфира комнату от несуществующего ника.
+
+    Поток для обоих случаев отвечает offline, тогда как страница профиля
+    сохраняется и после завершения эфира (200 против 404). Результат держим
+    час, чтобы точный поиск не скачивал заголовки одной страницы многократно.
+    """
+    key = user.lower()
+    now = time.time()
+    with CHATURBATE_PROFILE_LOCK:
+        cached = CHATURBATE_PROFILES.get(key)
+        if cached and now - cached[0] < CHATURBATE_PROFILE_TTL:
+            return cached[1]
+
+    request = urllib.request.Request(
+        f'{CHATURBATE_BASE}/{urlquote(user)}/',
+        headers={'User-Agent': ('Mozilla/5.0 (X11; Linux x86_64) '
+                                'AppleWebKit/537.36 Chrome/124 Safari/537.36'),
+                 'Accept': 'text/html,application/xhtml+xml'})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            exists = response.status == 200
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        exists = False
+
+    with CHATURBATE_PROFILE_LOCK:
+        CHATURBATE_PROFILES[key] = (now, exists)
+    return exists
+
+
+def exact_rooms(user):
+    """Один серверный ответ для одноимённых комнат на разных площадках.
+
+    Браузер не должен склеивать базу Bonga и асинхронный каталог Chaturbate:
+    при разном порядке ответов Firefox и Chrome оставляли разные карточки.
+    Здесь источники сохраняются раздельно и различаются полем source.
+    """
+    if not USER_RE.fullmatch(user):
+        raise ValueError('недопустимый ник комнаты')
+    key = user.lower()
+    rooms = []
+
+    bonga = load().get(key)
+    if isinstance(bonga, list) and bonga:
+        rooms.append({'user': str(bonga[0]), 'source': 'bonga',
+                      'edge': str(bonga[1] if len(bonga) > 1 else ''),
+                      'viewers': int(bonga[2] if len(bonga) > 2 else 0)})
+
+    try:
+        cb_catalog = chaturbate_online(False).get('rooms', [])
+    except Exception:
+        # Если обновление каталога сорвалось, прежний полный снимок всё равно
+        # надёжнее пустого ответа и не должен подавлять найденную Bonga-комнату.
+        with CHATURBATE_LOCK:
+            cb_catalog = list(CHATURBATE_CACHE['rooms'])
+    cb = next((room for room in cb_catalog
+               if str(room.get('user', '')).lower() == key), None)
+    if cb or chaturbate_profile_exists(user):
+        cb_user = str(cb['user']) if cb else user
+        rooms.append({'user': cb_user, 'source': 'cb', 'edge': 'cb',
+                      'viewers': int(cb.get('viewers') or 0) if cb else 0,
+                      'image': (str(cb.get('image') or '') if cb else
+                                f'https://thumb.live.mmcdn.com/riw/{urlquote(cb_user)}.jpg')})
+
+    return {'user': user, 'rooms': rooms}
 
 
 def load():
@@ -1239,6 +1312,17 @@ class Handler(SimpleHTTPRequestHandler):
                 result, code = {'error': str(exc)}, 400
             except Exception as exc:
                 result, code = {'error': str(exc)}, 502
+            return self._json(result, code)
+
+        if path == '/api/rooms/exact':
+            query = parse_qs(urlparse(self.path).query)
+            user = (query.get('user') or [''])[0].strip()
+            try:
+                result, code = exact_rooms(user), 200
+            except ValueError as exc:
+                result, code = {'error': str(exc), 'rooms': []}, 400
+            except Exception as exc:
+                result, code = {'error': str(exc), 'rooms': []}, 502
             return self._json(result, code)
 
         if path == '/api/settings':
