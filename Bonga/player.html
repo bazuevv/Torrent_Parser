@@ -3480,7 +3480,9 @@
     box.className = 'screen';
     box.hidden = true;
     $('wallGrid').appendChild(box);
-    const screen = { box, tiles: [] };
+    /* loudTile и previousLoud принадлежат экрану: при возврате на соседний
+       экран восстанавливается его собственная пара последних комнат. */
+    const screen = { box, tiles: [], loudTile: null, previousLoud: null };
     screens.push(screen);
     return screen;
   }
@@ -3523,8 +3525,10 @@
       if (tile.user) tile.video.play().catch(() => {});
     }
     wallQuiet = was;
-    const loud = screen.tiles.find(tile => tile.user);
-    if (loud) tileLoud(loud);                    // звук достаётся первой занятой
+    const remembered = screen.loudTile;
+    const loud = remembered && remembered.user && !remembered.halted
+      ? remembered : screen.tiles.find(tile => tile.user);
+    if (loud) tileLoud(loud);                    // возвращаем последнюю звучавшую
   }
 
   function useScreen(index) {
@@ -3849,6 +3853,11 @@
   }
 
   function tileStop(tile) {
+    const owner = screens.find(screen => screen.tiles.includes(tile));
+    if (owner) {
+      if (owner.loudTile === tile) owner.loudTile = null;
+      if (owner.previousLoud === tile) owner.previousLoud = null;
+    }
     tile.run = (tile.run || 0) + 1;    // обесцениваем ожидающий HLS-адрес
     tileLive(tile);
     tile.asleep = false;
@@ -4428,8 +4437,15 @@
       return;
     }
 
-    const off = video.muted || !video.volume;
-    bar.querySelector('.tmute').textContent = off ? '🔇' : '🔊';
+    const soundButton = bar.querySelector('.tmute');
+    const owner = screens.find(screen => screen.tiles.includes(tile));
+    const current = tile.box.classList.contains('loud') && owner?.loudTile === tile;
+    const previous = !current && owner?.previousLoud === tile && Boolean(tile.user);
+    soundButton.textContent = current && video.volume ? '🔊' : previous ? '↩' : '🔇';
+    soundButton.title = current
+      ? (owner.previousLoud && owner.previousLoud.user
+          ? t('ячейка.звук.назад') : t('ячейка.звук.включён'))
+      : previous ? t('ячейка.звук.вернуть') : t('ячейка.звук.включить');
     /* Приглушённая ячейка сохраняет и показывает свой уровень: состояние
        звука уже обозначает отдельная кнопка 🔇, а ноль на ползунке ошибочно
        выглядел бы как потерянная индивидуальная настройка. */
@@ -4475,9 +4491,21 @@
     } catch (e) { say(t('статус.28') + e.message, 'err'); }
   }
 
-  // Звук — только у одной ячейки: четыре сразу дают кашу, да и браузер не даст.
+  const soundScreen = tile => screens.find(screen => screen.tiles.includes(tile));
+  const usableSoundTile = (screen, tile) => Boolean(screen && tile
+    && screen.tiles.includes(tile) && tile.user && !tile.halted && !tile.goneAt);
+
+  /* Звук — только у одной ячейки. Вместо глухого выключения запоминаем, откуда
+     он пришёл: повторный щелчок по текущей комнате сможет вернуть предыдущую. */
   function tileLoud(tile) {
-    if (roomCalibration) return;
+    if (roomCalibration || !tile?.user) return;
+    const owner = soundScreen(tile);
+    const current = usableSoundTile(owner, owner?.loudTile)
+      ? owner.loudTile : owner?.tiles.find(item => item.box.classList.contains('loud'));
+    if (owner) {
+      if (current && current !== tile) owner.previousLoud = current;
+      owner.loudTile = tile;
+    }
     const norm = cfg('normVolume') || Number.isFinite(tile.manualDb)
       ? ensureTileNormalizer(tile) : tile.normalizer;
     if (norm && cfg('normVolume')) {
@@ -4507,6 +4535,16 @@
       paintBars();
       tile.video.play().catch(() => {});
     });
+  }
+
+  function tileSoundClick(tile) {
+    if (roomCalibration) return;
+    const owner = soundScreen(tile);
+    const current = owner?.loudTile === tile && tile.box.classList.contains('loud');
+    if (!current) return tileLoud(tile);
+    const previous = owner.previousLoud;
+    // Предыдущей комнаты ещё нет — оставляем текущую, но никогда не глушим её.
+    if (usableSoundTile(owner, previous) && previous !== tile) tileLoud(previous);
   }
 
   /* Разворот ячейки на всю сетку. Раньше ⤢ гасил стену и отдавал комнату
@@ -4620,7 +4658,7 @@
     if (e.key === 'Escape') return document.fullscreenElement ? undefined : zoomShut();
     if (e.code === 'Space') { e.preventDefault(); tilePlayPause(tile); }
     else if (key === 'm' || key === 'ь') {
-      if (video.muted) tileLoud(tile); else video.muted = true;
+      tileSoundClick(tile);
     } else if (key === 'f' || key === 'а') {
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       else tile.box.requestFullscreen().catch(() => {});
@@ -4917,12 +4955,9 @@
 
     bar.querySelector('.tplay').onclick = () => tilePlayPause(tile);
     bar.querySelector('.tstop').onclick = () => tileHalt(tile);
-    /* Кнопка звука работает в двух смыслах, и оба нужны: у молчащей ячейки
-       забирает звук себе (на стене он один на всех), у звучащей — глушит. */
-    bar.querySelector('.tmute').onclick = () => {
-      if (tile.video.muted) return tileLoud(tile);
-      tile.video.muted = true;
-    };
+    /* У молчащей ячейки кнопка забирает звук себе, у звучащей возвращает его
+       предыдущей. Полная тишина задаётся только нулём на ползунке. */
+    bar.querySelector('.tmute').onclick = () => tileSoundClick(tile);
     vol.oninput = () => {
       tile.roomVolume = Number(vol.value);
       storeRoomVolume(tile);
