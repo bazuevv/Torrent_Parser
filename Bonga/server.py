@@ -162,10 +162,10 @@ def chaturbate_online(force=False):
         except (TypeError, ValueError):
             total = len(first['rooms'])
 
-        def page(offset):
+        def page(offset, suffix=''):
             try:
                 data = chaturbate_request(
-                    f'/api/ts/roomlist/room-list/?limit={CHATURBATE_PAGE}&offset={offset}')
+                    f'/api/ts/roomlist/room-list/?limit={CHATURBATE_PAGE}&offset={offset}{suffix}')
                 return offset, data.get('rooms', []) if isinstance(data, dict) else [], ''
             except Exception as exc:
                 return offset, [], str(exc)
@@ -180,6 +180,30 @@ def chaturbate_online(force=False):
             raw_rooms.extend(batch)
             if error:
                 failed.append({'offset': offset, 'error': error})
+
+        # Вкладка сайта «Spy on cams»: обычный каталог приватные шоу не
+        # возвращает вовсе, они живут отдельным проходом с private=true
+        # (реверс: spy-on-cams отображается в категорию private, поля
+        # spy_show_price/private_price есть только там). Комнат немного —
+        # сотни, поэтому хватает тех же страниц по total_count. Срыв прохода
+        # не портит основной каталог: карточек просто не будет до обновления.
+        try:
+            spy_first = chaturbate_request(
+                f'/api/ts/roomlist/room-list/?limit={CHATURBATE_PAGE}&offset=0&private=true')
+            spy_raw = spy_first.get('rooms', []) if isinstance(spy_first, dict) else []
+            try:
+                spy_total = max(0, int(spy_first.get('total_count') or len(spy_raw)))
+            except (TypeError, ValueError):
+                spy_total = len(spy_raw)
+            if spy_total > CHATURBATE_PAGE:
+                with ThreadPoolExecutor(CHATURBATE_POOL) as pool:
+                    spy_pages = list(pool.map(
+                        lambda offset: page(offset, '&private=true'),
+                        range(CHATURBATE_PAGE, spy_total, CHATURBATE_PAGE)))
+                for _, batch, _ in spy_pages:
+                    raw_rooms.extend(batch)
+        except Exception as exc:
+            write_log(f'cb каталог приватных не получился: {exc}')
 
         rooms = []
         seen_users = set()
@@ -198,8 +222,14 @@ def chaturbate_online(force=False):
                 viewers = max(0, int(item.get('num_users') or 0))
             except (TypeError, ValueError):
                 viewers = 0
-            rooms.append({'user': user, 'viewers': viewers, 'image': image,
-                          'show': str(item.get('current_show') or '')})
+            room = {'user': user, 'viewers': viewers, 'image': image,
+                    'show': str(item.get('current_show') or '')}
+            if room['show'] == 'private':
+                try:
+                    room['spy_price'] = max(0, int(item.get('spy_show_price') or 0))
+                except (TypeError, ValueError):
+                    room['spy_price'] = 0
+            rooms.append(room)
 
         # Неполный обход не кладём на пять минут в кэш: клиент увидит признак
         # complete=false и повторит запрос, вместо того чтобы принять обрывок
@@ -713,6 +743,7 @@ def exact_rooms(user):
         cb_user = str(cb['user']) if cb else user
         rooms.append({'user': cb_user, 'source': 'cb', 'edge': 'cb',
                       'viewers': int(cb.get('viewers') or 0) if cb else 0,
+                      'spy': int(cb.get('spy_price') or 0) if cb else 0,
                       'image': (str(cb.get('image') or '') if cb else
                                 f'https://thumb.live.mmcdn.com/riw/{urlquote(cb_user)}.jpg')})
 
