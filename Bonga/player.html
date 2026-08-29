@@ -1702,6 +1702,10 @@
       if (!Array.isArray(data.accounts)) return false;
       serverBase = data.accounts;
       rebuildCatalog();
+      /* Пользователь мог начать поиск, пока общая база ещё ехала с сервера.
+         Повторяем его после загрузки: иначе известная Bonga-комната появлялась
+         только после следующего символа в поле или ручного обновления. */
+      if ($('onlineFind').value.trim()) filterOnline();
       return true;
     } catch { return false; }
   }
@@ -6228,7 +6232,62 @@
 
   // Поиск по колонке: прячем неподходящие карточки, а если совпадений нет —
   // предлагаем открыть введённый ник напрямую, он может быть и не в списке.
+  let onlineFindRun = 0;
+  let exactCbTimer = 0;
+  const exactCbChecks = new Map();
+
+  const paintOnlineShown = () => {
+    const shown = [...$('onlineBody').querySelectorAll('.card:not(.hidden)')].length;
+    $('onlineShown').textContent = t('эфир.показано', { shown: shown });
+    return shown;
+  };
+
+  /* Полный каталог CB собирается постранично и может приехать позже Bonga.
+     Точный ник проверяем коротким серверным запросом независимо от каталога —
+     так порядок ответов двух сайтов больше не решает, какая карточка останется. */
+  async function addExactChaturbate(query, run) {
+    const now = Date.now();
+    let cached = exactCbChecks.get(query);
+    if (!cached || now - cached.at > 30000) {
+      const pending = fetch(`api/chaturbate/stream?user=${encodeURIComponent(query)}`,
+                            { cache: 'no-store' })
+        .then(async res => {
+          const data = await res.json().catch(() => ({}));
+          return { online: res.ok && Boolean(data.online && data.url), data };
+        })
+        .catch(() => ({ online: false, data: {} }));
+      cached = { at: now, pending };
+      exactCbChecks.set(query, cached);
+    }
+
+    const result = await cached.pending;
+    if (run !== onlineFindRun || !result.online
+        || $('onlineFind').value.trim().toLowerCase() !== query
+        || onlineView.source === 'bonga') return;
+
+    const alreadyThere = [...$('onlineBody').querySelectorAll('.card')]
+      .some(card => card.dataset.source === 'cb'
+        && (card.dataset.user || '').toLowerCase() === query
+        && !card.classList.contains('hidden'));
+    if (alreadyThere) return;
+
+    const room = result.data.user || query;
+    const card = buildCard(room, CHATURBATE_EDGE, Number(result.data.viewers) || 0,
+                           Math.round(Date.now() / 1000),
+                           result.data.image || chaturbateThumb(room));
+    card.classList.add('found');
+    $('onlineBody').appendChild(card);
+    const old = $('openFound');
+    if (old) old.remove();
+    const img = card.querySelector('img');
+    img.dataset.visible = '1';
+    loadThumb(img);
+    paintOnlineShown();
+  }
+
   function filterOnline() {
+    const run = ++onlineFindRun;
+    clearTimeout(exactCbTimer);
     const query = $('onlineFind').value.trim().toLowerCase();
     const source = onlineView.source;
 
@@ -6251,7 +6310,7 @@
       card.classList.toggle('hidden', !match);
       if (match) shown++;
     }
-    $('onlineShown').textContent = t('эфир.показано', { shown: shown });
+    paintOnlineShown();
     if (!query) return;
 
     /* Совпадений в эфире нет. Если ник знаком базе — показываем такую же
@@ -6271,14 +6330,21 @@
       const card = buildCard(proper, edge, 0, 0);
       card.classList.add('found');
       $('onlineBody').appendChild(card);
-      $('onlineShown').textContent = t('эфир.показано', { shown: shown + 1 });
       const img = card.querySelector('img');
       // Наблюдатель за видимостью отметит картинку лишь на следующем кадре, а
       // loadThumb невидимые пропускает. Карточка тут одна и заведомо на экране,
       // поэтому отмечаем сами и грузим сразу — иначе кадр появлялся бы рывком.
       img.dataset.visible = '1';
       loadThumb(img);                         // кадр и статус — одним запросом
-      return;
+      shown = paintOnlineShown();
+    }
+
+    const exactCbShown = [...$('onlineBody').querySelectorAll('.card')]
+      .some(card => card.dataset.source === 'cb'
+        && (card.dataset.user || '').toLowerCase() === query
+        && !card.classList.contains('hidden'));
+    if (source !== 'bonga' && !exactCbShown && /^[a-z0-9_-]{3,}$/i.test(query)) {
+      exactCbTimer = setTimeout(() => addExactChaturbate(query, run), 180);
     }
 
     if (shown || source === 'cb') return;
