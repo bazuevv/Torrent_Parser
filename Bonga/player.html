@@ -2407,6 +2407,10 @@
 
   const CHATURBATE_EDGE = 'cb';
   const isChaturbate = edge => String(edge || '').toLowerCase() === CHATURBATE_EDGE;
+  /* Один ник может одновременно существовать на обоих сайтах. Везде, где
+     речь именно о трансляции, а не о тексте ника, ключ обязан включать сайт. */
+  const roomIdentity = (user, edge) =>
+    `${isChaturbate(edge) ? 'cb' : 'bonga'}:${String(user || '').toLowerCase()}`;
   const chaturbateThumb = user =>
     `https://thumb.live.mmcdn.com/riw/${encodeURIComponent(user)}.jpg`;
 
@@ -4693,12 +4697,14 @@
   /* Одна комната — одна ячейка. Второй раз открывать ту же трансляцию незачем:
      это двойной трафик и путаница в номерах. Ищем по всем экранам, а не только
      по видимому: невидимый повтор тем более бесполезен. */
-  function haveRoom(user) {
+  function haveRoom(user, edge = '') {
     const key = String(user || '').toLowerCase();
     if (!key) return null;
+    const sourceKnown = Boolean(edge);
     for (let i = 0; i < screens.length; i++) {
       const tile = screens[i].tiles.find(
-        item => item.user && item.user.toLowerCase() === key);
+        item => item.user && item.user.toLowerCase() === key
+          && (!sourceKnown || isChaturbate(item.edge) === isChaturbate(edge)));
       if (tile) return { at: i, tile };
     }
     return null;
@@ -4727,7 +4733,7 @@
 
   function wallAssign(user, edge) {
     if (!tiles.length) return false;
-    const found = haveRoom(user);
+    const found = haveRoom(user, edge);
     if (found) { showRoom(found, edge); return true; }
     const tile = tiles[nextSlot()];
     // В историю комната попадает и со стены: раньше туда писал только главный
@@ -4922,7 +4928,7 @@
       if (!room) return;
       // Комната уже на стене — вторую копию не заводим даже по прямому броску:
       // показываем ту ячейку, где она стоит.
-      const found = haveRoom(room.user);
+      const found = haveRoom(room.user, room.edge);
       if (found && found.tile !== tile) return showRoom(found, room.edge);
       // Перетаскивание само говорит, куда класть, — подсветку не трогаем:
       // её место определяет layoutWall, и это всегда последняя ячейка.
@@ -5077,7 +5083,7 @@
 
   function addTile(user, edge) {
     // Уже на стене — показываем ту ячейку вместо новой.
-    const found = user && haveRoom(user);
+    const found = user && haveRoom(user, edge);
     if (found) { showRoom(found, edge); return found.tile; }
     // Свободная ячейка с плюсом уже ждёт — занимаем её, а не плодим новую.
     let tile = tiles.find(item => !item.user);
@@ -5135,12 +5141,13 @@
        сейчас в эфире: ушедшие дали бы чёрные ячейки, и стена открывалась бы
        дырявой. */
     const seen = new Set();
-    const live = new Set((liveList || []).map(row => String(row[0]).toLowerCase()));
+    const live = new Set((liveList || []).map(row => roomIdentity(row[0], row[1])));
     const plans = saved.screens.map(rows => {
       const out = [];
       for (const item of rows || []) {
         if (out.length >= 16) break;
-        const key = String(item && item.u || '').toLowerCase();
+        const user = String(item && item.u || '');
+        const key = user ? roomIdentity(user, item && item.e) : '';
         const alive = key && !seen.has(key) && (!live.size || live.has(key));
         /* Место занимаем в любом случае, даже если комната ушла из эфира.
            Раньше такие просто выбрасывались, и весь состав съезжал влево —
@@ -5162,15 +5169,15 @@
       if (free >= 0) plans[0][free] = item;
       else if (plans[0].length < 16) plans[0].push(item);
     };
-    if (now && now.u && !seen.has(now.u.toLowerCase())) {
-      seen.add(now.u.toLowerCase());
+    if (now && now.u && !seen.has(roomIdentity(now.u, now.e))) {
+      seen.add(roomIdentity(now.u, now.e));
       putFree({ u: now.u, e: now.e });
     }
     // opts.room — комната из адреса при загрузке страницы: она добавляется к
     // сохранённому составу, а не подменяет его (этим занят opts.extra).
     for (const item of [opts.room, opts.extra]) {
-      if (!item || seen.has(String(item.user).toLowerCase())) continue;
-      seen.add(String(item.user).toLowerCase());
+      if (!item || seen.has(roomIdentity(item.user, item.edge))) continue;
+      seen.add(roomIdentity(item.user, item.edge));
       putFree({ u: item.user, e: String(item.edge || '') });
     }
 
@@ -5234,11 +5241,11 @@
   function pruneWall() {
     if (wallPruned || $('wallGrid').hidden || !liveList || !liveList.length) return;
     wallPruned = true;
-    const live = new Set(liveList.map(row => String(row[0]).toLowerCase()));
+    const live = new Set(liveList.map(row => roomIdentity(row[0], row[1])));
     const gone = [];
     for (const screen of screens) {
       for (const tile of screen.tiles) {
-        if (!tile.user || live.has(tile.user.toLowerCase())) continue;
+        if (!tile.user || live.has(roomIdentity(tile.user, tile.edge))) continue;
         gone.push(tile.user);
         /* Ячейку не освобождаем, а помечаем ушедшей: место остаётся за
            комнатой, видно её последний кадр и когда она пропала. Признак
@@ -5407,7 +5414,8 @@
   const saveHist = h => localStorage.setItem('history', JSON.stringify(h.slice(0, 60)));
 
   function pushHist(user, edge) {
-    const rest = loadHist().filter(x => x.u.toLowerCase() !== user.toLowerCase());
+    const key = roomIdentity(user, edge);
+    const rest = loadHist().filter(x => roomIdentity(x.u, x.e) !== key);
     saveHist([{ u: user, e: edge, t: Date.now() }, ...rest]);
     renderHist();
     if (cfg('act')) pushWatch();      // новую комнату сервер возьмёт под наблюдение сразу
@@ -5434,6 +5442,7 @@
       const row = document.createElement('div');
       row.className = 'item';
       row.dataset.user = rec.u;
+      row.dataset.edge = String(rec.e || '');
       row.dataset.ts = String(rec.t);
       row.dataset.base = `${isChaturbate(rec.e) ? 'Chaturbate' : `edge ${rec.e}`} · ${when(rec.t)}`;
 
@@ -5463,7 +5472,8 @@
       del.title = t('узел.20');
       del.onclick = e => {
         e.stopPropagation();
-        saveHist(loadHist().filter(x => x.u !== rec.u));
+        const key = roomIdentity(rec.u, rec.e);
+        saveHist(loadHist().filter(x => roomIdentity(x.u, x.e) !== key));
         renderHist();
       };
 
@@ -5657,7 +5667,8 @@
       if (meta && row.dataset.ts) meta.textContent = stamp(Number(row.dataset.ts));
 
       const key = (row.dataset.user || '').toLowerCase();
-      const st = liveStatus.get(key);
+      const statusKey = roomIdentity(row.dataset.user, row.dataset.edge);
+      const st = liveStatus.get(statusKey);
       row.dataset.live = st ? '1' : '0';
       row.title = `${row.dataset.base} · ` +
         (st === undefined ? t('текст.137') : st ? t('текст.138') : t('текст.139'));
@@ -5703,7 +5714,7 @@
     if (!force && (!period || Date.now() - state.last < period)) return;
 
     const targets = loadHist()
-      .filter(rec => !isChaturbate(rec.e) && !liveStatus.get(rec.u.toLowerCase()))
+      .filter(rec => !isChaturbate(rec.e) && !liveStatus.get(roomIdentity(rec.u, rec.e)))
       .sort((a, b) => (state.at[a.u.toLowerCase()] || 0) - (state.at[b.u.toLowerCase()] || 0));
     const batch = cfg('deepBatch');
     if (batch) targets.length = Math.min(targets.length, batch);
@@ -5726,12 +5737,12 @@
 
       if (!edge) return;
       found++;
-      liveStatus.set(rec.u.toLowerCase(), true);
+      liveStatus.set(roomIdentity(rec.u, rec.e), true);
 
       // Новый сервер — и в историю, и в общую базу: дальше быстрая проверка
       // пойдёт уже по нему.
       const list = loadHist();
-      const item = list.find(x => x.u.toLowerCase() === rec.u.toLowerCase());
+      const item = list.find(x => roomIdentity(x.u, x.e) === roomIdentity(rec.u, rec.e));
       if (item) { item.e = String(edge); saveHist(list); }
       learn(rec.u, edge);
       renderHist();
@@ -5757,7 +5768,7 @@
         ? (liveList || []).some(row => isChaturbate(row[1])
             && String(row[0]).toLowerCase() === rec.u.toLowerCase())
         : await alive(rec.u, rec.e);
-      liveStatus.set(rec.u.toLowerCase(), online);
+      liveStatus.set(roomIdentity(rec.u, rec.e), online);
     });
     paintHist();
     histChecking = false;
@@ -6241,7 +6252,7 @@
       if (match) shown++;
     }
     $('onlineShown').textContent = t('эфир.показано', { shown: shown });
-    if (!query || shown || source === 'cb') return;
+    if (!query) return;
 
     /* Совпадений в эфире нет. Если ник знаком базе — показываем такую же
        карточку: её кадр и есть последнее, что от комнаты осталось, а плашка
@@ -6249,10 +6260,18 @@
        по ней нельзя было понять даже, существует ли такая комната. */
     const proper = canon.get(query) || $('onlineFind').value.trim();
     const edge = known.get(proper.toLowerCase());
-    if (edge) {
+    const exactBongaShown = [...$('onlineBody').querySelectorAll('.card:not(.found)')]
+      .some(card => card.dataset.source === 'bonga'
+        && (card.dataset.user || '').toLowerCase() === query
+        && !card.classList.contains('hidden'));
+    /* CB-карточка с тем же ником не должна подавлять известную Bonga-комнату.
+       При точном запросе добавляем её отдельно, если свежий снимок эфира её
+       не содержит: проверка превью уже сама покажет, жива трансляция или нет. */
+    if (source !== 'cb' && edge && proper.toLowerCase() === query && !exactBongaShown) {
       const card = buildCard(proper, edge, 0, 0);
       card.classList.add('found');
       $('onlineBody').appendChild(card);
+      $('onlineShown').textContent = t('эфир.показано', { shown: shown + 1 });
       const img = card.querySelector('img');
       // Наблюдатель за видимостью отметит картинку лишь на следующем кадре, а
       // loadThumb невидимые пропускает. Карточка тут одна и заведомо на экране,
@@ -6261,6 +6280,8 @@
       loadThumb(img);                         // кадр и статус — одним запросом
       return;
     }
+
+    if (shown || source === 'cb') return;
 
     // Сервер неизвестен — кадр запросить не у кого, остаётся прямое открытие:
     // поиск найдёт сервер сам.
@@ -6564,11 +6585,13 @@
     paintPipNick();
     const open = new Set();
     for (const screen of screens) {
-      for (const tile of screen.tiles) if (tile.user) open.add(tile.user.toLowerCase());
+      for (const tile of screen.tiles) {
+        if (tile.user) open.add(roomIdentity(tile.user, tile.edge));
+      }
     }
-    if (current.user) open.add(current.user.toLowerCase());
+    if (current.user) open.add(roomIdentity(current.user, current.edge));
     for (const el of document.querySelectorAll('.item, .card')) {
-      el.classList.toggle('current', open.has((el.dataset.user || '').toLowerCase()));
+      el.classList.toggle('current', open.has(roomIdentity(el.dataset.user, el.dataset.edge)));
     }
   }
 
