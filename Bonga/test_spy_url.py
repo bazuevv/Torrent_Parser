@@ -99,6 +99,32 @@ ok &= check('чужой хост: не принят', r.get('url') != 'https://e
             repr(r)[:120])
 ok &= check('чужой хост: считается промахом', server.CB_SPY['misses'] == 1)
 
+# 7. refresh private_spying — зритель уже в spy, шоу не кончилось
+#    (evaa_campbell 30.08 17:04: сессию сбросили через 5 с после входа).
+arm()
+server.cb_agent_event('refresh', {
+    'room': ROOM, 'url': LIVE, 'room_status': 'private_spying',
+    'cdn': {'bytes': 0, 'passed': 2, 'blocked': 1},
+})
+ok &= check('refresh private_spying: сессия жива', server.CB_SPY['state'] == 'spying')
+ok &= check('refresh private_spying: стопа не было', not stops, str(stops))
+
+# 8. recovery чужой комнаты не убивает текущий вход
+#    (evaa_campbell 17:03: recovery blondie оборвал starting).
+arm()
+server.cb_agent_event('recovery', {'room': 'blondie_dirty_squirt'})
+ok &= check('recovery чужой: сессия жива', server.CB_SPY['state'] == 'spying',
+            server.CB_SPY['state'])
+
+# 9. url_get с private_spying без адреса — осечка, не конец шоу.
+arm()
+agent({'ok': False, 'url': '', 'room_status': 'private_spying'})
+r = server.chaturbate_stream(ROOM, force=True)
+ok &= check('url_get private_spying без адреса: сессия жива',
+            server.CB_SPY['state'] == 'spying')
+ok &= check('url_get private_spying без адреса: отдан удержанный',
+            r.get('online') and r.get('url') == LIVE, repr(r)[:120])
+
 print('\nЖурнал сервера за прогон:')
 with open(server.LOG_PATH, encoding='utf-8') as f:
     for line in f:

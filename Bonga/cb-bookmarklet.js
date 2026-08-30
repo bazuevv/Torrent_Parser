@@ -30,7 +30,7 @@
                    playerQuality и сайт снимает право на 30-й секунде. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 16;
+  const AGENT_VERSION = 17;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -66,12 +66,16 @@
   let helloTimer = 0;
     let copyTimer = 0;
     let cdnTimer = 0;
+    let refreshTimer = 0;
+    let balanceTimer = 0;
     let cdnWatch = null;
     const off = () => {
     stopped = true;
     clearInterval(helloTimer);
     clearTimeout(copyTimer);
     clearInterval(cdnTimer);
+    clearInterval(refreshTimer);
+    clearInterval(balanceTimer);
     try { if (cdnWatch && cdnWatch.disconnect) cdnWatch.disconnect(); } catch (e) {}
     badge.remove();
     delete window.__cbAgent;
@@ -742,7 +746,7 @@
       if (balance !== null) report({ act: 'balance', room, balance });
     } finally { balanceBusy = false; }
   };
-  setInterval(reportBalance, BALANCE_MS);
+  balanceTimer = setInterval(reportBalance, BALANCE_MS);
 
   /* ---- обработка poll-ответа плеера --------------------------------------- */
 
@@ -768,7 +772,7 @@
                raw: `запрос не прошёл: ${(e && e.message) || e}` });
     } finally { refreshBusy = false; }
   };
-  setInterval(refreshStream, REFRESH_MS);
+  refreshTimer = setInterval(refreshStream, REFRESH_MS);
   const paintBadge = () => {
     if (stopped) return;
     if (spyNow.state === 'spying' && spyNow.room)
@@ -796,11 +800,14 @@
     const agent = (answer.spy && answer.spy.agent) || {};
     spyNow = { state: String(spy.state || 'idle'), room: String(spy.room || '') };
 
+    const cmd = answer.cmd;
     /* Вкладка считает себя в spy, а сервер — нет (рестарт плеера, потеря
-       результата): списание могло продолжиться, orphan всегда останавливаем. */
+       результата): списание могло продолжиться. Но если в том же poll уже
+       есть команда входа — её нельзя глотать ради стопа старого ключа
+       (evaa_campbell 17:03: recovery blondie вместо spy_start). */
     let mine = null;
     try { mine = JSON.parse(localStorage.getItem(SPY_KEY) || 'null'); } catch (e) {}
-    if (mine && mine.room && !recovering &&
+    if (!cmd && mine && mine.room && !recovering &&
         (spy.state === 'idle' ||
          (spy.room && spy.room.toLowerCase() !== String(mine.room).toLowerCase()))) {
       recovering = true;
@@ -809,7 +816,6 @@
     }
     if (spy.state === 'idle' && !mine) recovering = false;
 
-    const cmd = answer.cmd;
     if (cmd) {
       /* Пока команда выполняется (вход — секунды), таймер плашки должен
          уже показывать трафик, а не висеть на «spy_start → …» до следующего

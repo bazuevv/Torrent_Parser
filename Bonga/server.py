@@ -100,7 +100,18 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
-CB_AGENT_VERSION = 16      # v16: плашка в две строки, видеотрафик отдельно
+CB_AGENT_VERSION = 17      # v17: recovery не глотает spy_start
+
+
+def cb_status_live(status):
+    """Оплаченный spy ещё идёт при этих статусах ajax/досье.
+
+    get_edge_hls_url_ajax со вкладки зрителя после changeStatus('privatespying')
+    отдаёт private_spying, не private. 30.08 17:04: вход в evaa_campbell
+    прошёл, через 5 с refresh принёс private_spying — сессию сбросили,
+    картинки в плеере не было.
+    """
+    return str(status or '') in ('private', 'private_spying')
 
 
 def cb_reset(error=''):
@@ -329,7 +340,7 @@ def chaturbate_stream(user, force=False):
 
         # Адреса нет вовсе. Конец шоу отличаем от осечки по статусу комнаты:
         # «уже не приват» означает, что сайт сам закрыл показ и списание.
-        if status and status != 'private':
+        if status and not cb_status_live(status):
             write_log(f'cb spy: шоу {user} кончилось ({status}) — видно по url_get')
             with CB_LOCK:
                 if CB_SPY['room'].lower() == user.lower():
@@ -657,14 +668,17 @@ def cb_agent_event(act, payload):
         _cb_apply_balance(payload, room)
         if act == 'recovery':
             # агент считает себя в spy, а сервер с ним не согласен: списание
-            # может идти прямо сейчас, orphan останавливаем безусловно
-            if CB_SPY['state'] in ('spying', 'starting'):
+            # может идти прямо сейчас. Гасим только СОВПАВШУЮ сессию —
+            # recovery чужой комнаты (localStorage после рестарта сервера)
+            # иначе обрывал только что начатый вход (evaa_campbell 17:03).
+            if mine and CB_SPY['state'] in ('spying', 'starting'):
                 CB_SPY['state'] = 'stopping'
                 stop_room = room
                 write_log(f'cb spy: recovery {room} — останавливаем')
-            elif CB_SPY['state'] == 'idle' or not mine:
+            else:
                 stop_room = room
-                write_log(f'cb spy: recovery {room} вне сессии — стоп')
+                write_log(f'cb spy: recovery {room} вне текущей сессии — '
+                          f'стоп на сайте, сессию не сбрасываем')
         elif act == 'refresh' and mine and CB_SPY['state'] == 'spying':
             cdn = payload.get('cdn')
             if isinstance(cdn, dict):
@@ -685,7 +699,7 @@ def cb_agent_event(act, payload):
                           f'{CB_SPY["misses"]} из 2 (room_status='
                           f'{room_status or "не сказан"})'
                           + (f'; сайт ответил: {raw}' if raw else ''))
-            if room_status and room_status != 'private':
+            if room_status and not cb_status_live(room_status):
                 # шоу кончилось само, списание остановлено сайтом
                 write_log(f'cb spy: шоу {room} кончилось ({room_status})')
                 cb_reset()

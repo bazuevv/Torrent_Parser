@@ -360,7 +360,7 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
         (() => {
           const lines = g.badge().split('\n');
           return lines.length === 2 &&
-            /Агент CB v16: связь с плеером есть, жду команду/.test(lines[0]) &&
+            /Агент CB v17: связь с плеером есть, жду команду/.test(lines[0]) &&
             /^видеотрафик /.test(lines[1]);
         })(),
         g.badge());
@@ -385,11 +385,11 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('вход: отчёт пишет, что видео сайта выключено',
         !!(startRes[0] && startRes[0].site && startRes[0].site.quiet === true),
         JSON.stringify(startRes[0] && startRes[0].site));
-  check('вход: плашка v16 — состояние и видеотрафик на разных строках',
+  check('вход: плашка v17 — состояние и видеотрафик на разных строках',
         (() => {
           const lines = g.badge().split('\n');
           return lines.length === 2 &&
-            /Агент CB v16: spy testroom$/.test(lines[0]) &&
+            /Агент CB v17: spy testroom$/.test(lines[0]) &&
             /^видеотрафик /.test(lines[1]);
         })(),
         g.badge());
@@ -449,6 +449,19 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   const afterStop = await g.sandbox.fetch(cdnPlaylist);
   check('выход: заслон CDN снят', afterStop && afterStop.ok === true && cdnHits === 1,
         `hits=${cdnHits}`);
+
+  const recov = launch({ fetchImpl: startFetch,
+                         dossier: { broadcaster_username: 'testroom' } });
+  recov.store.set('cbSpy', JSON.stringify({ room: 'blondie_dirty_squirt', at: 1 }));
+  recov.ready();
+  recov.poll({ spy: { spy: { state: 'starting', room: 'testroom' },
+                      agent: { username: 'adm211' } },
+               cmd: { id: 's4', act: 'spy_start', room: 'testroom' } });
+  for (let i = 0; i < 200; i++) await Promise.resolve();
+  check('recovery не глотает spy_start при чужом ключе',
+        recov.results().some(p => p.act === 'spy_start' && p.ok === true) &&
+        !recov.results().some(p => p.act === 'recovery'),
+        JSON.stringify(recov.results().map(p => p.act)));
 
   const h = launch({ fetchImpl: startFetch, dossier: { broadcaster_username: 'testroom' } });
   h.ready();
