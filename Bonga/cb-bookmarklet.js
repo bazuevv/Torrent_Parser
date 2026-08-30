@@ -75,8 +75,12 @@
 
   const hello = () => {
     const me = localDossier() || {};
-    toHub({ v: 1, kind: 'hello',
-            username: String(me.viewer_username || '') });
+    const msg = { v: 1, kind: 'hello',
+                  username: String(me.viewer_username || '') };
+    toHub(msg);
+    if (window.opener && window.opener !== transport && !window.opener.closed) {
+      try { window.opener.postMessage(msg, PLAYER); } catch (e) {}
+    }
   };
 
   function startHelloRetry() {
@@ -113,25 +117,38 @@
 
   window.addEventListener('message', event => {
     if (event.origin !== PLAYER) return;
-    if (transport && event.source !== transport) return;
     const data = event.data;
     if (!data || data.v !== 1) return;
 
     if (data.kind === 'ready') {
+      /* Отвечает то окно, которому адресован hello/ping: плеер (если эта
+         вкладка открыта из него и жива) либо мост. При смене собеседника
+         прежнему говорим «отсоединяюсь», чтобы он не поллил сервер зря. */
+      if (transport && event.source !== transport && !transport.closed) {
+        try { transport.postMessage({ v: 1, kind: 'detach' }, PLAYER); } catch (e) {}
+      }
+      transport = event.source;
       transportReady = true;
       clearInterval(helloTimer);
       say('связь с плеером есть, жду команду');
       return;
     }
+    if (transport && event.source !== transport) return;
     if (data.kind === 'poll') handleAnswerSafe(data.answer || {});
   });
 
   /* Хаб отличает живую закладку от живого окна: сайт перезагружает страницу
      при переходе между комнатами, и пока пинг молчит, хаб называет серверу
-     пустое имя — агент считается неподключённым, платный вход не стартует. */
+     пустое имя — агент считается неподключённым, платный вход не стартует.
+     Пинг дублируется в opener: после перезагрузки плеера связь восстанав-
+     ливается сама, как только плеер снова привяжет вкладку. */
   const pingHub = () => {
     const me = localDossier() || {};
-    toHub({ v: 1, kind: 'ping', username: String(me.viewer_username || '') });
+    const msg = { v: 1, kind: 'ping', username: String(me.viewer_username || '') };
+    toHub(msg);
+    if (window.opener && window.opener !== transport && !window.opener.closed) {
+      try { window.opener.postMessage(msg, PLAYER); } catch (e) {}
+    }
   };
   setInterval(() => { if (!stopped) pingHub(); }, 10000);
 

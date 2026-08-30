@@ -50,6 +50,7 @@
       logEl.textContent.split('\n').slice(0, 14).join('\n');
   };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  let stopped = false;                 /* true — poll-цикл больше не нужен */
 
   let agentId = '';
   try { agentId = localStorage.getItem('cbBridgeId') || ''; } catch (e) {}
@@ -79,6 +80,14 @@
     const data = event.data;
     if (!data || data.v !== 1) return;
 
+    if (data.kind === 'detach') {
+      /* Агент перешёл на прямой канал с плеером (вкладку CB привязали
+         из самого плеера): polling больше не нужен, вкладку можно закрыть. */
+      stopped = true;
+      st.textContent = 'агент общается с плеером напрямую — эту вкладку можно закрыть';
+      log('detach: прямой канал с плеером');
+      return;
+    }
     if (data.kind === 'hello' || data.kind === 'ping') {
       meta.username = String(data.username || '');
       meta.lastPing = Date.now();
@@ -98,7 +107,7 @@
   });
 
   (async () => {
-    while (true) {
+    while (!stopped) {
       try {
         const res = await fetch('/api/cb/agent/poll', {
           method: 'POST',

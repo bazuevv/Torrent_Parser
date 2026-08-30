@@ -2596,9 +2596,21 @@
 
   (async function cbHubLoop() {
     while (true) {
-      const active = spyOf().state !== 'idle' || cbWindow
-        || tiles.some(tile => tile.user && isChaturbate(tile.edge));
-      if (!active) { await new Promise(r => setTimeout(r, 5000)); continue; }
+      /* Поллим команды, только когда есть кому доставлять (привязанная
+         вкладка CB) или идёт spy — иначе мост ведёт себя, а нам достаточно
+         лёгкого снимка состояния для кнопок. */
+      const active = spyOf().state !== 'idle' || cbWindow;
+      if (!active) {
+        if (tiles.some(tile => tile.user && isChaturbate(tile.edge))) {
+          try {
+            spyInfo = await (await fetch('api/cb/spy', { cache: 'no-store' })).json();
+            for (const tile of tiles)
+              if (tile.user && isChaturbate(tile.edge)) paintSpy(tile);
+          } catch { /* сервер моргнул — следующим кругом */ }
+        }
+        await new Promise(r => setTimeout(r, 15000));
+        continue;
+      }
       if (cbWindow && cbWindow.closed) cbWindow = null;
       try {
         const res = await fetch('api/cb/agent/poll', {
