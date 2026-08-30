@@ -73,10 +73,21 @@
     return false;
   };
 
+  /* На странице комнаты имя есть в initialRoomDossier, но плеер открывает
+     главную Chaturbate, где dossier отсутствует. Общая SPA-шапка кладёт
+     текущий аккаунт в $reactAppContext.logged_in_user; раньше агент читал
+     только dossier и потому сообщал плееру пустое имя — «БЕЗ ВХОДА» даже
+     при действующей сессии сайта. */
+  const viewerName = () => {
+    const dossier = localDossier() || {};
+    const account = (window.$reactAppContext &&
+                     window.$reactAppContext.logged_in_user) || {};
+    return String(dossier.viewer_username || account.username || '');
+  };
+
   const hello = () => {
-    const me = localDossier() || {};
     const msg = { v: 1, kind: 'hello',
-                  username: String(me.viewer_username || '') };
+                  username: viewerName() };
     toHub(msg);
     if (window.opener && window.opener !== transport && !window.opener.closed) {
       try { window.opener.postMessage(msg, PLAYER); } catch (e) {}
@@ -143,8 +154,7 @@
      Пинг дублируется в opener: после перезагрузки плеера связь восстанав-
      ливается сама, как только плеер снова привяжет вкладку. */
   const pingHub = () => {
-    const me = localDossier() || {};
-    const msg = { v: 1, kind: 'ping', username: String(me.viewer_username || '') };
+    const msg = { v: 1, kind: 'ping', username: viewerName() };
     toHub(msg);
     if (window.opener && window.opener !== transport && !window.opener.closed) {
       try { window.opener.postMessage(msg, PLAYER); } catch (e) {}
