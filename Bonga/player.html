@@ -2505,6 +2505,18 @@
     return !!room && String(spy.room || '').toLowerCase() === String(room).toLowerCase();
   };
 
+  /* Цена и расход одной строкой. Точку отсчёта (баланс до платного входа)
+     и накопленное списание считает сервер: у плеера нет способа отличить
+     списание за показ от пополнения счёта посреди сессии. Без этих чисел
+     журнал не отвечал на главный вопрос — сколько стоила чёрная картинка. */
+  const spyMoney = spy => [
+    `цена=${spy.price || 0} тк/мин`,
+    `потрачено=${spy.tokens || 0} тк`,
+    `баланс ${spy.balance_start ?? '?'} → ` +
+      `${spy.balance_now ?? agentOf().balance ?? '?'}`,
+    `идёт ${spy.seconds || 0} с`,
+  ];
+
   async function spyToggle(room) {
     const spy = spyOf();
     if (spy.state === 'spying' && spyMine(room))
@@ -2555,7 +2567,10 @@
      они выглядели одинаково. Причину несём с собой: без неё не отличить
      нажатие кнопки от автостопа при уходе комнаты из ячейки. */
   async function spyStopQuiet(room, reason = 'причина не указана') {
-    logEvent('spy.стоп', `${room}: останавливаю показ — ${reason}`, 'act');
+    // Итог считаем до запроса: подтверждение стопа сбрасывает машину на
+    // сервере, и в следующем снимке цены с расходом уже не будет.
+    logEvent('spy.стоп', `${room}: останавливаю показ — ${reason}; итог: ` +
+      spyMoney(spyOf()).join(' · '), 'act');
     say(t('spy.стоп'));
     try {
       const res = await fetch('api/cb/spy', {
@@ -2741,6 +2756,7 @@
     if (mark === spyState) return;
     spyState = mark;
     logEvent('spy.состояние', `${spy.state || 'idle'} ${spy.room || '—'}` +
+      (spy.state && spy.state !== 'idle' ? ` · ${spyMoney(spy).join(' · ')}` : '') +
       (spy.error ? ` · ошибка сервера: ${spy.error}` : '') +
       (spy.agent_lost ? ' · агент потерян' : ''),
       spy.error ? 'err' : 'act');
@@ -2754,11 +2770,13 @@
      играющего адреса с серверным — задолго до неё. */
   setInterval(() => {
     const spy = spyOf();
-    if (spy.state === 'idle') return;
+    // Пустое состояние — это снимок, которого ещё не было (hello от вкладки
+    // приходит раньше первого poll), а не идущая сессия. Пульс по нему писал
+    // «состояние=undefined · комната=—» и только засорял журнал.
+    if (!spy.state || spy.state === 'idle') return;
     spyNote();
     const bits = [`состояние=${spy.state}`, `комната=${spy.room || '—'}`,
-                  `мин=${spy.minutes || 0}`, `расход=${spy.tokens || 0}`,
-                  `баланс=${agentOf().balance ?? '—'}`,
+                  ...spyMoney(spy),
                   `агент=${agentOf().online ? (agentOf().username || 'да') : 'НЕТ'}`];
     const tile = spyTile();
     if (!tile) bits.push('ячейка=не найдена');
