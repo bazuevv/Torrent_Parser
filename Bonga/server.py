@@ -243,22 +243,43 @@ def chaturbate_online(force=False):
                 'failed_pages': failed, 'complete': not failed}
 
 
-def chaturbate_stream(user):
+def chaturbate_stream(user, force=False):
     if not USER_RE.fullmatch(user):
         raise ValueError('недопустимый ник Chaturbate')
 
     # Активный spy: приватный URL уже получен агентом — отдаём его, не
     # спрашивая CB заново (там анониму в private всегда отвечают пустым url).
+    # После fatal HLS-ошибки force требует именно новый подписанный адрес:
+    # повтор старого токена всегда заканчивался вторым manifestLoadError.
     now = time.time()
     with CB_LOCK:
-        spying = (CB_SPY['state'] == 'spying'
-                  and CB_SPY['room'].lower() == user.lower()
-                  and CB_SPY['url']
-                  and now - CB_SPY['url_at'] <= CB_URL_FRESH)
-        spy_url = CB_SPY['url'] if spying else ''
+        active_spy = (CB_SPY['state'] == 'spying'
+                      and CB_SPY['room'].lower() == user.lower())
+        old_spy_url = CB_SPY['url'] if active_spy else ''
+        spying = (active_spy and CB_SPY['url']
+                   and now - CB_SPY['url_at'] <= CB_URL_FRESH)
+        spy_url = CB_SPY['url'] if spying and not force else ''
     if spy_url:
         return {'user': user, 'online': True, 'url': spy_url,
                 'status': 'private', 'spy': True}
+
+    if force and active_spy:
+        cid = cb_queue('url_get', user)
+        result = cb_wait_result(cid, 15)
+        cb_cancel(cid)
+        fresh = str((result or {}).get('url') or '')
+        host = (urlparse(fresh).hostname or '').lower()
+        if (fresh != old_spy_url and fresh.startswith('https://') and
+                (host.endswith('.mmcdn.com') or host.endswith('.highwebmedia.com'))):
+            with CB_LOCK:
+                if (CB_SPY['state'] == 'spying' and CB_SPY['room'].lower() == user.lower()):
+                    CB_SPY.update({'url': fresh, 'url_at': time.time(), 'misses': 0})
+            return {'user': user, 'online': True, 'url': fresh,
+                    'status': 'private', 'spy': True, 'refreshed': True}
+        cb_stop_now('HLS не обновился после fatal-ошибки', wait=False)
+        return {'user': user, 'online': False, 'status': 'private',
+                'spy': cb_public_state(),
+                'spy_price': chaturbate_dossier(user).get('spy_price', 0)}
 
     data = chaturbate_request('/get_edge_hls_url_ajax/',
                               {'room_slug': user, 'bandwidth': 'high'})
@@ -1828,7 +1849,8 @@ class Handler(SimpleHTTPRequestHandler):
             query = parse_qs(urlparse(self.path).query)
             user = (query.get('user') or [''])[0].strip()
             try:
-                result = chaturbate_stream(user)
+                force = (query.get('force') or ['0'])[0] == '1'
+                result = chaturbate_stream(user, force)
                 code = 200 if result.get('online') else 404
             except ValueError as exc:
                 result, code = {'error': str(exc)}, 400
@@ -2150,7 +2172,9 @@ class Handler(SimpleHTTPRequestHandler):
                     return self._json({'error': str(exc)}, 400)
                 return self._json(result, 200 if result.get('ok') else 502)
             if action == 'stop':
-                return self._json(cb_stop_now('кнопка в плеере'))
+                result = cb_stop_now('кнопка в плеере')
+                result['spy'] = cb_public_state()
+                return self._json(result, 200 if result.get('ok') else 502)
             return self.send_error(400, 'bad action')
 
         return self.send_error(404)

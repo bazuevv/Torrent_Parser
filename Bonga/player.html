@@ -2463,9 +2463,10 @@
   const chaturbateThumb = user =>
     `https://thumb.live.mmcdn.com/riw/${encodeURIComponent(user)}.jpg`;
 
-  async function resolvePlaylist(user, edge) {
+  async function resolvePlaylist(user, edge, force = false) {
     if (!isChaturbate(edge)) return playlistUrl(user, edge);
-    const res = await fetch(`api/chaturbate/stream?user=${encodeURIComponent(user)}`,
+    const res = await fetch(`api/chaturbate/stream?user=${encodeURIComponent(user)}` +
+                            (force ? '&force=1' : ''),
                             { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.online || !data.url) {
@@ -2527,7 +2528,7 @@
         say(data.error || t('spy.отказ'), 'err');
         return;
       }
-      if (data.spy) spyInfo = { agent: agentOf(), spy: data.spy };
+      if (data.spy) spyInfo = data.spy;
       say(t('spy.запущен', { цена: spyOf().price || 0 }), 'ok');
       for (const tile of tiles)
         if (tile.user && isChaturbate(tile.edge)) paintSpy(tile);
@@ -2537,12 +2538,25 @@
   async function spyStopQuiet(room) {
     say(t('spy.стоп'));
     try {
-      await fetch('api/cb/spy', {
+      const res = await fetch('api/cb/spy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user: room, action: 'stop' }),
       });
-    } catch { /* скажется следующим poll-ответом */ }
+      const data = await res.json().catch(() => ({}));
+      if (data.spy) {
+        spyInfo = data.spy;
+        for (const tile of tiles) {
+          if (!tile.user || !isChaturbate(tile.edge)) continue;
+          if (data.ok && spyOf().state === 'idle' &&
+              tile.user.toLowerCase() === String(room).toLowerCase())
+            tilePrivate(tile, { price: tile.price });
+          else
+            paintSpy(tile);
+        }
+      }
+      if (!res.ok || !data.ok) say(data.error || t('spy.отказ'), 'err');
+    } catch { say(t('spy.сеть'), 'err'); }
   }
 
   /* Применение poll-ответа сервера: снимок spy, команда агенту, перерисовка
@@ -4005,7 +4019,11 @@
     tile.box.classList.add('offline');
     tile.box.classList.remove('loud', 'audible');
     tile.box.querySelector('.off').textContent = t('узел.16');
+    /* Поток уже уничтожен: таймер обязан замереть сейчас, а не после
+       сетевого ожидания снимка, которое иногда тянется бесконечно. */
+    tile.goneAt = Date.now();
     paintQuality(tile);
+    paintBar(tile);
 
     const shot = tile.box.querySelector('.tshot');
     /* Кадр берём по очереди: свой сервер, потом тот, что знает база (комната
@@ -4024,7 +4042,7 @@
         const res = await fetch(`${at}?t=${Date.now()}`, { cache: 'no-store' });
         if (!res.ok) continue;
         const modified = res.headers.get('Last-Modified');
-        tile.goneAt = modified ? new Date(modified).getTime() : Date.now();
+        tile.goneAt = modified ? new Date(modified).getTime() : tile.goneAt;
         const url = URL.createObjectURL(await res.blob());
         if (shot.blobUrl) URL.revokeObjectURL(shot.blobUrl);
         shot.blobUrl = url;
@@ -4032,7 +4050,6 @@
         break;
       } catch { /* следующий сервер */ }
     }
-    if (!tile.goneAt) tile.goneAt = Date.now();   // кадра нет — считаем от сейчас
     paintBar(tile);
   }
 
@@ -4045,6 +4062,7 @@
     tile.video.pause();
     tile.video.removeAttribute('src');
     tile.video.load();
+    tile.halted = true;              // платного потока нет — таймер не идёт
     tile.box.classList.add('offline', 'private');
     tile.box.classList.remove('loud', 'audible');
     tile.box.querySelector('.off').textContent = t('ячейка.приват');
@@ -4260,7 +4278,7 @@
       if (isChaturbate(edge)) {
         tile.retried = true;
         try {
-          const freshUrl = await resolvePlaylist(user, edge);
+          const freshUrl = await resolvePlaylist(user, edge, true);
           if (tile.user === user && tile.hls === hlsTile) hlsTile.loadSource(freshUrl);
         } catch (err) {
           // комната могла уйти в приват посреди эфира — это не «ушла»
