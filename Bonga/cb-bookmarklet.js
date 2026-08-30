@@ -28,10 +28,13 @@
                    запасной источник — hls_source в initialRoomDossier. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 5;
+  const AGENT_VERSION = 6;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
-  const REFRESH_MS = 45000;
+  /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
+     (прогоны 30.08 — 30.1 с и 31.4 с до сплошных 403), и при сорока пяти мы
+     ни разу не успевали подтвердить поток до его смерти. */
+  const REFRESH_MS = 20000;
   const BALANCE_MS = 9000;
 
   /* Второе нажатие закладки выключает агента. */
@@ -223,8 +226,23 @@
 
   /* ---- запросы к сайту (same-origin, CSP их разрешает) ------------------- */
 
+  /* У fetch нет своего таймаута, а сервер ждёт результат команды 15 секунд.
+     Прецедент 30.08: запрос к сайту завис, агент промолчал, в журнале осталось
+     «агент промолчал» без единой подробности, а reportBalance навсегда застрял
+     с balanceBusy=true — цифры расхода замерли на минуту. Любой запрос обязан
+     завершиться сам, пусть и ошибкой: она попадёт в raw и объяснит причину. */
+  const SITE_TIMEOUT_MS = 8000;
+
+  async function siteFetch(path, init, timeout = SITE_TIMEOUT_MS) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeout);
+    try {
+      return await fetch(path, { ...init, signal: ctl.signal });
+    } finally { clearTimeout(timer); }
+  }
+
   async function post(path, data) {
-    const res = await fetch(path, {
+    const res = await siteFetch(path, {
       method: 'POST',
       credentials: 'same-origin',
       headers: {
@@ -285,9 +303,11 @@
     if (own && String(own.broadcaster_username || '').toLowerCase() === room.toLowerCase())
       return own;
     try {
-      const res = await fetch('/' + room + '/?agent_balance=' + Date.now(), {
+      // Страница комнаты весит сотни килобайт, поэтому срок вдвое больше
+      // обычного запроса — но он всё равно конечный.
+      const res = await siteFetch('/' + room + '/?agent_balance=' + Date.now(), {
         credentials: 'same-origin', cache: 'no-store',
-      });
+      }, SITE_TIMEOUT_MS * 2);
       if (!res.ok) return null;
       return parseDossier(await res.text());
     } catch (e) { return null; }
@@ -410,8 +430,27 @@
 
   /* ---- обработка poll-ответа моста ---------------------------------------- */
 
-  let refreshAt = 0;
   let recovering = false;
+
+  /* Обновление потока живёт своим таймером, а не внутри разбора poll-ответа:
+     тот возвращается раз в CB_POLL_HOLD (25 с), поэтому двадцатисекундный
+     цикл оттуда недостижим в принципе. */
+  let spyNow = { state: 'idle', room: '' };
+  let refreshBusy = false;
+  const refreshStream = async () => {
+    if (stopped || refreshBusy) return;
+    if (spyNow.state !== 'spying' || !spyNow.room) return;
+    refreshBusy = true;
+    try {
+      const s = await streamUrl(spyNow.room);
+      report({ act: 'refresh', room: spyNow.room, url: s.url,
+               room_status: s.room_status, raw: s.url ? '' : s.raw });
+    } catch (e) {
+      report({ act: 'refresh', room: spyNow.room, url: '', room_status: '',
+               raw: `запрос не прошёл: ${(e && e.message) || e}` });
+    } finally { refreshBusy = false; }
+  };
+  setInterval(refreshStream, REFRESH_MS);
 
   async function handleAnswerSafe(answer) {
     try {
@@ -426,6 +465,7 @@
   async function handleAnswer(answer) {
     const spy = (answer.spy && answer.spy.spy) || {};
     const agent = (answer.spy && answer.spy.agent) || {};
+    spyNow = { state: String(spy.state || 'idle'), room: String(spy.room || '') };
 
     /* Вкладка считает себя в spy, а сервер — нет (рестарт плеера, потеря
        результата): списание могло продолжиться, orphan всегда останавливаем. */
@@ -459,17 +499,7 @@
       return;                          // следующий poll-ответ придёт своим ходом
     }
 
-    /* Команд нет: пока идёт spy, периодически подтверждаем поток. */
     if (spy.state === 'spying' && spy.room) {
-      if (Date.now() - refreshAt >= REFRESH_MS) {
-        refreshAt = Date.now();
-        try {
-          const s = await streamUrl(spy.room);
-          report({ act: 'refresh', room: spy.room,
-                   url: s.url, room_status: s.room_status,
-                   raw: s.url ? '' : s.raw });
-        } catch (e) { /* скажется следующим кругом */ }
-      }
       say(`spy ${spy.room} · ${agent.username || 'аккаунт'}`);
     } else if (agent.anon) {
       say('вкладка без входа — откройте аккаунт на сайте');
