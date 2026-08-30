@@ -2519,7 +2519,11 @@
 
   async function spyToggle(room) {
     const spy = spyOf();
-    if (spy.state === 'spying' && spyMine(room))
+    /* stopping — это уже запрошенный стоп, но сайт ещё списывает. Повторный
+       клик spy не «старт», а тот же стоп: иначе cbAimTab перезагружает вкладку
+       Chaturbate и убивает закладку, так и не отправив cancel (eva_tylor
+       30.08 16:18 — halt, потом клик spy, токены шли дальше). */
+    if ((spy.state === 'spying' || spy.state === 'stopping') && spyMine(room))
       return spyStopQuiet(room, 'кнопка spy в заголовке ячейки');
     /* Вкладку Chaturbate открывает плеер и держит её на странице этой комнаты.
        Открывать обязан именно плеер: opener-связь — единственное, чем закладка
@@ -2577,6 +2581,11 @@
     logEvent('spy.стоп', `${room}: останавливаю показ — ${reason}; итог: ` +
       spyMoney(spyOf()).join(' · '), 'act');
     say(t('spy.стоп'));
+    /* Текущий long-poll мог уйти с пустым username (окно в фоне, ping
+       протух за 20 с). Он заберёт смену состояния, а команду стопа — нет:
+       сервер пишет «ждёт — опрос player-hub без живой закладки». Срываем
+       его, следующий круг пойдёт с именем, пока вкладка CB ещё открыта. */
+    if (cbHubAbort) cbHubAbort.abort();
     try {
       const res = await fetch('api/cb/spy', {
         method: 'POST',
@@ -2808,6 +2817,13 @@
       if (cbWindow && cbWindow.closed) { cbWindow = null; cbWindowRoom = ''; }
       const ctl = new AbortController();
       cbHubAbort = ctl;
+      /* Имя шлём, пока открыта вкладка CB и мы его знаем. Раньше требовали
+         ping свежее 20 с: вкладка плеера в фоне пропускала ping, halt уходил
+         опросом без имени, spy_stop не доезжал до закладки, сайт продолжал
+         списывать (eva_tylor 16:18). Закладка, убитая перезагрузкой вкладки,
+         здесь и так пустая: cbAimTab обнуляет имя. */
+      const hubName = (cbWindow && cbAgentName &&
+                       cbAgentName !== 'AnonymousUser') ? cbAgentName : '';
       try {
         const res = await fetch('api/cb/agent/poll', {
           method: 'POST',
@@ -2815,8 +2831,8 @@
           signal: ctl.signal,
           body: JSON.stringify({
             id: 'player-hub',
-            username: cbAgentFresh() ? cbAgentName : '',
-            agent_version: cbAgentFresh() ? cbAgentVersion : 0,
+            username: hubName,
+            agent_version: hubName ? cbAgentVersion : 0,
             busy: false,
           }),
         });
