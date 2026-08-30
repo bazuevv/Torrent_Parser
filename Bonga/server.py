@@ -117,6 +117,26 @@ def cb_reset(error=''):
 cb_reset()
 
 
+def cb_url_brief(url):
+    """Адрес потока для журнала: хост, хвост пути и параметры.
+
+    Целиком он занимает пол-экрана, а обрезать до пути нельзя: срок жизни и
+    подпись Chaturbate держит в query, и без них не отличить протухший токен
+    от пропавшей комнаты — а именно этот вопрос и разбирают по журналу.
+    """
+    if not url:
+        return '—'
+    try:
+        parts = urlparse(str(url))
+    except ValueError:
+        return f'(неразбираемый адрес) {str(url)[:120]}'
+    if not parts.hostname:
+        return str(url)[:200]
+    tail = '/'.join([piece for piece in parts.path.split('/') if piece][-2:])
+    query = f'?{parts.query}' if parts.query else ''
+    return f'{parts.hostname}/…/{tail}{query}'[:400]
+
+
 def chaturbate_request(path, data=None):
     body = urlencode(data).encode('ascii') if data is not None else None
     last = None
@@ -270,6 +290,11 @@ def chaturbate_stream(user, force=False):
         cb_cancel(cid)
         fresh = str((result or {}).get('url') or '')
         host = (urlparse(fresh).hostname or '').lower()
+        write_log(
+            f'cb spy: url_get {user} после fatal-ошибки плеера — '
+            f'{"агент промолчал" if result is None else "агент ответил"}, '
+            f'было {cb_url_brief(old_spy_url)}, стало {cb_url_brief(fresh)} '
+            f'({"адрес сменился" if fresh != old_spy_url else "адрес тот же"})')
         if (fresh != old_spy_url and fresh.startswith('https://') and
                 (host.endswith('.mmcdn.com') or host.endswith('.highwebmedia.com'))):
             with CB_LOCK:
@@ -543,11 +568,17 @@ def cb_agent_event(act, payload):
                 write_log(f'cb spy: recovery {room} вне сессии — стоп')
         elif act == 'refresh' and mine and CB_SPY['state'] == 'spying':
             if isinstance(url, str) and url.startswith('https://'):
+                if url != CB_SPY['url']:
+                    write_log(f'cb spy: refresh {room} сменил адрес: '
+                              f'{cb_url_brief(CB_SPY["url"])} → {cb_url_brief(url)}')
                 CB_SPY['url'] = url
                 CB_SPY['url_at'] = time.time()
                 CB_SPY['misses'] = 0
             else:
                 CB_SPY['misses'] += 1          # подписка могла умереть
+                write_log(f'cb spy: refresh {room} без адреса — промах '
+                          f'{CB_SPY["misses"]} из 2 (room_status='
+                          f'{room_status or "не сказан"})')
             if room_status and room_status != 'private':
                 # шоу кончилось само, списание остановлено сайтом
                 write_log(f'cb spy: шоу {room} кончилось ({room_status})')
@@ -706,8 +737,7 @@ def cb_spy_start(user):
         # Висящий long-poll плеера-хаба заберёт свежий снимок немедленно,
         # а не через удержание: ячейка оживает в ту же секунду.
         CB_COND.notify_all()
-    write_log(f'cb spy: вход в {user} ({price} тк/мин), поток '
-              f'{urlparse(url).hostname}{urlparse(url).path[:60]}')
+    write_log(f'cb spy: вход в {user} ({price} тк/мин), поток {cb_url_brief(url)}')
     return {'ok': True, 'url': url, 'spy': cb_public_state()}
 
 
@@ -759,14 +789,20 @@ def cb_guard():
                 if not anyone and not CB_SPY['agent_lost']:
                     CB_SPY['agent_lost'] = True
                     write_log(f'cb spy: агент потерян, {room} ждёт остановки')
+                # Цифры в причине обязательны: «плеер пропал» без них не
+                # отличить от «плеер закрыли», а это разные поломки.
                 if now - CB_SPY['player_seen'] > CB_PLAYER_WATCHDOG:
-                    stop_reason = 'плеер пропал (watchdog)'
+                    stop_reason = ('плеер пропал (watchdog): молчит '
+                                   f'{int(now - CB_SPY["player_seen"])} с при пределе '
+                                   f'{CB_PLAYER_WATCHDOG}')
                 elif now - CB_SPY['started'] > CB_SPY_MAX:
-                    stop_reason = 'предел часа'
+                    stop_reason = f'предел часа: идёт {int(now - CB_SPY["started"])} с'
                 elif CB_SPY['misses'] >= 2:
-                    stop_reason = 'поток пропал из refresh'
+                    stop_reason = (f'поток пропал из refresh: {CB_SPY["misses"]} '
+                                   'промаха подряд')
                 elif not anyone:
-                    stop_reason = 'агент офлайн'
+                    stop_reason = ('агент офлайн: ни одного poll-а дольше '
+                                   f'{CB_AGENT_OFFLINE} с')
             elif state == 'stopping':
                 cid = CB_SPY['stop_cmd']
                 pending = CB_CMDS.get(cid)

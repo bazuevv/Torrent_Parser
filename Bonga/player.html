@@ -2507,7 +2507,8 @@
 
   async function spyToggle(room) {
     const spy = spyOf();
-    if (spy.state === 'spying' && spyMine(room)) return spyStopQuiet(room);
+    if (spy.state === 'spying' && spyMine(room))
+      return spyStopQuiet(room, 'кнопка spy в заголовке ячейки');
     /* Агента нет — первым делом открываем вкладку Chaturbate из плеера:
        opener-связь даёт закладке прямой канал сюда, отдельная вкладка-мост
        не нужна. Дальше пользователь входит в аккаунт (если ещё не) и жмёт
@@ -2532,6 +2533,7 @@
         return;
       }
       if (data.spy) spyInfo = data.spy;
+      spyNote();
       say(t('spy.запущен', { цена: spyOf().price || 0 }), 'ok');
       for (const tile of tiles)
         if (tile.user && isChaturbate(tile.edge)) paintSpy(tile);
@@ -2549,7 +2551,11 @@
     } catch { say(t('spy.сеть'), 'err'); }
   }
 
-  async function spyStopQuiet(room) {
+  /* Останавливать оплаченный показ умеют четыре разных пути, и по журналу
+     они выглядели одинаково. Причину несём с собой: без неё не отличить
+     нажатие кнопки от автостопа при уходе комнаты из ячейки. */
+  async function spyStopQuiet(room, reason = 'причина не указана') {
+    logEvent('spy.стоп', `${room}: останавливаю показ — ${reason}`, 'act');
     say(t('spy.стоп'));
     try {
       const res = await fetch('api/cb/spy', {
@@ -2560,6 +2566,7 @@
       const data = await res.json().catch(() => ({}));
       if (data.spy) {
         spyInfo = data.spy;
+        spyNote();
         for (const tile of tiles) {
           if (!tile.user || !isChaturbate(tile.edge)) continue;
           if (data.ok && spyOf().state === 'idle' &&
@@ -2582,6 +2589,7 @@
          вкладки точнее такого снимка и не должен снова прятать кнопку. */
       if (cbAgentFresh()) spyInfo.agent = cbLocalAgent();
     }
+    spyNote();
     if (answer.cmd) toAgent({ v: 1, kind: 'poll', answer });
 
     const spy = spyOf();
@@ -2687,6 +2695,7 @@
         if (tiles.some(tile => tile.user && isChaturbate(tile.edge))) {
           try {
             spyInfo = await (await fetch('api/cb/spy', { cache: 'no-store' })).json();
+            spyNote();
             for (const tile of tiles)
               if (tile.user && isChaturbate(tile.edge)) paintSpy(tile);
           } catch { /* сервер моргнул — следующим кругом */ }
@@ -2718,6 +2727,59 @@
       }
     }
   })();
+
+  /* --- журнал spy-сессии ----------------------------------------------------
+     Оплаченный показ обрывался «через разное время», и по одной строке с
+     фатальной ошибкой понять причину не удавалось: к разбору страница уже
+     перезагружена, а сама ошибка приходит последней — после того, как эфир
+     уже несколько тактов не рос. Поэтому пишем ход сессии целиком. */
+
+  let spyState = '';
+  function spyNote() {
+    const spy = spyOf();
+    const mark = `${spy.state || 'idle'}:${spy.room || ''}:${spy.error || ''}`;
+    if (mark === spyState) return;
+    spyState = mark;
+    logEvent('spy.состояние', `${spy.state || 'idle'} ${spy.room || '—'}` +
+      (spy.error ? ` · ошибка сервера: ${spy.error}` : '') +
+      (spy.agent_lost ? ' · агент потерян' : ''),
+      spy.error ? 'err' : 'act');
+  }
+
+  const spyTile = () => tiles.find(item => item.user && isChaturbate(item.edge)
+    && spyMine(item.user));
+
+  /* Пульс: раз в 10 с состояние сессии и приёма. Остановка роста буфера
+     видна здесь за несколько тактов до фатальной ошибки, а расхождение
+     играющего адреса с серверным — задолго до неё. */
+  setInterval(() => {
+    const spy = spyOf();
+    if (spy.state === 'idle') return;
+    spyNote();
+    const bits = [`состояние=${spy.state}`, `комната=${spy.room || '—'}`,
+                  `мин=${spy.minutes || 0}`, `расход=${spy.tokens || 0}`,
+                  `баланс=${agentOf().balance ?? '—'}`,
+                  `агент=${agentOf().online ? (agentOf().username || 'да') : 'НЕТ'}`];
+    const tile = spyTile();
+    if (!tile) bits.push('ячейка=не найдена');
+    else {
+      const media = tile.video;
+      const buffered = media.buffered;
+      const end = buffered.length ? buffered.end(buffered.length - 1) : 0;
+      bits.push(`t=${media.currentTime.toFixed(1)}`,
+                `запас=${end ? (end - media.currentTime).toFixed(1) : '—'}`,
+                `rs=${media.readyState}`, `ns=${media.networkState}`,
+                `кусок=${tile.lastFragAt
+                  ? `${((Date.now() - tile.lastFragAt) / 1000).toFixed(1)} с назад`
+                  : 'ни одного'}`);
+      for (const mark of ['private', 'offline', 'halted'])
+        if (tile.box.classList.contains(mark)) bits.push(`ячейка=${mark}`);
+      if (spy.hls && tile.source && spy.hls !== tile.source)
+        bits.push(`АДРЕС РАЗОШЁЛСЯ: играет ${briefUrl(tile.source)}, ` +
+                  `у сервера ${briefUrl(spy.hls)}`);
+    }
+    logEvent('spy.пульс', bits.join(' · '));
+  }, 10000);
 
   /* Комната могла выйти из привата — тогда resolvePlaylist перестанет
      бросаться статусом private и вернёт обычный поток. */
@@ -4165,7 +4227,7 @@
     /* Поток разорван — платить за spy дальше незачем (списание остановим,
        вернуться можно кнопкой в заголовке ячейки). */
     if (isChaturbate(tile.edge) && spyOf().state === 'spying' && spyMine(tile.user))
-      spyStopQuiet(tile.user);
+      spyStopQuiet(tile.user, 'приём ячейки остановлен вручную');
     const frame = tileFrame(tile);
     if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
     tile.ready = false;
@@ -4199,7 +4261,7 @@
        комнаты из шпионской логики (spyRelaunch) — не уход, его не трогаем. */
     if (tile.user && spyRelaunch !== tile && isChaturbate(tile.edge)
         && spyOf().state === 'spying' && spyMine(tile.user))
-      spyStopQuiet(tile.user);
+      spyStopQuiet(tile.user, 'комната уходит из ячейки');
     const owner = screens.find(screen => screen.tiles.includes(tile));
     if (owner) {
       if (owner.loudTile === tile) owner.loudTile = null;
@@ -4226,6 +4288,49 @@
     tile.manualDb = null;
     saveWall();
     if (!wallQuiet) layoutWall();     // форма сетки зависит от числа занятых
+  }
+
+  /* --- разбор HLS-ошибок для журнала ---------------------------------------
+     По одному err.details причину обрыва не восстановить: протухшая подпись,
+     ушедший эфир, обрыв сети и таймаут CDN приходят под одним и тем же
+     levelLoadError. Поэтому в строку идут код ответа, адрес, который не
+     загрузился, и решение самой библиотеки вместе с номером повтора —
+     вторая ошибка одного происшествия иначе неотличима от новой поломки. */
+  const HLS_ACTIONS = ['ничего', 'запасной поток', 'отдать вызывающему',
+                       'убрать дорожку навсегда', 'вставить разрыв', 'повтор запроса'];
+
+  /* Адреса CDN длиннее самой записи журнала, но обрезать их до пути нельзя:
+     срок жизни и подпись у Chaturbate живут в параметрах, и без них не
+     отличить протухший токен от пропавшей комнаты. */
+  function briefUrl(raw) {
+    if (!raw) return '—';
+    try {
+      const url = new URL(raw, location.href);
+      const tail = url.pathname.split('/').filter(Boolean).slice(-2).join('/');
+      return `${url.host}/…/${tail}${url.search}`.slice(0, 300);
+    } catch { return String(raw).slice(0, 300); }
+  }
+
+  function hlsErrorLine(err) {
+    const bits = [err.details || '?', err.fatal ? 'ФАТАЛЬНАЯ' : 'не фатальная',
+                  `тип=${err.type || '?'}`];
+    const code = (err.response && err.response.code)
+      || (err.networkDetails && err.networkDetails.status) || 0;
+    if (code) bits.push(`HTTP ${code}`);
+    const why = (err.response && err.response.text) || err.reason
+      || (err.error && err.error.message) || '';
+    if (why) bits.push(`причина=${String(why).slice(0, 160)}`);
+    const act = err.errorAction;
+    if (act) {
+      bits.push(`решение=${HLS_ACTIONS[act.action] ?? act.action}`);
+      if (act.retryCount) bits.push(`повтор №${act.retryCount}`);
+    }
+    if (err.frag) bits.push(`кусок #${err.frag.sn} дорожки ${err.frag.level}`);
+    else if (typeof err.level === 'number') bits.push(`дорожка ${err.level}`);
+    const at = (err.context && err.context.url) || err.url
+      || (err.frag && err.frag.url) || '';
+    if (at) bits.push(`адрес=${briefUrl(at)}`);
+    return bits.join(' · ');
   }
 
   async function tilePlay(tile, user, edge) {
@@ -4269,6 +4374,13 @@
     // комнатой. Запоздавший ответ не должен подменить новый поток.
     if (tile.run !== run || tile.user !== user || tile.edge !== String(edge)) return;
 
+    /* Адрес запоминаем: агент обновляет его раз в 45 с, и разойтись с тем,
+       что играет, он может задолго до первой ошибки. */
+    tile.source = sourceUrl;
+    tile.lastFragAt = 0;
+    if (isChaturbate(edge))
+      logEvent('spy.поток', `${user}: источник ${briefUrl(sourceUrl)}`, 'act');
+
     const hlsTile = new Hls({ lowLatencyMode: false, backBufferLength: 10 });
     tile.hls = hlsTile;
     hlsTile.loadSource(sourceUrl);
@@ -4307,6 +4419,7 @@
        короче — запляшет на каждом кадре. */
     tile.chunks = [];
     hlsTile.on(Hls.Events.FRAG_BUFFERED, (_, data) => {
+      tile.lastFragAt = Date.now();     // пульс видит по нему, жив ли приём
       const frag = data && data.frag;
       const bytes = (data.stats && data.stats.total)
         || (frag && frag.stats && frag.stats.total) || 0;
@@ -4326,20 +4439,49 @@
        была и превью в правой колонке рисовалось. Сперва спрашиваем каталог:
        его сборщик обходит сайт раз в минуту и знает верный номер. */
     hlsTile.on(Hls.Events.ERROR, async (_, err) => {
+      /* Нефатальные ошибки — не шум, а предыстория обрыва: пока библиотека
+         повторяет запрос, эфир ещё идёт, и только по этим строкам видно,
+         чем CDN отвечал до того, как повторы кончились. Ведём их для
+         оплаченной комнаты; на обычной стене сотня ячеек залила бы журнал,
+         и там по-прежнему пишутся одни фатальные. */
+      const spied = isChaturbate(edge) && spyMine(user);
+      if (!err.fatal && !spied) return;
+      if (!err.fatal) {
+        // bufferStalledError повторяется десятками в секунду — журнал от
+        // этого нечитаем, а нового в повторе нет.
+        const now = Date.now();
+        if (tile.softError === err.details && now - tile.softAt < 2000) return;
+        tile.softError = err.details;
+        tile.softAt = now;
+      }
+      logEvent(spied ? 'spy.hls' : t('текст.92'),
+               `${user}: ${hlsErrorLine(err)}`, err.fatal ? 'err' : '');
       if (!err.fatal) return;
-      logEvent(t('текст.92'), `${user}: ${err.details}`, 'err');
       if (tile.user !== user) return;
       // Вторая осечка подряд — сервер тут ни при чём, комната ушла.
-      if (tile.retried) return tileGone(tile);
+      if (tile.retried) {
+        logEvent(spied ? 'spy.восстановление' : t('текст.92'),
+                 `${user}: попытка уже израсходована — ячейка гасится`, 'err');
+        return tileGone(tile);
+      }
 
       // У Chaturbate адрес подписан и может протухнуть. Получаем новый токен
       // один раз; перебирать Bongacams edge для такой комнаты нельзя.
       if (isChaturbate(edge)) {
         tile.retried = true;
+        logEvent('spy.восстановление', `${user}: прошу у сервера свежий адрес`, 'act');
         try {
           const freshUrl = await resolvePlaylist(user, edge, true);
-          if (tile.user === user && tile.hls === hlsTile) hlsTile.loadSource(freshUrl);
+          const alive = tile.user === user && tile.hls === hlsTile;
+          logEvent('spy.восстановление',
+            `${user}: сервер дал ${briefUrl(freshUrl)} ` +
+            `(${freshUrl === tile.source ? 'тот же' : 'новый'}), ячейка ` +
+            (alive ? 'жива — перезапускаю' : 'уже погашена, адрес выброшен'),
+            alive ? 'act' : 'err');
+          if (alive) { tile.source = freshUrl; hlsTile.loadSource(freshUrl); }
         } catch (err) {
+          logEvent('spy.восстановление', `${user}: адрес не выдан — ` +
+            (err.status === 'private' ? 'сервер отвечает «приват»' : err.message), 'err');
           // комната могла уйти в приват посреди эфира — это не «ушла»
           if (err.status === 'private') tilePrivate(tile, err);
           else tileGone(tile);
