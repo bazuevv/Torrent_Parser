@@ -7462,23 +7462,33 @@
   // страница сайта уже открыта, тот же список лежит в её JSON-блоках. Закладка
   // просто собирает его и кладёт в буфер — никакой защиты это не обходит.
   // Код закладки лежит в bookmarklet.js — тянем его и вешаем как javascript:-ссылку.
+  /* javascript:-URL закладки браузер обрезает около 64 КБ (Firefox — ровно
+     65536). encodeURIComponent раздувает кириллицу комментариев втрое: агент
+     v9 в исходнике 26 КБ, в href — 70 КБ, и перетаскивание на панель молча
+     ничего не оставляло. В саму закладку комментарии не нужны. */
+  function compactBookmarklet(src) {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(?<!:)\/\/.*?$/gm, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
+  }
+  function bookmarkHref(src) {
+    return 'javascript:' +
+      encodeURIComponent(compactBookmarklet(src.replace('__PLAYER_ORIGIN__', location.origin)));
+  }
   fetch('bookmarklet.js')
     .then(r => r.text())
     // Подставляем адрес этого плеера — закладка отправит ники прямо сюда.
-    .then(src => {
-      $('bmLink').href = 'javascript:' +
-        encodeURIComponent(src.replace('__PLAYER_ORIGIN__', location.origin));
-    })
+    .then(src => { $('bmLink').href = bookmarkHref(src); })
     .catch(() => { $('bmLink').removeAttribute('href'); $('bmLink').textContent = t('узел.38'); });
 
   // Агент spy-режима Chaturbate: та же схема, но закладка живёт на
   // chaturbate.com и исполняет платные команды от имени сессии сайта.
   fetch('cb-bookmarklet.js', { cache: 'no-store' })
     .then(r => r.text())
-    .then(src => {
-      $('bmLinkCb').href = 'javascript:' +
-        encodeURIComponent(src.replace('__PLAYER_ORIGIN__', location.origin));
-    })
+    .then(src => { $('bmLinkCb').href = bookmarkHref(src); })
     .catch(() => { $('bmLinkCb').removeAttribute('href'); $('bmLinkCb').textContent = t('узел.44'); });
 
   // Разбор списка. Возвращает null, если это не наш JSON — тогда вызывающий
