@@ -4299,6 +4299,22 @@
   const HLS_ACTIONS = ['ничего', 'запасной поток', 'отдать вызывающему',
                        'убрать дорожку навсегда', 'вставить разрыв', 'повтор запроса'];
 
+  /* --- восстановление ячейки Chaturbate -------------------------------------
+     Ошибки приходят пачкой: об одном обрыве hls.js за долю секунды выдаёт
+     levelLoadError и следом manifestLoadError. Прежний код считал их разными
+     происшествиями — вторая заставала израсходованным одноразовый признак
+     tile.retried и гасила ячейку, пока первая ещё ждала адрес от сервера.
+     Пришедший ответ упирался в уже уничтоженный hls и молча пропадал, а
+     оплаченный spy продолжал списывать токены за чёрный квадрат.
+
+     Поэтому: пока попытка в ходу, соседние ошибки только пишутся в журнал;
+     попыток несколько, они разнесены паузой, и запас восстанавливается,
+     как только эфир снова идёт. */
+  const HEAL_TRIES = 4;         // столько попыток подряд, дальше ячейка гаснет
+  const HEAL_PAUSE = 3000;      // пауза перед попыткой и после неё
+  const HEAL_FORGET = 60000;    // столько без ошибок — счётчик попыток обнуляется
+  const healPause = ms => new Promise(resolve => setTimeout(resolve, ms));
+
   /* Адреса CDN длиннее самой записи журнала, но обрезать их до пути нельзя:
      срок жизни и подпись у Chaturbate живут в параметрах, и без них не
      отличить протухший токен от пропавшей комнаты. */
@@ -4352,6 +4368,9 @@
     tile.box.classList.toggle('cb', isChaturbate(edge));
     tile.asleep = false;
     tile.retried = false;              // попытка сменить сервер — по одной на запуск
+    tile.healing = false;              // новый поток — новое право на восстановление
+    tile.healTries = 0;
+    tile.healAt = 0;
     tile.since = Date.now();           // с этого мига считаем время просмотра
     tile.box.querySelector('b').textContent = user;
     tile.box.querySelector('.empty').hidden = true;
@@ -4458,35 +4477,82 @@
                `${user}: ${hlsErrorLine(err)}`, err.fatal ? 'err' : '');
       if (!err.fatal) return;
       if (tile.user !== user) return;
-      // Вторая осечка подряд — сервер тут ни при чём, комната ушла.
-      if (tile.retried) {
-        logEvent(spied ? 'spy.восстановление' : t('текст.92'),
-                 `${user}: попытка уже израсходована — ячейка гасится`, 'err');
-        return tileGone(tile);
-      }
 
-      // У Chaturbate адрес подписан и может протухнуть. Получаем новый токен
-      // один раз; перебирать Bongacams edge для такой комнаты нельзя.
+      // У Chaturbate перебирать edge нельзя — адрес выдаёт только сервер,
+      // а при оплаченном показе ещё и через агента.
       if (isChaturbate(edge)) {
-        tile.retried = true;
-        logEvent('spy.восстановление', `${user}: прошу у сервера свежий адрес`, 'act');
+        const kind = `${spied ? 'spy' : 'cb'}.восстановление`;
+        /* Пачка ошибок об одном обрыве — одно происшествие. Пока попытка в
+           ходу, соседние только пишем: гасить ячейку из-под уже запущенного
+           восстановления и значило терять поток вместе с оплатой. */
+        if (tile.healing) {
+          logEvent(kind, `${user}: ${err.details} поверх идущего ` +
+                         'восстановления — жду его исхода');
+          return;
+        }
+        const now = Date.now();
+        // Эфир шёл спокойно достаточно долго — прошлое происшествие закрыто,
+        // новому полагается собственный запас попыток.
+        if (now - (tile.healAt || 0) > HEAL_FORGET) tile.healTries = 0;
+        tile.healAt = now;
+        tile.healTries = (tile.healTries || 0) + 1;
+        if (tile.healTries > HEAL_TRIES) {
+          logEvent(kind, `${user}: ${HEAL_TRIES} попыток подряд не помогли — ` +
+                         'ячейка гасится', 'err');
+          return tileGone(tile);
+        }
+
+        tile.healing = true;
         try {
+          /* Медиа-ошибку адресом не лечат: у библиотеки для неё свой приём,
+             а лишний url_get стоит обращения к агенту и засчитывается
+             сервером как промах подписки. */
+          if (err.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            logEvent(kind, `${user}: попытка ${tile.healTries} из ${HEAL_TRIES} — ` +
+                           'медиа-ошибка, recoverMediaError', 'act');
+            hlsTile.recoverMediaError();
+            return;
+          }
+          // CDN отдаёт осечку не мгновенно — сразу переспрашивать бесполезно.
+          await healPause(HEAL_PAUSE);
+          if (tile.user !== user || tile.hls !== hlsTile) {
+            logEvent(kind, `${user}: ячейка сменилась за время паузы — бросаю`);
+            return;
+          }
+          logEvent(kind, `${user}: попытка ${tile.healTries} из ${HEAL_TRIES} — ` +
+                         'прошу у сервера адрес', 'act');
           const freshUrl = await resolvePlaylist(user, edge, true);
-          const alive = tile.user === user && tile.hls === hlsTile;
-          logEvent('spy.восстановление',
-            `${user}: сервер дал ${briefUrl(freshUrl)} ` +
-            `(${freshUrl === tile.source ? 'тот же' : 'новый'}), ячейка ` +
-            (alive ? 'жива — перезапускаю' : 'уже погашена, адрес выброшен'),
-            alive ? 'act' : 'err');
-          if (alive) { tile.source = freshUrl; hlsTile.loadSource(freshUrl); }
-        } catch (err) {
-          logEvent('spy.восстановление', `${user}: адрес не выдан — ` +
-            (err.status === 'private' ? 'сервер отвечает «приват»' : err.message), 'err');
+          if (tile.user !== user || tile.hls !== hlsTile) {
+            logEvent(kind, `${user}: ячейка сменилась за время запроса — ` +
+                           'адрес выброшен');
+            return;
+          }
+          logEvent(kind, `${user}: сервер дал ${briefUrl(freshUrl)} ` +
+                         `(${freshUrl === tile.source ? 'тот же' : 'новый'}) — ` +
+                         'перезапускаю', 'act');
+          tile.source = freshUrl;
+          hlsTile.loadSource(freshUrl);
+        } catch (error) {
+          logEvent(kind, `${user}: адрес не выдан — ` +
+            (error.status === 'private' ? 'сервер отвечает «приват»' : error.message),
+            'err');
+          if (tile.user !== user) return;
           // комната могла уйти в приват посреди эфира — это не «ушла»
-          if (err.status === 'private') tilePrivate(tile, err);
+          if (error.status === 'private') tilePrivate(tile, error);
           else tileGone(tile);
+        } finally {
+          /* Отпускаем не сразу: hls.js досылает ошибки об уже обработанном
+             обрыве, и без этой паузы они посчитались бы новой попыткой. */
+          setTimeout(() => { tile.healing = false; }, HEAL_PAUSE);
         }
         return;
+      }
+
+      // Вторая осечка подряд — сервер тут ни при чём, комната ушла.
+      if (tile.retried) {
+        logEvent(t('текст.92'), `${user}: попытка уже израсходована — ` +
+                                'ячейка гасится', 'err');
+        return tileGone(tile);
       }
 
       const row = (liveList || []).find(
