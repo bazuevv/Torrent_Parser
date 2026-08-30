@@ -100,7 +100,7 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
-CB_AGENT_VERSION = 6       # v6: таймауты запросов к сайту, подтверждение потока раз в 20 с
+CB_AGENT_VERSION = 7       # v7: без вкладки-моста, единственный канал — window.opener
 
 
 def cb_reset(error=''):
@@ -2124,7 +2124,7 @@ class Handler(SimpleHTTPRequestHandler):
         # по эвристике и после правки показывает старую страницу (прецедент
         # 2026-08-20: «в настройках нет ни одного регулятора» при готовых).
         # Отдаём сами, с no-store: файлы маленькие, перезагрузка дёшева.
-        if path in ('/player.html', '/cb-bridge.html') or (
+        if path == '/player.html' or (
                 path.startswith('/lang/') and path.endswith('.json')):
             full = os.path.join(ROOT, path.lstrip('/'))
             if os.path.isfile(full):

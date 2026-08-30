@@ -55,7 +55,7 @@ function makeClock() {
 }
 
 /* --- запуск агента в песочнице -------------------------------------------- */
-function launch({ fetchImpl }) {
+function launch({ fetchImpl, opener = true }) {
   const clock = makeClock();
   const sent = [];
   const store = new Map();
@@ -67,13 +67,14 @@ function launch({ fetchImpl }) {
   const listeners = {};
   const hub = { closed: false, postMessage: (p) => sent.push(p) };
 
+  const opened = [];
   const win = {
     __proto__: null,
-    opener: hub,
+    opener: opener ? hub : null,
     closed: false,
     location: { origin: 'https://ru.chaturbate.com', href: 'https://ru.chaturbate.com/' },
     addEventListener: (kind, fn) => { listeners[kind] = fn; },
-    open: () => hub,
+    open: (url, name) => { opened.push({ url, name }); return hub; },
     $reactAppContext: { logged_in_user: { username: 'adm211' } },
   };
   const sandbox = {
@@ -122,7 +123,8 @@ function launch({ fetchImpl }) {
   const ready = () => listeners.message({
     origin: PLAYER, source: hub, data: { v: 1, kind: 'ready' },
   });
-  return { clock, sent, poll, ready, store,
+  const badge = () => ((win.__cbAgent || {}).badge || {}).textContent || '';
+  return { clock, sent, poll, ready, store, opened, badge,
            results: () => sent.filter(m => m.kind === 'result').map(m => m.payload) };
 }
 
@@ -179,6 +181,20 @@ function launch({ fetchImpl }) {
   await c.clock.advance(60000);
   check('вне сессии: подтверждений потока нет',
         c.results().filter(p => p.act === 'refresh').length === 0);
+
+  /* --- 4. Вкладка открыта не плеером -------------------------------------
+     Раньше на этот случай открывалась вкладка-мост; её убрали, потому что
+     дотянуться до плеера ей всё равно было нечем, зато она перехватывала
+     команды у сервера и теряла их — остановка ждала подтверждения 95 секунд
+     (журнал 30.08). Теперь агент обязан молча объяснить, что делать. */
+  const d = launch({ fetchImpl: good, opener: false });
+  await d.clock.advance(30000);
+  check('без opener: ничего не открывает', d.opened.length === 0,
+        JSON.stringify(d.opened));
+  check('без opener: объясняет, что вкладку открывает плеер',
+        /нажмите spy в плеере/.test(d.badge()), d.badge());
+  check('без opener: наружу ничего не шлёт', d.sent.length === 0,
+        `сообщений ${d.sent.length}`);
 
   console.log('\nИТОГ:', ok ? 'всё сошлось' : 'ЕСТЬ ПРОВАЛЫ');
   process.exit(ok ? 0 : 1);

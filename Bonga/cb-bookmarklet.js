@@ -5,17 +5,16 @@
    получение приватного HLS) делает эта закладка прямо на chaturbate.com,
    где сессия уже есть.
 
-   Связь с плеером — через вкладку-мост cb-bridge.html: CSP сайта
+   Связь с плеером — postMessage в window.opener. CSP сайта
    (connect-src 'self' …) запрещает странице любые запросы к плееру, но
-   не запрещает window.open и postMessage. Закладка открывает мост
-   именованным окном и переправляет ему команды и результаты; мост сам
-   ходит на сервер плеера, будучи его же страницей.
+   postMessage не запрещает. Отсюда требование: вкладку Chaturbate должен
+   открыть сам плеер — ссылку на его окно иначе не получить, поиск окна по
+   имени работает лишь внутри своей группы вкладок.
 
-   Запуск: на chaturbate.com, войдя в аккаунт, нажать закладку один раз —
-   рядом откроется маленькая вкладка моста. Дальше агент живёт, пока
-   открыты обе вкладки; команды приходят по postMessage раз в long-poll.
-   Повторное нажатие закладки выключает. Состояние видно в плашке в углу
-   страницы. */
+   Запуск: нажать spy в плеере (он откроет вкладку), войти в аккаунт и
+   нажать закладку один раз. Команды приходят по postMessage раз в
+   long-poll. Повторное нажатие закладки выключает агента. Состояние видно
+   в плашке в углу страницы. */
 
 /* Реверс SPA Chaturbate (бандлы web2.static.mmcdn.com/cachebust):
      вход в spy:  POST /tipping/spy_on_private_show_request/<room>/
@@ -28,7 +27,7 @@
                    запасной источник — hls_source в initialRoomDossier. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 6;
+  const AGENT_VERSION = 7;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -53,10 +52,9 @@
   const say = text => { badge.textContent = `Агент CB v${AGENT_VERSION}: ${text}`; };
 
   let stopped = false;
-  let transport = null;               // окно-собеседник: плеер или вкладка-мост
+  let transport = null;               // окно плеера (оно же window.opener)
   let transportReady = false;
   let helloTimer = 0;
-  let helloDeadline = 0;
   let copyTimer = 0;
   const off = () => {
     stopped = true;
@@ -64,7 +62,7 @@
     clearTimeout(copyTimer);
     badge.remove();
     delete window.__cbAgent;
-    /* Ни плеер, ни мост не закрываем: следующий запуск найдёт их же. */
+    /* Плеер не закрываем: следующий запуск найдёт его же. */
   };
   const copyBadge = async () => {
     const text = badge.textContent;
@@ -99,10 +97,10 @@
   window.__cbAgent = { badge, off };
 
   /* ---- связь с плеером ----------------------------------------------------
-     Если эту вкладку открыл сам плеер (кнопка spy), говорим прямо с ним —
-     он же origin сервера и держит long-poll. Иначе (вкладку открыли сами)
-     открываем вкладку-мост cb-bridge.html: CSP сайта запрещает нам ходить
-     на плеер fetch'ем, но не запрещает postMessage. */
+     Говорим с окном, которое открыло эту вкладку: это и есть плеер, он же
+     origin сервера и держит long-poll. Другого пути нет — CSP сайта
+     запрещает нам ходить на плеер fetch'ем, а postMessage требует ссылки на
+     его окно, которую даёт только window.opener. */
 
   const toHub = payload => {
     if (transport && !transport.closed) {
@@ -146,40 +144,13 @@
       ? 'authenticated' : '';
   };
 
-  const hello = () => {
-    const msg = { v: 1, kind: 'hello',
-                  username: viewerName(), agent_version: AGENT_VERSION };
-    toHub(msg);
-    if (window.opener && window.opener !== transport && !window.opener.closed) {
-      try { window.opener.postMessage(msg, PLAYER); } catch (e) {}
-    }
-  };
+  const hello = () => toHub({ v: 1, kind: 'hello',
+                              username: viewerName(),
+                              agent_version: AGENT_VERSION });
 
+  /* Плеер мог ещё не догрузиться или перезагрузиться — здороваемся, пока не
+     придёт подтверждение. Срока у попыток нет: уходить больше некуда. */
   function startHelloRetry() {
-    clearInterval(helloTimer);
-    helloDeadline = Date.now() + 7000;   // нет ответа — переходим на мост
-    helloTimer = setInterval(() => {
-      if (stopped || transportReady) return clearInterval(helloTimer);
-      hello();
-      if (Date.now() > helloDeadline) {
-        clearInterval(helloTimer);
-        openBridge();
-      }
-    }, 1500);
-  }
-
-  function openBridge() {
-    say('открываю вкладку-мост…');
-    transportReady = false;
-    transport = window.open(
-      PLAYER + '/cb-bridge.html?cb=' + encodeURIComponent(location.origin),
-      'bongaCbBridge');
-    if (!transport) {
-      say('браузер закрыл всплывающее окно — разрешите и нажмите закладку снова');
-      return;
-    }
-    /* Мост мог быть открыт раньше и уже не помнить нас (перезагрузка его или
-       нашей вкладки) — здороваемся, пока не придёт подтверждение. */
     clearInterval(helloTimer);
     helloTimer = setInterval(() => {
       if (stopped || transportReady) return clearInterval(helloTimer);
@@ -193,12 +164,6 @@
     if (!data || data.v !== 1) return;
 
     if (data.kind === 'ready') {
-      /* Отвечает то окно, которому адресован hello/ping: плеер (если эта
-         вкладка открыта из него и жива) либо мост. При смене собеседника
-         прежнему говорим «отсоединяюсь», чтобы он не поллил сервер зря. */
-      if (transport && event.source !== transport && !transport.closed) {
-        try { transport.postMessage({ v: 1, kind: 'detach' }, PLAYER); } catch (e) {}
-      }
       transport = event.source;
       transportReady = true;
       clearInterval(helloTimer);
@@ -214,14 +179,8 @@
      пустое имя — агент считается неподключённым, платный вход не стартует.
      Пинг дублируется в opener: после перезагрузки плеера связь восстанав-
      ливается сама, как только плеер снова привяжет вкладку. */
-  const pingHub = () => {
-    const msg = { v: 1, kind: 'ping', username: viewerName(),
-                  agent_version: AGENT_VERSION };
-    toHub(msg);
-    if (window.opener && window.opener !== transport && !window.opener.closed) {
-      try { window.opener.postMessage(msg, PLAYER); } catch (e) {}
-    }
-  };
+  const pingHub = () => toHub({ v: 1, kind: 'ping', username: viewerName(),
+                                agent_version: AGENT_VERSION });
   setInterval(() => { if (!stopped) pingHub(); }, 10000);
 
   /* ---- запросы к сайту (same-origin, CSP их разрешает) ------------------- */
@@ -428,7 +387,7 @@
   };
   setInterval(reportBalance, BALANCE_MS);
 
-  /* ---- обработка poll-ответа моста ---------------------------------------- */
+  /* ---- обработка poll-ответа плеера --------------------------------------- */
 
   let recovering = false;
 
@@ -508,13 +467,15 @@
     }
   }
 
-  /* Если вкладку открыл плеер — говорим с ним напрямую; своя вкладка —
-     сначала пробуем opener, при молчании переключаемся на мост. */
+  /* Единственный канал к плееру — window.opener. Вкладку, открытую не
+     плеером, связать с ним нечем: fetch запрещает CSP сайта, а window.open
+     по имени находит только окна своей группы вкладок. */
   if (window.opener && !window.opener.closed) {
     transport = window.opener;
     hello();
     startHelloRetry();
   } else {
-    openBridge();
+    say('эту вкладку открыл не плеер — нажмите spy в плеере, ' +
+        'он откроет вкладку Chaturbate сам');
   }
 })();
