@@ -503,6 +503,18 @@ def cb_money():
             f'{"?" if was is None else was} → {"?" if now is None else now}')
 
 
+def _cb_sig():
+    """Отпечаток того, что плееру стоит показать заново. Под CB_LOCK.
+
+    Прошедшее время сюда не входит: оно меняется каждую секунду, и long-poll
+    возвращался бы вхолостую. За свежесть секунд отвечает пульс плеера,
+    который спрашивает снимок сам.
+    """
+    return (CB_SPY['state'], CB_SPY['room'], CB_SPY['tokens_used'],
+            CB_SPY['last_balance'], CB_SPY['url'], CB_SPY['error'],
+            CB_SPY['agent_lost'], CB_BALANCE['value'])
+
+
 def cb_public_state():
     """Снимок для плеера. Вызывать без CB_LOCK."""
     with CB_LOCK:
@@ -578,6 +590,11 @@ def cb_agent_poll(agent_id, username, busy, version=0):
         if agent_id == 'player-hub':
             CB_SPY['player_seen'] = time.time()
         CB_COND.notify_all()                    # ждущие увидят появление агента
+        # Снимок на входе: изменился — возвращаемся сразу, не досиживая
+        # CB_POLL_HOLD. Прецедент 30.08: расход в журнале плеера держался на
+        # «потрачено 1 тк» минуту и скакнул до 3 лишь на выходе, потому что
+        # цифры обновлялись только вместе с концом ожидания.
+        was = _cb_sig()
         while True:
             now = time.time()
             cmd = None
@@ -589,7 +606,7 @@ def cb_agent_poll(agent_id, username, busy, version=0):
                 cmd['claimed'] = now
                 return {'now': int(now), 'cmd': dict(cmd), 'spy': _cb_snapshot()}
             left = deadline - now
-            if left <= 0:
+            if left <= 0 or _cb_sig() != was:
                 return {'now': int(now), 'cmd': None, 'spy': _cb_snapshot()}
             CB_COND.wait(left)
 
