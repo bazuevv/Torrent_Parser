@@ -100,7 +100,7 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
-CB_AGENT_VERSION = 10      # v10: глушит видео плеера сайта, keep-alive остаётся
+CB_AGENT_VERSION = 11      # v11: повторно глушит HLS сайта, который стартует с ~30 с
 
 
 def cb_reset(error=''):

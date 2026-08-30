@@ -30,7 +30,7 @@
                    playerQuality и сайт снимает право на 30-й секунде. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 10;
+  const AGENT_VERSION = 11;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -336,7 +336,12 @@
      Их плеер при privatespying сам качает HLS (dulce_devil_ 30.08: показ
      в нашем плеере и параллельно на вкладке сайта). Видео сайта глушим:
      статус и метрики оставляем, сегменты mmcdn/highwebmedia — нет. Нельзя
-     звать их stopVideoAndMetrics: он шлёт unload и сайт снова снимет право. */
+     звать их stopVideoAndMetrics: он шлёт unload и сайт снова снимет право.
+
+     Один pause на входе не держит: avgustina_love 30.08 15:44 — вкладка
+     пустая ~30 с, потом их HLS всё равно стартует (отложенный attach после
+     sendQuality). hls.js к тому моменту уже держит свой fetch, обход нашего
+     wrap. Поэтому сторож + playing, а не разовая пауза. */
 
   const SITE_SPYING = 'privatespying';
   const SITE_IDLE = 'privatenotwatching';
@@ -404,26 +409,51 @@
   const siteVideoEl = () => document.getElementById('chat-player') ||
                             document.querySelector('[data-testid="video"]');
 
+  function allSiteVideos() {
+    const out = [];
+    const add = v => { if (v && out.indexOf(v) < 0) out.push(v); };
+    add(siteVideoEl());
+    try {
+      const q = document.querySelectorAll && document.querySelectorAll('video');
+      if (q) for (let i = 0; i < q.length; i++) add(q[i]);
+    } catch (e) {}
+    return out;
+  }
+
+  function stopHls(v) {
+    const box = [v && v.hls, v && v._hls, window.vooduPlayer];
+    for (let i = 0; i < box.length; i++) {
+      const p = box[i];
+      if (!p) continue;
+      try { if (typeof p.stopLoad === 'function') p.stopLoad(); } catch (e) {}
+      try { if (typeof p.pause === 'function') p.pause(); } catch (e) {}
+      try { if (typeof p.detachMedia === 'function') p.detachMedia(); } catch (e) {}
+    }
+  }
+
   function pauseSiteVideo() {
-    const v = siteVideoEl();
-    if (!v) return false;
-    try { if (typeof v.pause === 'function') v.pause(); } catch (e) {}
-    try { v.muted = true; v.volume = 0; } catch (e) {}
-    try {
-      if (typeof v.removeAttribute === 'function') v.removeAttribute('src');
-      v.src = '';
-      v.srcObject = null;
-      if (typeof v.load === 'function') v.load();
-    } catch (e) {}
-    try {
-      if (v.hls && typeof v.hls.stopLoad === 'function') v.hls.stopLoad();
-    } catch (e) {}
-    try {
-      const p = window.vooduPlayer;
-      if (p && typeof p.pause === 'function') p.pause();
-      if (p && typeof p.stopLoad === 'function') p.stopLoad();
-    } catch (e) {}
-    return true;
+    const list = allSiteVideos();
+    for (let i = 0; i < list.length; i++) {
+      const v = list[i];
+      try { if (typeof v.pause === 'function') v.pause(); } catch (e) {}
+      try { v.muted = true; v.volume = 0; } catch (e) {}
+      stopHls(v);
+      try {
+        if (typeof v.removeAttribute === 'function') v.removeAttribute('src');
+        v.src = '';
+        v.srcObject = null;
+        if (typeof v.load === 'function') v.load();
+      } catch (e) {}
+    }
+    return list.length > 0;
+  }
+
+  function onSitePlaying(e) {
+    const t = e && e.target;
+    if (!t) return;
+    const tag = String(t.tagName || '').toUpperCase();
+    if (tag !== 'VIDEO' && tag !== 'AUDIO') return;
+    pauseSiteVideo();
   }
 
   /* Сегменты и плейлисты CDN — это и есть параллельная трансляция. Ajax
@@ -436,6 +466,7 @@
            /\/(seg_|chunklist|llhls|stream\?room=)/i.test(u);
   };
 
+  const SILENCE_MS = 500;
   let mediaGate = null;
   function gateSiteMedia(on) {
     if (on) {
@@ -447,10 +478,15 @@
       const fetchWas = hosts.map(h => h.fetch);
       const XHR = typeof XMLHttpRequest !== 'undefined' ? XMLHttpRequest : null;
       const HME = typeof HTMLMediaElement !== 'undefined' ? HTMLMediaElement : null;
+      const HVE = typeof HTMLVideoElement !== 'undefined' ? HTMLVideoElement : null;
+      const MS = typeof MediaSource !== 'undefined' ? MediaSource : null;
       const xhrOpen = XHR && XHR.prototype.open;
       const xhrSend = XHR && XHR.prototype.send;
       const playWas = HME && HME.prototype.play;
-      mediaGate = { hosts, fetchWas, xhrOpen, xhrSend, playWas, XHR, HME };
+      const playVideoWas = HVE && HVE.prototype.play !== playWas ? HVE.prototype.play : null;
+      const addSB = MS && MS.prototype.addSourceBuffer;
+      mediaGate = { hosts, fetchWas, xhrOpen, xhrSend, playWas, playVideoWas,
+                    addSB, XHR, HME, HVE, MS };
 
       const blocked = () => Promise.reject(new Error('cb-agent: cdn media blocked'));
       hosts.forEach((h, i) => {
@@ -473,14 +509,19 @@
           return xhrSend.apply(this, arguments);
         };
       }
-      if (playWas) {
-        HME.prototype.play = function () {
-          const mine = this.id === 'chat-player' ||
-                       (this.dataset && this.dataset.testid === 'video');
-          if (mine) { pauseSiteVideo(); return Promise.resolve(); }
-          return playWas.apply(this, arguments);
+      const mutePlay = function () { pauseSiteVideo(); return Promise.resolve(); };
+      if (playWas) HME.prototype.play = mutePlay;
+      if (playVideoWas) HVE.prototype.play = mutePlay;
+      if (addSB) {
+        MS.prototype.addSourceBuffer = function () {
+          throw new Error('cb-agent: mse blocked');
         };
       }
+      try {
+        document.addEventListener('playing', onSitePlaying, true);
+        document.addEventListener('loadeddata', onSitePlaying, true);
+      } catch (e) {}
+      mediaGate.silenceTimer = setInterval(pauseSiteVideo, SILENCE_MS);
     } else if (mediaGate) {
       try {
         mediaGate.hosts.forEach((h, i) => {
@@ -489,6 +530,11 @@
         if (mediaGate.xhrOpen) mediaGate.XHR.prototype.open = mediaGate.xhrOpen;
         if (mediaGate.xhrSend) mediaGate.XHR.prototype.send = mediaGate.xhrSend;
         if (mediaGate.playWas) mediaGate.HME.prototype.play = mediaGate.playWas;
+        if (mediaGate.playVideoWas) mediaGate.HVE.prototype.play = mediaGate.playVideoWas;
+        if (mediaGate.addSB) mediaGate.MS.prototype.addSourceBuffer = mediaGate.addSB;
+        document.removeEventListener('playing', onSitePlaying, true);
+        document.removeEventListener('loadeddata', onSitePlaying, true);
+        clearInterval(mediaGate.silenceTimer);
       } catch (e) {}
       mediaGate = null;
     }

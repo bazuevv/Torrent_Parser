@@ -69,6 +69,7 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
 
   const opened = [];
   const videoEl = video || { muted: false, play: async () => {} };
+  const docEvents = {};
   const win = {
     __proto__: null,
     opener: opener ? hub : null,
@@ -91,8 +92,17 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
       visibilityState: 'hidden',
       createElement: el,
       querySelector: () => videoEl,
+      querySelectorAll: sel => (String(sel).indexOf('video') >= 0 ? [videoEl] : []),
       getElementById: id => (id === 'chat-player' ? videoEl : null),
-      addEventListener() {},
+      addEventListener(kind, fn) {
+        (docEvents[kind] || (docEvents[kind] = [])).push(fn);
+      },
+      removeEventListener(kind, fn) {
+        const a = docEvents[kind];
+        if (!a) return;
+        const i = a.indexOf(fn);
+        if (i >= 0) a.splice(i, 1);
+      },
     },
     localStorage: {
       getItem: k => (store.has(k) ? store.get(k) : null),
@@ -136,7 +146,12 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
     origin: PLAYER, source: hub, data: { v: 1, kind: 'ready' },
   });
   const badge = () => ((win.__cbAgent || {}).badge || {}).textContent || '';
-  return { clock, sent, poll, ready, store, opened, badge, sandbox,
+  const fireDoc = (kind, target) => {
+    (docEvents[kind] || []).forEach(fn => {
+      try { fn({ target }); } catch (e) {}
+    });
+  };
+  return { clock, sent, poll, ready, store, opened, badge, sandbox, fireDoc,
            results: () => sent.filter(m => m.kind === 'result').map(m => m.payload) };
 }
 
@@ -307,10 +322,12 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   const paused = [];
   const videoStub = {
     id: 'chat-player',
+    tagName: 'VIDEO',
     muted: false,
     volume: 1,
     src: 'blob:x',
     srcObject: {},
+    hls: { stopLoad() { paused.push('stopLoad'); } },
     play: async () => { played.push('play'); },
     pause() { paused.push('pause'); },
     load() { paused.push('load'); },
@@ -341,7 +358,7 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('вход: отчёт пишет, что видео сайта выключено',
         !!(startRes[0] && startRes[0].site && startRes[0].site.quiet === true),
         JSON.stringify(startRes[0] && startRes[0].site));
-  check('вход: плашка v10', /Агент CB v10/.test(g.badge()), g.badge());
+  check('вход: плашка v11', /Агент CB v11/.test(g.badge()), g.badge());
 
   let cdnBlocked = false;
   try {
@@ -355,6 +372,18 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   const ajaxText = await ajax.text();
   check('вход: ajax чата по-прежнему проходит',
         ajax.ok && /"url"/.test(ajaxText), ajaxText.slice(0, 80));
+
+  /* avgustina_love 15:44: сайт ~30 с молчал, потом сам открыл HLS. */
+  const pausesAtStart = paused.length;
+  await g.clock.advance(30000);
+  check('сторож: пауза повторяется после 30 с',
+        paused.length > pausesAtStart, `было ${pausesAtStart}, стало ${paused.length}`);
+  videoStub.src = cdnPlaylist;
+  videoStub.srcObject = {};
+  g.fireDoc('playing', videoStub);
+  check('через 30 с: повторный запуск видео сайта снова глушится',
+        videoStub.src === '' && paused.includes('stopLoad'),
+        JSON.stringify({ src: videoStub.src, last: paused.slice(-6) }));
 
   g.poll({ spy: { spy: { state: 'spying', room: 'testroom' }, agent: { username: 'adm211' } },
            cmd: { id: 's2', act: 'spy_stop', room: 'testroom' } });
