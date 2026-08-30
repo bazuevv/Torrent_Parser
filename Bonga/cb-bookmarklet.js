@@ -30,7 +30,7 @@
                    playerQuality и сайт снимает право на 30-й секунде. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 14;
+  const AGENT_VERSION = 15;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -763,10 +763,17 @@
     } finally { refreshBusy = false; }
   };
   setInterval(refreshStream, REFRESH_MS);
-  cdnTimer = setInterval(() => {
-    if (stopped || spyNow.state !== 'spying' || !spyNow.room) return;
-    say(`spy ${spyNow.room} · ${cdnLine()}`);
-  }, 2000);
+  const paintBadge = () => {
+    if (stopped) return;
+    const traffic = cdnLine();
+    if (spyNow.state === 'spying' && spyNow.room)
+      say(`spy ${spyNow.room} · ${traffic}`);
+    else if (spyNow.state === 'starting' && spyNow.room)
+      say(`вход ${spyNow.room} · ${traffic}`);
+    else if (spyNow.state === 'stopping' && spyNow.room)
+      say(`стоп ${spyNow.room} · ${traffic}`);
+  };
+  cdnTimer = setInterval(paintBadge, 2000);
 
   async function handleAnswerSafe(answer) {
     try {
@@ -798,7 +805,14 @@
 
     const cmd = answer.cmd;
     if (cmd) {
-      say(`${cmd.act} → ${cmd.room}…`);
+      /* Пока команда выполняется (вход — секунды), таймер плашки должен
+         уже показывать трафик, а не висеть на «spy_start → …» до следующего
+         poll (blondie_dirty_squirt 30.08 16:39). */
+      if (cmd.act === 'spy_start')
+        spyNow = { state: 'starting', room: String(cmd.room || '') };
+      else if (cmd.act === 'spy_stop')
+        spyNow = { state: 'stopping', room: String(cmd.room || '') };
+      say(`${cmd.act} → ${cmd.room} · ${cdnLine()}`);
       let out;
       try {
         if (cmd.act === 'spy_start') out = await doStart(cmd);
@@ -812,11 +826,17 @@
       out.act = cmd.act;
       out.room = cmd.room;
       report(out);
-      return;                          // следующий poll-ответ придёт своим ходом
+      if (cmd.act === 'spy_start' && out.ok)
+        spyNow = { state: 'spying', room: String(cmd.room || '') };
+      else if (cmd.act === 'spy_start' || cmd.act === 'spy_stop')
+        spyNow = { state: 'idle', room: '' };
+      paintBadge();
+      return;
     }
 
+    paintBadge();
     if (spy.state === 'spying' && spy.room) {
-      say(`spy ${spy.room} · ${cdnLine()}`);
+      /* paintBadge уже написал spy+трафик */
     } else if (agent.anon) {
       say('вкладка без входа — откройте аккаунт на сайте');
     } else {

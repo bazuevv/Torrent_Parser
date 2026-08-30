@@ -148,5 +148,19 @@ box = wait()
 check('течение времени: не будит ожидание', box.get('took', 0) >= 1.5,
       f'вернулся через {box.get("took", 0):.2f} с')
 
+# 8. Стоп из плеера не блокируется на агенте: команда сразу в ответе,
+#    плеер шлёт её вкладке, не дожидаясь следующего long-poll
+#    (blondie_dirty_squirt 30.08 16:40: abort poll терял уже claimed стоп).
+arm()
+result = server.cb_stop_now('кнопка в плеере', wait=False)
+check('стоп без ожидания: сразу ok, не idle',
+      result.get('ok') and result.get('stopping') == ROOM and not result.get('idle'),
+      str(result))
+cid = result.get('stop_cmd')
+cmd = server.CB_CMDS.get(cid) if cid else None
+check('стоп без ожидания: команда в очереди и в ответе',
+      bool(cid) and cmd and cmd.get('act') == 'spy_stop' and cmd.get('room') == ROOM,
+      str({'result': result, 'cmd': cmd}))
+
 print('\nИТОГ:', 'всё сошлось' if ok else 'ЕСТЬ ПРОВАЛЫ')
 sys.exit(0 if ok else 1)

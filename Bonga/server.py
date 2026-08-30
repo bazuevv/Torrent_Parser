@@ -100,7 +100,7 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
-CB_AGENT_VERSION = 14      # v14: агент считает трафик вкладки (байты и запросы)
+CB_AGENT_VERSION = 15      # v15: плашка не зависает на spy_start, стоп не ждёт poll
 
 
 def cb_reset(error=''):
@@ -712,7 +712,7 @@ def cb_stop_now(reason, wait=True):
         with CB_LOCK:
             if CB_SPY['room'].lower() == room.lower():
                 CB_SPY['stop_cmd'] = cid
-        return {'ok': True, 'stopping': room}
+        return {'ok': True, 'stopping': room, 'stop_cmd': cid}
     return cb_stop_wait(room)
 
 
@@ -2363,9 +2363,20 @@ class Handler(SimpleHTTPRequestHandler):
                     return self._json({'error': str(exc)}, 400)
                 return self._json(result, 200 if result.get('ok') else 502)
             if action == 'stop':
-                result = cb_stop_now('кнопка в плеере')
+                # Не ждём агента в HTTP: иначе halt держит кнопку 30 с, повтор
+                # spy пропускается, а abort long-poll терял уже claimed команду
+                # (blondie_dirty_squirt 30.08 16:40). Команду сразу кладём в
+                # ответ — плеер шлёт её вкладке, не дожидаясь следующего poll.
+                result = cb_stop_now('кнопка в плеере', wait=False)
                 result['spy'] = cb_public_state()
-                return self._json(result, 200 if result.get('ok') else 502)
+                cid = result.get('stop_cmd')
+                if cid:
+                    with CB_LOCK:
+                        cmd = CB_CMDS.get(cid)
+                    if cmd:
+                        result['cmd'] = {key: value for key, value in cmd.items()
+                                         if key != 'idle_logged'}
+                return self._json(result, 200)
             return self.send_error(400, 'bad action')
 
         return self.send_error(404)

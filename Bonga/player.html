@@ -2581,11 +2581,6 @@
     logEvent('spy.стоп', `${room}: останавливаю показ — ${reason}; итог: ` +
       spyMoney(spyOf()).join(' · '), 'act');
     say(t('spy.стоп'));
-    /* Текущий long-poll мог уйти с пустым username (окно в фоне, ping
-       протух за 20 с). Он заберёт смену состояния, а команду стопа — нет:
-       сервер пишет «ждёт — опрос player-hub без живой закладки». Срываем
-       его, следующий круг пойдёт с именем, пока вкладка CB ещё открыта. */
-    if (cbHubAbort) cbHubAbort.abort();
     try {
       const res = await fetch('api/cb/spy', {
         method: 'POST',
@@ -2593,6 +2588,15 @@
         body: JSON.stringify({ user: room, action: 'stop' }),
       });
       const data = await res.json().catch(() => ({}));
+      /* Сервер отдаёт spy_stop в том же ответе: не ждём хаб-poll — тот мог
+         забрать команду и умереть на abort, и закладка так и не вызывала
+         cancel (blondie_dirty_squirt 16:40, в журнале не было «передана»). */
+      if (data.cmd) {
+        const sent = toAgent({ v: 1, kind: 'poll', answer: data });
+        logEvent('spy.агент', `команда ${data.cmd.act} ${data.cmd.room} — ` +
+          (sent ? 'передана закладке' : 'ПЕРЕДАТЬ НЕКОМУ: вкладки Chaturbate нет'),
+          sent ? 'act' : 'err');
+      }
       if (data.spy) {
         spyInfo = data.spy;
         spyNote();

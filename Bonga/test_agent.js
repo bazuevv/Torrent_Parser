@@ -371,7 +371,10 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('вход: отчёт пишет, что видео сайта выключено',
         !!(startRes[0] && startRes[0].site && startRes[0].site.quiet === true),
         JSON.stringify(startRes[0] && startRes[0].site));
-  check('вход: плашка v14', /Агент CB v14/.test(g.badge()), g.badge());
+  check('вход: плашка v15 сразу с трафиком, без второго poll',
+        /Агент CB v15/.test(g.badge()) && /spy testroom/.test(g.badge()) &&
+        /трафик /.test(g.badge()),
+        g.badge());
 
   let cdnBlocked = false;
   try {
@@ -419,6 +422,9 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   g.poll({ spy: { spy: { state: 'spying', room: 'testroom' }, agent: { username: 'adm211' } },
            cmd: { id: 's2', act: 'spy_stop', room: 'testroom' } });
   for (let i = 0; i < 200; i++) await Promise.resolve();
+  const stopRes = g.results().filter(p => p.act === 'spy_stop');
+  check('выход: команда выполнилась', stopRes.length === 1 && stopRes[0].ok === true,
+        JSON.stringify(stopRes[0]));
   check('выход: плеер сайта возвращён в privatenotwatching',
         wp.statuses.includes('privatenotwatching'), JSON.stringify(wp.statuses));
   cdnHits = 0;
