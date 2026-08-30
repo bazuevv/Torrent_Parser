@@ -55,7 +55,7 @@ function makeClock() {
 }
 
 /* --- запуск агента в песочнице -------------------------------------------- */
-function launch({ fetchImpl, opener = true }) {
+function launch({ fetchImpl, opener = true, dossier = null }) {
   const clock = makeClock();
   const sent = [];
   const store = new Map();
@@ -76,6 +76,9 @@ function launch({ fetchImpl, opener = true }) {
     addEventListener: (kind, fn) => { listeners[kind] = fn; },
     open: (url, name) => { opened.push({ url, name }); return hub; },
     $reactAppContext: { logged_in_user: { username: 'adm211' } },
+    // Досье сайт кладёт только на страницу комнаты — по нему агент и
+    // определяет, где стоит вкладка.
+    initialRoomDossier: dossier,
   };
   const sandbox = {
     window: win,
@@ -195,6 +198,25 @@ function launch({ fetchImpl, opener = true }) {
         /нажмите spy в плеере/.test(d.badge()), d.badge());
   check('без opener: наружу ничего не шлёт', d.sent.length === 0,
         `сообщений ${d.sent.length}`);
+
+  /* --- 5. Агент называет плееру комнату своей вкладки ---------------------
+     Плеер по ней решает, надо ли переводить вкладку: сидя на главной, она не
+     присутствует в комнате, и сайт закрывает оплаченный показ на тридцатой
+     секунде. */
+  const greet = agent => (agent.sent.find(m => m.kind === 'hello') || {});
+
+  const e = launch({ fetchImpl: good, dossier: { broadcaster_username: 'TestRoom' } });
+  check('на странице комнаты: hello называет комнату', greet(e).room === 'testroom',
+        JSON.stringify(greet(e)));
+  await e.clock.advance(11000);
+  const ping = e.sent.filter(m => m.kind === 'ping').pop() || {};
+  check('на странице комнаты: пинг тоже называет комнату', ping.room === 'testroom',
+        JSON.stringify(ping));
+
+  const f = launch({ fetchImpl: good });
+  check('на главной: комната пустая', greet(f).room === '', JSON.stringify(greet(f)));
+  check('на главной: имя аккаунта всё равно есть', greet(f).username === 'adm211',
+        JSON.stringify(greet(f)));
 
   console.log('\nИТОГ:', ok ? 'всё сошлось' : 'ЕСТЬ ПРОВАЛЫ');
   process.exit(ok ? 0 : 1);

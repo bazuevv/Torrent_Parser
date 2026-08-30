@@ -27,7 +27,7 @@
                    запасной источник — hls_source в initialRoomDossier. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 7;
+  const AGENT_VERSION = 8;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -129,6 +129,16 @@
     return found ? found[1] : '';
   };
 
+  /* Комната, на странице которой стоит эта вкладка. Плееру это нужно, чтобы
+     знать, присутствует ли вкладка в той комнате, за которую идёт списание:
+     без присутствия сайт закрывает оплаченный показ на тридцатой секунде
+     (прогоны 30.08 — 30.1, 31.4 и 30.4 с при room_status=private). Досье
+     сайт кладёт только на страницу комнаты, это и есть точный признак. */
+  const tabRoom = () => {
+    const dossier = localDossier();
+    return dossier ? String(dossier.broadcaster_username || '').toLowerCase() : '';
+  };
+
   const viewerName = () => {
     const dossier = localDossier() || {};
     if (dossier.viewer_username) return String(dossier.viewer_username);
@@ -144,9 +154,8 @@
       ? 'authenticated' : '';
   };
 
-  const hello = () => toHub({ v: 1, kind: 'hello',
-                              username: viewerName(),
-                              agent_version: AGENT_VERSION });
+  const hello = () => toHub({ v: 1, kind: 'hello', username: viewerName(),
+                              room: tabRoom(), agent_version: AGENT_VERSION });
 
   /* Плеер мог ещё не догрузиться или перезагрузиться — здороваемся, пока не
      придёт подтверждение. Срока у попыток нет: уходить больше некуда. */
@@ -180,7 +189,7 @@
      Пинг дублируется в opener: после перезагрузки плеера связь восстанав-
      ливается сама, как только плеер снова привяжет вкладку. */
   const pingHub = () => toHub({ v: 1, kind: 'ping', username: viewerName(),
-                                agent_version: AGENT_VERSION });
+                                room: tabRoom(), agent_version: AGENT_VERSION });
   setInterval(() => { if (!stopped) pingHub(); }, 10000);
 
   /* ---- запросы к сайту (same-origin, CSP их разрешает) ------------------- */
@@ -463,7 +472,9 @@
     } else if (agent.anon) {
       say('вкладка без входа — откройте аккаунт на сайте');
     } else {
-      say(`${agent.username || 'готов'} · жду команду`);
+      // Комнату показываем в плашке: по ней сразу видно, стоит ли вкладка
+      // там, где нужно, или её ещё предстоит перевести.
+      say(`${agent.username || 'готов'} · ${tabRoom() || 'главная'} · жду команду`);
     }
   }
 
