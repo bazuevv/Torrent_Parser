@@ -4132,6 +4132,12 @@
   async function tileGone(tile) {
     const { user, edge } = tile;
     if (!user) return;
+    /* Картинки уже нет, а списание идёт: за чёрный квадрат платить незачем.
+       Раньше сюда приходили из обработчика ошибок, и оплаченный показ
+       переживал собственную ячейку — у jessiefocker 30.08 поток умер в
+       10:53:06, а токены капали до ручного стопа в 10:56. */
+    if (isChaturbate(edge) && spyOf().state === 'spying' && spyMine(user))
+      spyStopQuiet(user, 'ячейка признана ушедшей');
     if (tile.hls) { tile.hls.destroy(); tile.hls = null; }
     tile.ready = false;
     tile.video.pause();
@@ -6028,6 +6034,13 @@
 
   // Закрытая вкладка не должна оставлять ffmpeg писать часами.
   window.addEventListener('pagehide', () => {
+    /* Хвост журнала — самое ценное в нём: именно эти строки объясняют, почему
+       показ оборвался. Пакетная отправка раз в три секунды их не застаёт, а
+       после закрытия вкладки взять их уже неоткуда. */
+    if (logQueue.length) {
+      navigator.sendBeacon('api/log', JSON.stringify({ lines: logQueue }));
+      logQueue = [];
+    }
     if (session) navigator.sendBeacon('api/record/stop', JSON.stringify({ id: session.id }));
     /* Активный spy жжёт токены поминутно — вкладка закрылась, значит смотреть
        некому, останавливаем не дожидаясь серверного watchdog. */
