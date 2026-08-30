@@ -2479,6 +2479,17 @@
   async function spyToggle(room) {
     const spy = spyOf();
     if (spy.state === 'spying' && spyMine(room)) return spyStopQuiet(room);
+    /* Агента нет — первым делом открываем вкладку Chaturbate из плеера:
+       opener-связь даёт закладке прямой канал сюда, отдельная вкладка-мост
+       не нужна. Дальше пользователь входит в аккаунт (если ещё не) и жмёт
+       закладку агента в той вкладке. */
+    if (!agentOf().online || agentOf().anon) {
+      say(t('spy.откройВкладку'));
+      if (!cbWindow || cbWindow.closed)
+        cbWindow = window.open('https://ru.chaturbate.com/', 'bongaCbTab');
+      if (cbWindow) cbWindow.focus();
+      return;
+    }
     say(t('spy.запрос'));
     try {
       const res = await fetch('api/cb/spy', {
@@ -2493,7 +2504,8 @@
       }
       if (data.spy) spyInfo = { agent: agentOf(), spy: data.spy };
       say(t('spy.запущен', { цена: spyOf().price || 0 }), 'ok');
-      await spyTick();
+      for (const tile of tiles)
+        if (tile.user && isChaturbate(tile.edge)) paintSpy(tile);
     } catch { say(t('spy.сеть'), 'err'); }
   }
 
@@ -2505,18 +2517,14 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user: room, action: 'stop' }),
       });
-    } catch { /* скажется следующим тиком */ }
-    await spyTick();
+    } catch { /* скажется следующим poll-ответом */ }
   }
 
-  async function spyTick() {
-    const active = spyOf().state && spyOf().state !== 'idle';
-    const anyCb = tiles.some(tile => tile.user && isChaturbate(tile.edge));
-    if (!active && !anyCb) return;           // нечего спрашивать без cb-ячеек
-    try {
-      const res = await fetch('api/cb/spy', { cache: 'no-store' });
-      spyInfo = await res.json();
-    } catch { return; }                       // сервер моргнул — попробуем позже
+  /* Применение poll-ответа сервера: снимок spy, команда агенту, перерисовка
+     кнопок и перезапуск приватных ячеек. Вызывается хаб-циклом ниже. */
+  function spyApply(answer) {
+    if (answer.spy) spyInfo = answer.spy;
+    if (answer.cmd) toAgent({ v: 1, kind: 'poll', answer });
 
     const spy = spyOf();
     const now = Date.now();
@@ -2540,6 +2548,64 @@
     }
   }
 
+  /* Хаб-канал агента. Плеер сам держит long-poll к серверу (он и есть его
+     origin), а команды и результаты переправляет вкладке Chaturbate,
+     открытой отсюда, через postMessage: CSP сайта запрещает вкладке CB
+     ходить к плееру fetch'ем, но не запрещает переправку сообщениями.
+     Сайт во фрейм не отдать (X-Frame-Options: DENY), зато так вкладок
+     всего две — плеер и сам сайт. */
+  let cbWindow = null;               // вкладка Chaturbate, открытая плеером
+  let cbAgentName = '';
+  let cbAgentSeen = 0;
+  const cbAgentFresh = () => Date.now() - cbAgentSeen < 20000;
+
+  const toAgent = payload => {
+    if (cbWindow && !cbWindow.closed) {
+      try { cbWindow.postMessage(payload, '*'); return true; } catch { }
+    }
+    return false;
+  };
+
+  window.addEventListener('message', event => {
+    if (!cbWindow || event.source !== cbWindow) return;
+    if (!/^https:\/\/([a-z0-9-]+\.)*chaturbate\.com$/.test(event.origin)) return;
+    const data = event.data;
+    if (!data || data.v !== 1) return;
+    if (data.kind === 'hello' || data.kind === 'ping') {
+      cbAgentName = String(data.username || '');
+      cbAgentSeen = Date.now();
+      if (data.kind === 'hello') toAgent({ v: 1, kind: 'ready' });
+    } else if (data.kind === 'result') {
+      fetch('api/cb/agent/result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data.payload || {}),
+      }).catch(() => { /* скажется следующим кругом */ });
+    }
+  });
+
+  (async function cbHubLoop() {
+    while (true) {
+      const active = spyOf().state !== 'idle' || cbWindow
+        || tiles.some(tile => tile.user && isChaturbate(tile.edge));
+      if (!active) { await new Promise(r => setTimeout(r, 5000)); continue; }
+      if (cbWindow && cbWindow.closed) cbWindow = null;
+      try {
+        const res = await fetch('api/cb/agent/poll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: 'player-hub',
+            username: cbAgentFresh() ? cbAgentName : '',
+            busy: false,
+          }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        spyApply(await res.json());
+      } catch { await new Promise(r => setTimeout(r, 3000)); }
+    }
+  })();
+
   /* Комната могла выйти из привата — тогда resolvePlaylist перестанет
      бросаться статусом private и вернёт обычный поток. */
   async function privateRecheck(tile) {
@@ -2555,8 +2621,6 @@
     } catch { /* всё ещё приват */ }
     finally { tile.recheckBusy = false; }
   }
-
-  setInterval(spyTick, 10000);
 
   const candidates = [
     ...Array.from({ length: 80 }, (_, i) => String(i + 1)),

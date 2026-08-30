@@ -45,73 +45,95 @@
   const say = text => { badge.textContent = 'Агент CB: ' + text; };
 
   let stopped = false;
-  let bridge = null;                  // WindowProxy вкладки-моста
-  let bridgeReady = false;
+  let transport = null;               // окно-собеседник: плеер или вкладка-мост
+  let transportReady = false;
   let helloTimer = 0;
+  let helloDeadline = 0;
   const off = () => {
     stopped = true;
     clearInterval(helloTimer);
     badge.remove();
     delete window.__cbAgent;
-    /* Мост не закрываем: он именован, следующий запуск найдёт его же. */
+    /* Ни плеер, ни мост не закрываем: следующий запуск найдёт их же. */
   };
   badge.onclick = off;
   document.body.appendChild(badge);
   window.__cbAgent = { badge, off };
 
-  /* ---- связь с мостом ---------------------------------------------------- */
+  /* ---- связь с плеером ----------------------------------------------------
+     Если эту вкладку открыл сам плеер (кнопка spy), говорим прямо с ним —
+     он же origin сервера и держит long-poll. Иначе (вкладку открыли сами)
+     открываем вкладку-мост cb-bridge.html: CSP сайта запрещает нам ходить
+     на плеер fetch'ем, но не запрещает postMessage. */
 
-  const toBridge = payload => {
-    if (bridge && !bridge.closed) {
-      try { bridge.postMessage(payload, PLAYER); return true; } catch (e) {}
+  const toHub = payload => {
+    if (transport && !transport.closed) {
+      try { transport.postMessage(payload, PLAYER); return true; } catch (e) {}
     }
     return false;
   };
 
+  const hello = () => {
+    const me = localDossier() || {};
+    toHub({ v: 1, kind: 'hello',
+            username: String(me.viewer_username || '') });
+  };
+
+  function startHelloRetry() {
+    clearInterval(helloTimer);
+    helloDeadline = Date.now() + 7000;   // нет ответа — переходим на мост
+    helloTimer = setInterval(() => {
+      if (stopped || transportReady) return clearInterval(helloTimer);
+      hello();
+      if (Date.now() > helloDeadline) {
+        clearInterval(helloTimer);
+        openBridge();
+      }
+    }, 1500);
+  }
+
   function openBridge() {
     say('открываю вкладку-мост…');
-    bridge = window.open(
+    transportReady = false;
+    transport = window.open(
       PLAYER + '/cb-bridge.html?cb=' + encodeURIComponent(location.origin),
       'bongaCbBridge');
-    if (!bridge) {
+    if (!transport) {
       say('браузер закрыл всплывающее окно — разрешите и нажмите закладку снова');
-      return false;
+      return;
     }
     /* Мост мог быть открыт раньше и уже не помнить нас (перезагрузка его или
        нашей вкладки) — здороваемся, пока не придёт подтверждение. */
     clearInterval(helloTimer);
     helloTimer = setInterval(() => {
-      if (stopped || bridgeReady) return clearInterval(helloTimer);
-      const me = localDossier() || {};
-      toBridge({ v: 1, kind: 'hello',
-                 username: String(me.viewer_username || '') });
+      if (stopped || transportReady) return clearInterval(helloTimer);
+      hello();
     }, 1500);
-    return true;
   }
 
   window.addEventListener('message', event => {
     if (event.origin !== PLAYER) return;
-    if (bridge && event.source !== bridge) return;
+    if (transport && event.source !== transport) return;
     const data = event.data;
     if (!data || data.v !== 1) return;
 
     if (data.kind === 'ready') {
-      bridgeReady = true;
+      transportReady = true;
       clearInterval(helloTimer);
-      say('мост готов, жду команду');
+      say('связь с плеером есть, жду команду');
       return;
     }
     if (data.kind === 'poll') handleAnswerSafe(data.answer || {});
   });
 
-  /* Мост отличает живую закладку от живого окна: сайт перезагружает страницу
-     при переходе между комнатами, и пока пинг молчит, мост называет серверу
+  /* Хаб отличает живую закладку от живого окна: сайт перезагружает страницу
+     при переходе между комнатами, и пока пинг молчит, хаб называет серверу
      пустое имя — агент считается неподключённым, платный вход не стартует. */
-  const pingBridge = () => {
+  const pingHub = () => {
     const me = localDossier() || {};
-    toBridge({ v: 1, kind: 'ping', username: String(me.viewer_username || '') });
+    toHub({ v: 1, kind: 'ping', username: String(me.viewer_username || '') });
   };
-  setInterval(() => { if (!stopped) pingBridge(); }, 10000);
+  setInterval(() => { if (!stopped) pingHub(); }, 10000);
 
   /* ---- запросы к сайту (same-origin, CSP их разрешает) ------------------- */
 
@@ -235,7 +257,7 @@
     return { ok: !!s.url, url: s.url, room_status: s.room_status };
   }
 
-  const report = payload => toBridge({ v: 1, kind: 'result', payload });
+  const report = payload => toHub({ v: 1, kind: 'result', payload });
 
   /* ---- обработка poll-ответа моста ---------------------------------------- */
 
@@ -306,8 +328,13 @@
     }
   }
 
-  if (openBridge()) {
-    const me = localDossier() || {};
-    toBridge({ v: 1, kind: 'hello', username: String(me.viewer_username || '') });
+  /* Если вкладку открыл плеер — говорим с ним напрямую; своя вкладка —
+     сначала пробуем opener, при молчании переключаемся на мост. */
+  if (window.opener && !window.opener.closed) {
+    transport = window.opener;
+    hello();
+    startHelloRetry();
+  } else {
+    openBridge();
   }
 })();

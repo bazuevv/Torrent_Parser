@@ -432,6 +432,10 @@ def cb_agent_poll(agent_id, username, busy):
     with CB_COND:
         CB_AGENTS[agent_id] = {'last': time.time(), 'username': username,
                                'busy': bool(busy)}
+        # Хаб-цикл живёт в самой странице плеера: пока он поллит — плеер
+        # открыт, и watchdog spy не должен останавливать показ.
+        if agent_id == 'player-hub':
+            CB_SPY['player_seen'] = time.time()
         CB_COND.notify_all()                    # ждущие увидят появление агента
         while True:
             now = time.time()
@@ -623,9 +627,12 @@ def cb_spy_start(user):
             cb_reset('неожиданный HLS-хост Chaturbate')
         raise ValueError('неожиданный HLS-хост Chaturbate')
 
-    with CB_LOCK:
+    with CB_COND:
         CB_SPY.update({'state': 'spying', 'url': url, 'url_at': time.time(),
                        'started': time.time()})
+        # Висящий long-poll плеера-хаба заберёт свежий снимок немедленно,
+        # а не через удержание: ячейка оживает в ту же секунду.
+        CB_COND.notify_all()
     write_log(f'cb spy: вход в {user} ({price} тк/мин), поток '
               f'{urlparse(url).hostname}{urlparse(url).path[:60]}')
     return {'ok': True, 'url': url, 'spy': cb_public_state()}
