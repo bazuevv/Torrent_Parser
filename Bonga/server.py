@@ -270,8 +270,8 @@ def chaturbate_stream(user, force=False):
 
     # Активный spy: приватный URL уже получен агентом — отдаём его, не
     # спрашивая CB заново (там анониму в private всегда отвечают пустым url).
-    # После fatal HLS-ошибки force требует именно новый подписанный адрес:
-    # повтор старого токена всегда заканчивался вторым manifestLoadError.
+    # После fatal HLS-ошибки force заново спрашивает адрес у агента: это
+    # единственный способ узнать, жива ли ещё оплаченная подписка.
     now = time.time()
     with CB_LOCK:
         active_spy = (CB_SPY['state'] == 'spying'
@@ -288,21 +288,62 @@ def chaturbate_stream(user, force=False):
         cid = cb_queue('url_get', user)
         result = cb_wait_result(cid, 15)
         cb_cancel(cid)
-        fresh = str((result or {}).get('url') or '')
+        answer = result or {}
+        fresh = str(answer.get('url') or '')
+        status = str(answer.get('room_status') or '')
         host = (urlparse(fresh).hostname or '').lower()
+        good = (fresh.startswith('https://') and
+                (host.endswith('.mmcdn.com') or host.endswith('.highwebmedia.com')))
         write_log(
             f'cb spy: url_get {user} после fatal-ошибки плеера — '
             f'{"агент промолчал" if result is None else "агент ответил"}, '
             f'было {cb_url_brief(old_spy_url)}, стало {cb_url_brief(fresh)} '
-            f'({"адрес сменился" if fresh != old_spy_url else "адрес тот же"})')
-        if (fresh != old_spy_url and fresh.startswith('https://') and
-                (host.endswith('.mmcdn.com') or host.endswith('.highwebmedia.com'))):
+            f'({"адрес сменился" if fresh != old_spy_url else "адрес тот же"}, '
+            f'room_status={status or "не сказан"})')
+
+        # Совпадение адреса — норма, а не повод прекращать платный показ:
+        # spy у Chaturbate раздаётся по стабильному пути
+        # origin.<ник>.<ULID>, он не подписан и живёт всю трансляцию.
+        # Прежний код требовал непременно другого адреса и на этом убивал
+        # сессию через полминуты после входа (см. журнал 30.08: вход в
+        # 12:11:18, «HLS не обновился» в 12:11:51 при том же ULID).
+        if good:
             with CB_LOCK:
-                if (CB_SPY['state'] == 'spying' and CB_SPY['room'].lower() == user.lower()):
+                if (CB_SPY['state'] == 'spying'
+                        and CB_SPY['room'].lower() == user.lower()):
                     CB_SPY.update({'url': fresh, 'url_at': time.time(), 'misses': 0})
             return {'user': user, 'online': True, 'url': fresh,
-                    'status': 'private', 'spy': True, 'refreshed': True}
-        cb_stop_now('HLS не обновился после fatal-ошибки', wait=False)
+                    'status': 'private', 'spy': True,
+                    'refreshed': fresh != old_spy_url}
+
+        # Адреса нет вовсе. Конец шоу отличаем от осечки по статусу комнаты:
+        # «уже не приват» означает, что сайт сам закрыл показ и списание.
+        if status and status != 'private':
+            write_log(f'cb spy: шоу {user} кончилось ({status}) — видно по url_get')
+            with CB_LOCK:
+                if CB_SPY['room'].lower() == user.lower():
+                    cb_reset()
+            return {'user': user, 'online': False, 'status': status}
+
+        # Осечка: агент промолчал или сайт не отдал поток. Считаем её тем же
+        # промахом, что и неудачный refresh, — сессию рвём лишь на втором
+        # подряд, чтобы одна неудачная выдача не стоила оплаченного показа.
+        with CB_LOCK:
+            mine = (CB_SPY['state'] == 'spying'
+                    and CB_SPY['room'].lower() == user.lower())
+            if mine:
+                CB_SPY['misses'] += 1
+            misses = CB_SPY['misses'] if mine else 0
+            held = CB_SPY['url'] if mine else ''
+        write_log(f'cb spy: url_get {user} без адреса — промах {misses} из 2')
+        if misses >= 2:
+            cb_stop_now('поток не подтверждён двумя запросами подряд', wait=False)
+        elif held:
+            # Первый промах: отдаём то, что держим. Ошибка могла быть сетевой
+            # у самого плеера, а подписка — живой; повторная попытка дешевле
+            # потерянной сессии.
+            return {'user': user, 'online': True, 'url': held,
+                    'status': 'private', 'spy': True, 'refreshed': False}
         return {'user': user, 'online': False, 'status': 'private',
                 'spy': cb_public_state(),
                 'spy_price': chaturbate_dossier(user).get('spy_price', 0)}
