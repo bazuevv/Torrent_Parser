@@ -75,14 +75,37 @@
 
   /* На странице комнаты имя есть в initialRoomDossier, но плеер открывает
      главную Chaturbate, где dossier отсутствует. Общая SPA-шапка кладёт
-     текущий аккаунт в $reactAppContext.logged_in_user; раньше агент читал
-     только dossier и потому сообщал плееру пустое имя — «БЕЗ ВХОДА» даже
-     при действующей сессии сайта. */
+     текущий аккаунт в $reactAppContext.logged_in_user. В зависимости от
+     версии фронтенда это либо объект, либо строка вида
+     "{username: name, is_supporter: false, ...}" — это не JSON-объект. */
+  const accountName = value => {
+    if (!value) return '';
+    if (typeof value === 'object') return String(value.username || '');
+    const text = String(value);
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed !== value) {
+        const found = accountName(parsed);
+        if (found) return found;
+      }
+    } catch (e) { /* строковое представление ниже */ }
+    const found = /["']?username["']?\s*:\s*["']?([A-Za-z0-9_-]+)/i.exec(text);
+    return found ? found[1] : '';
+  };
+
   const viewerName = () => {
     const dossier = localDossier() || {};
-    const account = (window.$reactAppContext &&
-                     window.$reactAppContext.logged_in_user) || {};
-    return String(dossier.viewer_username || account.username || '');
+    if (dossier.viewer_username) return String(dossier.viewer_username);
+    const reactAccount = window.$reactAppContext &&
+                         window.$reactAppContext.logged_in_user;
+    const tsAccount = window.tsInstance && window.tsInstance.logged_in_user;
+    const name = accountName(reactAccount) || accountName(tsAccount);
+    if (name) return name;
+    /* Имя нужно серверу только как признак готовой авторизованной вкладки;
+       фактическое имя и баланс перед платным входом всё равно заново берутся
+       из dossier комнаты. Меню профиля — устойчивый резервный признак входа. */
+    return document.querySelector('[data-testid="user-header-menu"]')
+      ? 'authenticated' : '';
   };
 
   const hello = () => {
