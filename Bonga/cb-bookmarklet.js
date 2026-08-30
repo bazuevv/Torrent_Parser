@@ -30,7 +30,7 @@
                    playerQuality и сайт снимает право на 30-й секунде. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 11;
+  const AGENT_VERSION = 12;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -341,7 +341,9 @@
      Один pause на входе не держит: avgustina_love 30.08 15:44 — вкладка
      пустая ~30 с, потом их HLS всё равно стартует (отложенный attach после
      sendQuality). hls.js к тому моменту уже держит свой fetch, обход нашего
-     wrap. Поэтому сторож + playing, а не разовая пауза. */
+     wrap. Сторож v11 сбрасывал src и звал load каждые 0.5 с — картинка
+     мерцала в такт таймеру. Теперь: CSS-прячем, pause/stopLoad, src не
+     трогаем после первого глушения. */
 
   const SITE_SPYING = 'privatespying';
   const SITE_IDLE = 'privatenotwatching';
@@ -431,13 +433,41 @@
     }
   }
 
-  function pauseSiteVideo() {
+  const QUIET_CSS_ID = 'cb-agent-quiet';
+  function quietCss(on) {
+    try {
+      if (on) {
+        if (document.getElementById(QUIET_CSS_ID)) return;
+        const s = document.createElement('style');
+        s.id = QUIET_CSS_ID;
+        s.textContent = 'video{opacity:0!important;visibility:hidden!important}';
+        const host = document.head || document.documentElement || document.body;
+        if (host && host.appendChild) host.appendChild(s);
+      } else {
+        const s = document.getElementById(QUIET_CSS_ID);
+        if (s && s.parentNode && s.parentNode.removeChild) s.parentNode.removeChild(s);
+        else if (s && s.remove) s.remove();
+      }
+    } catch (e) {}
+  }
+
+  /* hard: сбросить src (только на входе). Повторный сброс + load даёт
+     мерцание: их плеер снова attach, кадр, наш teardown, снова attach. */
+  function pauseSiteVideo(hard) {
+    quietCss(true);
     const list = allSiteVideos();
     for (let i = 0; i < list.length; i++) {
       const v = list[i];
       try { if (typeof v.pause === 'function') v.pause(); } catch (e) {}
       try { v.muted = true; v.volume = 0; } catch (e) {}
+      try {
+        if (v.style) {
+          v.style.opacity = '0';
+          v.style.visibility = 'hidden';
+        }
+      } catch (e) {}
       stopHls(v);
+      if (!hard) continue;
       try {
         if (typeof v.removeAttribute === 'function') v.removeAttribute('src');
         v.src = '';
@@ -453,7 +483,7 @@
     if (!t) return;
     const tag = String(t.tagName || '').toUpperCase();
     if (tag !== 'VIDEO' && tag !== 'AUDIO') return;
-    pauseSiteVideo();
+    pauseSiteVideo(false);
   }
 
   /* Сегменты и плейлисты CDN — это и есть параллельная трансляция. Ajax
@@ -509,7 +539,7 @@
           return xhrSend.apply(this, arguments);
         };
       }
-      const mutePlay = function () { pauseSiteVideo(); return Promise.resolve(); };
+      const mutePlay = function () { pauseSiteVideo(false); return Promise.resolve(); };
       if (playWas) HME.prototype.play = mutePlay;
       if (playVideoWas) HVE.prototype.play = mutePlay;
       if (addSB) {
@@ -517,11 +547,9 @@
           throw new Error('cb-agent: mse blocked');
         };
       }
-      try {
-        document.addEventListener('playing', onSitePlaying, true);
-        document.addEventListener('loadeddata', onSitePlaying, true);
-      } catch (e) {}
-      mediaGate.silenceTimer = setInterval(pauseSiteVideo, SILENCE_MS);
+      try { document.addEventListener('playing', onSitePlaying, true); } catch (e) {}
+      quietCss(true);
+      mediaGate.silenceTimer = setInterval(() => pauseSiteVideo(false), SILENCE_MS);
     } else if (mediaGate) {
       try {
         mediaGate.hosts.forEach((h, i) => {
@@ -533,8 +561,8 @@
         if (mediaGate.playVideoWas) mediaGate.HVE.prototype.play = mediaGate.playVideoWas;
         if (mediaGate.addSB) mediaGate.MS.prototype.addSourceBuffer = mediaGate.addSB;
         document.removeEventListener('playing', onSitePlaying, true);
-        document.removeEventListener('loadeddata', onSitePlaying, true);
         clearInterval(mediaGate.silenceTimer);
+        quietCss(false);
       } catch (e) {}
       mediaGate = null;
     }
@@ -547,7 +575,7 @@
     if (status === SITE_SPYING) {
       pretendTabVisible(true);
       gateSiteMedia(true);
-      out.quiet = pauseSiteVideo();
+      out.quiet = pauseSiteVideo(true);
       out.vis = visPatched;
     }
     const conn = chatConnFrom(roomLoadedEvent(webpackRequire()));
@@ -565,7 +593,7 @@
       pretendTabVisible(false);
       out.vis = visPatched;
     }
-    if (status === SITE_SPYING) out.quiet = pauseSiteVideo() || out.quiet;
+    if (status === SITE_SPYING) out.quiet = pauseSiteVideo(true) || out.quiet;
     return out;
   }
 

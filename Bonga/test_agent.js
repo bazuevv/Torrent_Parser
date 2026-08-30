@@ -59,11 +59,21 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   const clock = makeClock();
   const sent = [];
   const store = new Map();
-  const el = () => ({
-    style: { cssText: '' }, textContent: '', title: '', dataset: {},
-    setAttribute() {}, remove() {}, select() {}, appendChild() {},
-    addEventListener() {}, querySelector: () => null,
-  });
+  const byId = {};
+  const el = () => {
+    const n = {
+      id: '',
+      style: { cssText: '', opacity: '', visibility: '' },
+      textContent: '', title: '', dataset: {},
+      setAttribute() {},
+      remove() { if (n.id) delete byId[n.id]; },
+      select() {},
+      appendChild(child) { if (child && child.id) byId[child.id] = child; },
+      addEventListener() {}, querySelector: () => null,
+    };
+    return n;
+  };
+  const host = el();
   const listeners = {};
   const hub = { closed: false, postMessage: (p) => sent.push(p) };
 
@@ -87,13 +97,15 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
     window: win,
     document: {
       cookie: 'csrftoken=abc123',
-      body: el(),
+      body: host,
+      head: host,
+      documentElement: host,
       hidden: true,
       visibilityState: 'hidden',
       createElement: el,
       querySelector: () => videoEl,
       querySelectorAll: sel => (String(sel).indexOf('video') >= 0 ? [videoEl] : []),
-      getElementById: id => (id === 'chat-player' ? videoEl : null),
+      getElementById: id => (id === 'chat-player' ? videoEl : (byId[id] || null)),
       addEventListener(kind, fn) {
         (docEvents[kind] || (docEvents[kind] = [])).push(fn);
       },
@@ -327,6 +339,7 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
     volume: 1,
     src: 'blob:x',
     srcObject: {},
+    style: { opacity: '', visibility: '' },
     hls: { stopLoad() { paused.push('stopLoad'); } },
     play: async () => { played.push('play'); },
     pause() { paused.push('pause'); },
@@ -358,7 +371,7 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('вход: отчёт пишет, что видео сайта выключено',
         !!(startRes[0] && startRes[0].site && startRes[0].site.quiet === true),
         JSON.stringify(startRes[0] && startRes[0].site));
-  check('вход: плашка v11', /Агент CB v11/.test(g.badge()), g.badge());
+  check('вход: плашка v12', /Агент CB v12/.test(g.badge()), g.badge());
 
   let cdnBlocked = false;
   try {
@@ -373,17 +386,23 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('вход: ajax чата по-прежнему проходит',
         ajax.ok && /"url"/.test(ajaxText), ajaxText.slice(0, 80));
 
-  /* avgustina_love 15:44: сайт ~30 с молчал, потом сам открыл HLS. */
+  /* Сторож не должен сбрасывать src: это и давало мерцание раз в 0.5 с. */
   const pausesAtStart = paused.length;
+  const loadsAtStart = paused.filter(x => x === 'load').length;
   await g.clock.advance(30000);
+  const loadsAfter = paused.filter(x => x === 'load').length;
   check('сторож: пауза повторяется после 30 с',
         paused.length > pausesAtStart, `было ${pausesAtStart}, стало ${paused.length}`);
+  check('сторож: src не сбрасывается по таймеру',
+        loadsAfter === loadsAtStart, `load было ${loadsAtStart}, стало ${loadsAfter}`);
   videoStub.src = cdnPlaylist;
   videoStub.srcObject = {};
   g.fireDoc('playing', videoStub);
-  check('через 30 с: повторный запуск видео сайта снова глушится',
-        videoStub.src === '' && paused.includes('stopLoad'),
-        JSON.stringify({ src: videoStub.src, last: paused.slice(-6) }));
+  check('через 30 с: картинка спрятана без teardown',
+        videoStub.style.opacity === '0' && videoStub.src === cdnPlaylist &&
+        paused.includes('stopLoad'),
+        JSON.stringify({ src: videoStub.src, opacity: videoStub.style.opacity,
+                         last: paused.slice(-6) }));
 
   g.poll({ spy: { spy: { state: 'spying', room: 'testroom' }, agent: { username: 'adm211' } },
            cmd: { id: 's2', act: 'spy_stop', room: 'testroom' } });
