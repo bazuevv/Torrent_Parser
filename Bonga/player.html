@@ -2521,18 +2521,11 @@
     const spy = spyOf();
     if (spy.state === 'spying' && spyMine(room))
       return spyStopQuiet(room, 'кнопка spy в заголовке ячейки');
-    /* Агента нет — первым делом открываем вкладку Chaturbate из плеера:
-       opener-связь единственная, чем закладка может до нас дотянуться
-       (CSP сайта запрещает ей fetch, а окно по имени ищется только внутри
-       своей группы вкладок). Дальше пользователь входит в аккаунт, если ещё
-       не вошёл, и жмёт закладку агента в той вкладке. */
-    if (!agentOf().online || agentOf().anon) {
-      say(t('spy.откройВкладку'));
-      if (!cbWindow || cbWindow.closed)
-        cbWindow = window.open('https://ru.chaturbate.com/', 'bongaCbTab');
-      if (cbWindow) cbWindow.focus();
-      return;
-    }
+    /* Вкладку Chaturbate открывает плеер и держит её на странице этой комнаты.
+       Открывать обязан именно плеер: opener-связь — единственное, чем закладка
+       может до нас дотянуться (CSP сайта запрещает ей fetch, а окно по имени
+       ищется только внутри своей группы вкладок). */
+    if (cbAimTab(room)) return;
     say(t('spy.запрос'));
     try {
       const res = await fetch('api/cb/spy', {
@@ -2658,12 +2651,61 @@
      Сайт во фрейм не отдать (X-Frame-Options: DENY), зато так вкладок
      всего две — плеер и сам сайт. */
   let cbWindow = null;               // вкладка Chaturbate, открытая плеером
+  let cbWindowRoom = '';             // комната, на странице которой она стоит
   let cbAgentName = '';
   let cbAgentVersion = 0;
   let cbAgentSeen = 0;
   let cbHubWake = null;              // прерывает пассивную 15-секундную паузу
   let cbHubAbort = null;             // перезапускает poll с новым именем агента
   const cbAgentFresh = () => Date.now() - cbAgentSeen < 20000;
+  /* Готовность закладки считаем по её собственному сигналу, а не по снимку
+     сервера: сервер держит агента «в сети» ещё сорок секунд после его смерти,
+     а умирает закладка ровно в момент перевода вкладки на другой адрес — то
+     есть именно тогда, когда мы этот перевод и делаем. */
+  const cbAgentReady = () => cbAgentFresh() && !!cbAgentName &&
+                             cbAgentName !== 'AnonymousUser';
+
+  /* Наводит вкладку Chaturbate на страницу нужной комнаты и говорит, можно ли
+     уже входить в spy.
+
+     Присутствие обязательно: раньше вкладка стояла на главной, и сайт отзывал
+     оплаченный показ на тридцатой секунде — прогоны 30.08 держались 30.1, 31.4
+     и 30.4 с, после чего API отвечал success:true с пустым адресом и
+     room_status=private, то есть право на просмотр снимали, а не поток ломался.
+
+     Перевод на другой адрес перезагружает страницу и убивает закладку. Обойти
+     это нечем: другого способа оказаться в комнате у вкладки нет. Поэтому в
+     тот же клик мы не входим — просим нажать закладку и ждём её hello. */
+  function cbAimTab(room) {
+    const want = String(room).toLowerCase();
+    if (cbWindow && cbWindow.closed) { cbWindow = null; cbWindowRoom = ''; }
+
+    if (!cbWindow || cbWindowRoom !== want) {
+      const было = cbWindow ? (cbWindowRoom || 'главной') : '';
+      // Имя окна то же самое: вкладка не плодится, а переезжает на новый адрес.
+      cbWindow = window.open(`https://ru.chaturbate.com/${encodeURIComponent(room)}/`,
+                             'bongaCbTab');
+      cbWindowRoom = want;
+      cbAgentName = '';
+      cbAgentVersion = 0;
+      cbAgentSeen = 0;
+      logEvent('spy.агент', (было
+        ? `перевожу вкладку Chaturbate с ${было} на комнату ${room}`
+        : `открываю вкладку Chaturbate на комнате ${room}`) +
+        ' — присутствие в комнате держит оплаченный показ', 'act');
+      if (!cbWindow) { say(t('spy.вкладкаНеОткрылась'), 'err'); return true; }
+      cbWindow.focus();
+      say(t('spy.нажмитеЗакладку', { комната: room }));
+      return true;
+    }
+
+    if (!cbAgentReady()) {
+      cbWindow.focus();
+      say(t('spy.нажмитеЗакладку', { комната: room }));
+      return true;
+    }
+    return false;
+  }
   const cbLocalAgent = () => ({
     online: true,
     username: cbAgentName,
@@ -2717,6 +2759,8 @@
       cbAgentName = String(data.username || '');
       cbAgentVersion = Number(data.agent_version) || 0;
       cbAgentSeen = Date.now();
+      // Комнату знает только сама вкладка: адрес чужого окна плееру не виден.
+      cbWindowRoom = String(data.room || '').toLowerCase();
       /* postMessage уже доказывает, что закладка жива. Не ждём следующего
          серверного poll: кнопка меняется в тот же кадр, а спящий/анонимный
          poll прерываем и сразу запускаем заново с актуальным аккаунтом. */
@@ -2761,7 +2805,7 @@
         await cbHubPause(15000);
         continue;
       }
-      if (cbWindow && cbWindow.closed) cbWindow = null;
+      if (cbWindow && cbWindow.closed) { cbWindow = null; cbWindowRoom = ''; }
       const ctl = new AbortController();
       cbHubAbort = ctl;
       try {
