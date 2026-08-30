@@ -101,8 +101,17 @@
       say('мост готов, жду команду');
       return;
     }
-    if (data.kind === 'poll') handleAnswer(data.answer || {});
+    if (data.kind === 'poll') handleAnswerSafe(data.answer || {});
   });
+
+  /* Мост отличает живую закладку от живого окна: сайт перезагружает страницу
+     при переходе между комнатами, и пока пинг молчит, мост называет серверу
+     пустое имя — агент считается неподключённым, платный вход не стартует. */
+  const pingBridge = () => {
+    const me = localDossier() || {};
+    toBridge({ v: 1, kind: 'ping', username: String(me.viewer_username || '') });
+  };
+  setInterval(() => { if (!stopped) pingBridge(); }, 10000);
 
   /* ---- запросы к сайту (same-origin, CSP их разрешает) ------------------- */
 
@@ -232,6 +241,16 @@
 
   let refreshAt = 0;
   let recovering = false;
+
+  async function handleAnswerSafe(answer) {
+    try {
+      await handleAnswer(answer);
+    } catch (e) {
+      /* Ошибка внутри обработчика не должна выглядеть как молчание агента:
+         сервер иначе откатил бы команду по таймауту. */
+      say('сбой обработки: ' + ((e && e.message) || e));
+    }
+  }
 
   async function handleAnswer(answer) {
     const spy = (answer.spy && answer.spy.spy) || {};

@@ -58,10 +58,15 @@
     try { localStorage.setItem('cbBridgeId', agentId); } catch (e) {}
   }
 
-  const meta = { username: '' };
+  const meta = { username: '', lastPing: 0 };
   const cbAlive = () => {
     try { return window.opener && !window.opener.closed; } catch (e) { return false; }
   };
+  /* Пинг нужен отдельно от самого окна: Chaturbate перезагружает страницу
+     при переходе между комнатами, закладка при этом умирает, а окно живо.
+     Без пинга мост продолжал бы называть серверу имя аккаунта, тот считал
+     бы агента готовым — и запускал бы платный вход в никуда. */
+  const agentAlive = () => cbAlive() && Date.now() - meta.lastPing < 20000;
   const toCb = obj => {
     if (!cbOrigin || !cbAlive()) return false;
     try { window.opener.postMessage(obj, cbOrigin); return true; }
@@ -74,10 +79,13 @@
     const data = event.data;
     if (!data || data.v !== 1) return;
 
-    if (data.kind === 'hello') {
+    if (data.kind === 'hello' || data.kind === 'ping') {
       meta.username = String(data.username || '');
-      log(`hello от ${cbOrigin} (${meta.username || 'аноним'})`);
-      toCb({ v: 1, kind: 'ready', username: meta.username });
+      meta.lastPing = Date.now();
+      if (data.kind === 'hello') {
+        log(`hello от ${cbOrigin} (${meta.username || 'аноним'})`);
+        toCb({ v: 1, kind: 'ready', username: meta.username });
+      }
     } else if (data.kind === 'result') {
       const payload = data.payload || {};
       fetch('/api/cb/agent/result', {
@@ -97,7 +105,7 @@
           headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
           body: JSON.stringify({
             id: agentId,
-            username: cbAlive() ? meta.username : '',
+            username: agentAlive() ? meta.username : '',
             busy: false,
           }),
         });
@@ -107,6 +115,9 @@
 
         if (!cbAlive()) {
           st.textContent = 'вкладка Chaturbate закрыта — жду закладку…';
+        } else if (!agentAlive()) {
+          st.textContent = 'закладка в вкладке Chaturbate не отвечает — нажмите её ещё раз';
+          toCb({ v: 1, kind: 'poll', answer });   // вдруг оживёт этим же сообщением
         } else if (toCb({ v: 1, kind: 'poll', answer })) {
           st.textContent = spy && spy.state !== 'idle'
             ? `связь есть · spy: ${spy.room} (${spy.state})`
