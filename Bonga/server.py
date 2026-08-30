@@ -626,7 +626,8 @@ def cb_spy_start(user):
     with CB_LOCK:
         CB_SPY.update({'state': 'spying', 'url': url, 'url_at': time.time(),
                        'started': time.time()})
-    write_log(f'cb spy: вход в {user} ({price} тк/мин)')
+    write_log(f'cb spy: вход в {user} ({price} тк/мин), поток '
+              f'{urlparse(url).hostname}{urlparse(url).path[:60]}')
     return {'ok': True, 'url': url, 'spy': cb_public_state()}
 
 
