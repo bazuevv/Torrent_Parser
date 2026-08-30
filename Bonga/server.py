@@ -100,7 +100,7 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
-CB_AGENT_VERSION = 15      # v15: плашка не зависает на spy_start, стоп не ждёт poll
+CB_AGENT_VERSION = 16      # v16: плашка в две строки, видеотрафик отдельно
 
 
 def cb_reset(error=''):

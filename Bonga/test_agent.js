@@ -232,6 +232,12 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
         JSON.stringify(d.opened));
   check('без opener: объясняет, что вкладку открывает плеер',
         /нажмите spy в плеере/.test(d.badge()), d.badge());
+  check('без opener: видеотрафик на второй строке',
+        (() => {
+          const lines = d.badge().split('\n');
+          return lines.length === 2 && /^видеотрафик /.test(lines[1]);
+        })(),
+        d.badge());
   check('без opener: наружу ничего не шлёт', d.sent.length === 0,
         `сообщений ${d.sent.length}`);
 
@@ -350,6 +356,14 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   const g = launch({ fetchImpl: startFetch, webpack: wp.chunks, video: videoStub,
                      dossier: { broadcaster_username: 'testroom' } });
   g.ready();
+  check('ожидание: плашка в две строки, видеотрафик отдельно',
+        (() => {
+          const lines = g.badge().split('\n');
+          return lines.length === 2 &&
+            /Агент CB v16: связь с плеером есть, жду команду/.test(lines[0]) &&
+            /^видеотрафик /.test(lines[1]);
+        })(),
+        g.badge());
   g.poll({ spy: { spy: { state: 'idle', room: '' }, agent: { username: 'adm211' } },
            cmd: { id: 's1', act: 'spy_start', room: 'testroom' } });
   for (let i = 0; i < 200; i++) await Promise.resolve();
@@ -371,9 +385,13 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('вход: отчёт пишет, что видео сайта выключено',
         !!(startRes[0] && startRes[0].site && startRes[0].site.quiet === true),
         JSON.stringify(startRes[0] && startRes[0].site));
-  check('вход: плашка v15 сразу с трафиком, без второго poll',
-        /Агент CB v15/.test(g.badge()) && /spy testroom/.test(g.badge()) &&
-        /трафик /.test(g.badge()),
+  check('вход: плашка v16 — состояние и видеотрафик на разных строках',
+        (() => {
+          const lines = g.badge().split('\n');
+          return lines.length === 2 &&
+            /Агент CB v16: spy testroom$/.test(lines[0]) &&
+            /^видеотрафик /.test(lines[1]);
+        })(),
         g.badge());
 
   let cdnBlocked = false;
@@ -392,9 +410,9 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   g.poll({ spy: { spy: { state: 'spying', room: 'testroom' }, agent: { username: 'adm211' } },
            cmd: null });
   for (let i = 0; i < 50; i++) await Promise.resolve();
-  check('плашка: счётчик трафика вкладки',
-        /трафик /.test(g.badge()) && /отсечено [1-9]/.test(g.badge()) &&
-        /ушло 0/.test(g.badge()),
+  check('плашка: счётчик видеотрафика вкладки',
+        /видеотрафик /.test(g.badge()) && /отсечено [1-9]/.test(g.badge()) &&
+        /ушло 0/.test(g.badge()) && g.badge().split('\n').length === 2,
         g.badge());
 
   /* Сторож не должен сбрасывать src: это и давало мерцание раз в 0.5 с. */

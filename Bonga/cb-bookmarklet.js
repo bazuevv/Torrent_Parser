@@ -30,7 +30,7 @@
                    playerQuality и сайт снимает право на 30-й секунде. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 15;
+  const AGENT_VERSION = 16;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -49,10 +49,16 @@
   badge.style.cssText = 'position:fixed;z-index:2147483647;right:12px;bottom:12px;' +
     'padding:8px 12px;border-radius:8px;background:#1c1f26;color:#e6e8ec;' +
     'font:12px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.5);' +
-    'cursor:pointer;max-width:320px';
+    'cursor:pointer;max-width:320px;white-space:pre-line';
   const badgeTitle = 'Нажмите, чтобы скопировать. Повторный запуск закладки выключает агента';
   badge.title = badgeTitle;
-  const say = text => { badge.textContent = `Агент CB v${AGENT_VERSION}: ${text}`; };
+  /* Первая строка — состояние, вторая всегда видеотрафик вкладки сайта.
+     Иначе в ожидании команды («связь с плеером есть») счётчика не было. */
+  let statusText = '';
+  const paintTraffic = () => {
+    badge.textContent = `Агент CB v${AGENT_VERSION}: ${statusText}\n${cdnLine()}`;
+  };
+  const say = text => { statusText = String(text || ''); paintTraffic(); };
 
   let stopped = false;
   let transport = null;               // окно плеера (оно же window.opener)
@@ -536,7 +542,7 @@
   }
   function cdnLine() {
     const s = cdnStats();
-    return `трафик ${fmtTraffic(s.bytes)} · ушло ${s.passed} · отсечено ${s.blocked}`;
+    return `видеотрафик ${fmtTraffic(s.bytes)} · ушло ${s.passed} · отсечено ${s.blocked}`;
   }
 
   const SILENCE_MS = 500;
@@ -765,13 +771,13 @@
   setInterval(refreshStream, REFRESH_MS);
   const paintBadge = () => {
     if (stopped) return;
-    const traffic = cdnLine();
     if (spyNow.state === 'spying' && spyNow.room)
-      say(`spy ${spyNow.room} · ${traffic}`);
+      statusText = `spy ${spyNow.room}`;
     else if (spyNow.state === 'starting' && spyNow.room)
-      say(`вход ${spyNow.room} · ${traffic}`);
+      statusText = `вход ${spyNow.room}`;
     else if (spyNow.state === 'stopping' && spyNow.room)
-      say(`стоп ${spyNow.room} · ${traffic}`);
+      statusText = `стоп ${spyNow.room}`;
+    paintTraffic();
   };
   cdnTimer = setInterval(paintBadge, 2000);
 
@@ -812,7 +818,7 @@
         spyNow = { state: 'starting', room: String(cmd.room || '') };
       else if (cmd.act === 'spy_stop')
         spyNow = { state: 'stopping', room: String(cmd.room || '') };
-      say(`${cmd.act} → ${cmd.room} · ${cdnLine()}`);
+      say(`${cmd.act} → ${cmd.room}`);
       let out;
       try {
         if (cmd.act === 'spy_start') out = await doStart(cmd);
@@ -836,13 +842,13 @@
 
     paintBadge();
     if (spy.state === 'spying' && spy.room) {
-      /* paintBadge уже написал spy+трафик */
+      /* paintBadge уже написал состояние; видеотрафик на второй строке */
     } else if (agent.anon) {
       say('вкладка без входа — откройте аккаунт на сайте');
     } else {
       // Комнату показываем в плашке: по ней сразу видно, стоит ли вкладка
       // там, где нужно, или её ещё предстоит перевести.
-      say(`${agent.username || 'готов'} · ${tabRoom() || 'главная'} · ${cdnLine()}`);
+      say(`${agent.username || 'готов'} · ${tabRoom() || 'главная'}`);
     }
   }
 
