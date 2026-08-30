@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Мост Chaturbate</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { margin: 0; display: flex; align-items: center; justify-content: center;
+         min-height: 100vh; background: #14171d; color: #e6e8ec;
+         font: 13px/1.5 system-ui, sans-serif; }
+  .box { max-width: 440px; padding: 18px 20px; border: 1px solid #333c4d;
+         border-radius: 10px; background: #1c1f26; }
+  h1 { margin: 0 0 6px; font-size: 15px; }
+  p { margin: 4px 0; color: #aab3c2; }
+  #st { color: #8fd69a; }
+  #log { margin-top: 10px; color: #6b7484; font: 11px/1.5 ui-monospace, monospace;
+         white-space: pre-wrap; max-height: 30vh; overflow: auto; }
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>Мост Chaturbate ↔ плеер</h1>
+  <p>Сайт Chaturbate своими правилами безопасности (CSP) запрещает странице
+     обращаться к плееру напрямую — а переправлять сообщения между вкладками
+     не запрещает. Эта вкладка и есть переправа: держите её открытой, свёрнутой
+     или в другом окне — как удобно.</p>
+  <p id="st">стартую…</p>
+  <div id="log"></div>
+</div>
+<script>
+/* Транспортная вкладка между агентом-закладкой (живёт на chaturbate.com и
+   умеет делать платные запросы с сессией сайта) и сервером плеера.
+
+   Агент открывает эту страницу как именованное окно «bongaCbBridge» и
+   передаёт в ?cb= свой origin — мост принимает сообщения только от него.
+   Дальше два потока:
+     мост -> сервер:  long-poll /api/cb/agent/poll (same-origin, CSP не мешает)
+     мост -> агент:   postMessage каждого poll-ответа
+     агент -> мост:   postMessage результата команды
+     мост -> сервер:  POST /api/cb/agent/result */
+(() => {
+  const qs = new URLSearchParams(location.search);
+  const cbOrigin = qs.get('cb') || '';
+  const st = document.getElementById('st');
+  const logEl = document.getElementById('log');
+  const log = text => {
+    const stamp = new Date().toLocaleTimeString('ru-RU');
+    logEl.textContent = `${stamp}  ${text}\n` +
+      logEl.textContent.split('\n').slice(0, 14).join('\n');
+  };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  let agentId = '';
+  try { agentId = localStorage.getItem('cbBridgeId') || ''; } catch (e) {}
+  if (!agentId) {
+    agentId = 'b' + Math.random().toString(36).slice(2, 10);
+    try { localStorage.setItem('cbBridgeId', agentId); } catch (e) {}
+  }
+
+  const meta = { username: '' };
+  const cbAlive = () => {
+    try { return window.opener && !window.opener.closed; } catch (e) { return false; }
+  };
+  const toCb = obj => {
+    if (!cbOrigin || !cbAlive()) return false;
+    try { window.opener.postMessage(obj, cbOrigin); return true; }
+    catch (e) { return false; }
+  };
+
+  window.addEventListener('message', event => {
+    if (!cbOrigin || event.origin !== cbOrigin) return;
+    if (window.opener && event.source !== window.opener) return;
+    const data = event.data;
+    if (!data || data.v !== 1) return;
+
+    if (data.kind === 'hello') {
+      meta.username = String(data.username || '');
+      log(`hello от ${cbOrigin} (${meta.username || 'аноним'})`);
+      toCb({ v: 1, kind: 'ready', username: meta.username });
+    } else if (data.kind === 'result') {
+      const payload = data.payload || {};
+      fetch('/api/cb/agent/result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify(payload),
+      }).catch(() => log('результат не дошёл до сервера'));
+      log(`результат ${payload.act || '?'}`);
+    }
+  });
+
+  (async () => {
+    while (true) {
+      try {
+        const res = await fetch('/api/cb/agent/poll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+          body: JSON.stringify({
+            id: agentId,
+            username: cbAlive() ? meta.username : '',
+            busy: false,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const answer = await res.json();
+        const spy = answer.spy && answer.spy.spy;
+
+        if (!cbAlive()) {
+          st.textContent = 'вкладка Chaturbate закрыта — жду закладку…';
+        } else if (toCb({ v: 1, kind: 'poll', answer })) {
+          st.textContent = spy && spy.state !== 'idle'
+            ? `связь есть · spy: ${spy.room} (${spy.state})`
+            : `связь есть${meta.username ? ` · аккаунт ${meta.username}`
+                                         : ' · вкладка без входа'}`;
+        }
+        if (answer.cmd) log(`команда ${answer.cmd.act} → ${answer.cmd.room}`);
+      } catch (err) {
+        st.textContent = 'сервер плеера не отвечает…';
+        await sleep(3000);
+      }
+    }
+  })();
+})();
+</script>
+</body>
+</html>

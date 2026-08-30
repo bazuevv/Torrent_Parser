@@ -3,18 +3,19 @@
    Кука sessionid у Chaturbate HttpOnly — вытащить её из вкладки и отдать
    плееру нельзя, поэтому все платные запросы (вход в spy, остановка,
    получение приватного HLS) делает эта закладка прямо на chaturbate.com,
-   где сессия уже есть. Сервер плеера держит очередь команд и отдаёт её
-   сюда long-poll'ом; результат уходит обратно.
+   где сессия уже есть.
 
-   Запуск: на chaturbate.com, войдя в аккаунт, нажать закладку один раз.
-   Дальше агент живёт, пока вкладка открыта: команд нет — он спит в повисшем
-   запросе, команда появилась — исполняет её. Повторное нажатие выключает.
-   Состояние видно в плашке в углу страницы.
+   Связь с плеером — через вкладку-мост cb-bridge.html: CSP сайта
+   (connect-src 'self' …) запрещает странице любые запросы к плееру, но
+   не запрещает window.open и postMessage. Закладка открывает мост
+   именованным окном и переправляет ему команды и результаты; мост сам
+   ходит на сервер плеера, будучи его же страницей.
 
-   Адрес плеера подставляется в __PLAYER_ORIGIN__ при создании ссылки.
-   localhost браузер из https-страницы пускает, а вот http://192.168.x —
-   это mixed content; для доступа с других устройств нужен https или
-   открытый по http сайт. */
+   Запуск: на chaturbate.com, войдя в аккаунт, нажать закладку один раз —
+   рядом откроется маленькая вкладка моста. Дальше агент живёт, пока
+   открыты обе вкладки; команды приходят по postMessage раз в long-poll.
+   Повторное нажатие закладки выключает. Состояние видно в плашке в углу
+   страницы. */
 
 /* Реверс SPA Chaturbate (бандлы web2.static.mmcdn.com/cachebust):
      вход в spy:  POST /tipping/spy_on_private_show_request/<room>/
@@ -24,9 +25,8 @@
      поток:       POST /get_edge_hls_url_ajax/ (room_slug, bandwidth)
                    — при активном spy начинает отдавать приватный url;
                    запасной источник — hls_source в initialRoomDossier. */
-(async () => {
-  const TARGETS = [...new Set(['__PLAYER_ORIGIN__', 'http://127.0.0.1:8777'])];
-  const ID_KEY = 'cbAgentId';
+(() => {
+  const PLAYER = '__PLAYER_ORIGIN__';
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const REFRESH_MS = 45000;
 
@@ -45,40 +45,68 @@
   const say = text => { badge.textContent = 'Агент CB: ' + text; };
 
   let stopped = false;
+  let bridge = null;                  // WindowProxy вкладки-моста
+  let bridgeReady = false;
+  let helloTimer = 0;
   const off = () => {
     stopped = true;
+    clearInterval(helloTimer);
     badge.remove();
     delete window.__cbAgent;
+    /* Мост не закрываем: он именован, следующий запуск найдёт его же. */
   };
   badge.onclick = off;
   document.body.appendChild(badge);
   window.__cbAgent = { badge, off };
 
-  const pause = ms => new Promise(r => setTimeout(r, ms));
+  /* ---- связь с мостом ---------------------------------------------------- */
 
-  let agentId = '';
-  try { agentId = localStorage.getItem(ID_KEY) || ''; } catch (e) { /* приватный режим */ }
-  if (!agentId) {
-    agentId = 'a' + Math.random().toString(36).slice(2, 10);
-    try { localStorage.setItem(ID_KEY, agentId); } catch (e) { /* пусть живёт без id */ }
-  }
-
-  /* ---- связь с плеером ------------------------------------------------ */
-
-  let home = null;
-  async function findHome() {
-    for (const base of TARGETS) {
-      try {
-        const res = await fetch(base + '/api/cb/spy');
-        if (res.ok) { home = base; return true; }
-      } catch (e) { /* плеер по этому адресу недоступен */ }
+  const toBridge = payload => {
+    if (bridge && !bridge.closed) {
+      try { bridge.postMessage(payload, PLAYER); return true; } catch (e) {}
     }
     return false;
+  };
+
+  function openBridge() {
+    say('открываю вкладку-мост…');
+    bridge = window.open(
+      PLAYER + '/cb-bridge.html?cb=' + encodeURIComponent(location.origin),
+      'bongaCbBridge');
+    if (!bridge) {
+      say('браузер закрыл всплывающее окно — разрешите и нажмите закладку снова');
+      return false;
+    }
+    /* Мост мог быть открыт раньше и уже не помнить нас (перезагрузка его или
+       нашей вкладки) — здороваемся, пока не придёт подтверждение. */
+    clearInterval(helloTimer);
+    helloTimer = setInterval(() => {
+      if (stopped || bridgeReady) return clearInterval(helloTimer);
+      const me = localDossier() || {};
+      toBridge({ v: 1, kind: 'hello',
+                 username: String(me.viewer_username || '') });
+    }, 1500);
+    return true;
   }
 
+  window.addEventListener('message', event => {
+    if (event.origin !== PLAYER) return;
+    if (bridge && event.source !== bridge) return;
+    const data = event.data;
+    if (!data || data.v !== 1) return;
+
+    if (data.kind === 'ready') {
+      bridgeReady = true;
+      clearInterval(helloTimer);
+      say('мост готов, жду команду');
+      return;
+    }
+    if (data.kind === 'poll') handleAnswer(data.answer || {});
+  });
+
+  /* ---- запросы к сайту (same-origin, CSP их разрешает) ------------------- */
+
   async function post(path, data) {
-    /* Формы сайта уходят form-urlencoded с CSRF-заголовком; запросы
-       same-origin, поэтому куки сессии летят сами. */
     const res = await fetch(path, {
       method: 'POST',
       credentials: 'same-origin',
@@ -106,7 +134,7 @@
   }
   const isTrue = v => v === true || v === 'true' || v === 'True' || v === 1;
 
-  /* ---- данные комнаты -------------------------------------------------- */
+  /* ---- данные комнаты ------------------------------------------------------ */
 
   function localDossier() {
     const d = window.initialRoomDossier;   // на странице комнаты уже распарсен сайтом
@@ -198,51 +226,14 @@
     return { ok: !!s.url, url: s.url, room_status: s.room_status };
   }
 
-  async function report(payload) {
-    for (let attempt = 0; attempt < 3 && !stopped; attempt++) {
-      try {
-        const res = await fetch(home + '/api/cb/agent/result', {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },   // без preflight
-          body: JSON.stringify(payload),
-        });
-        if (res.ok) return true;
-      } catch (e) { /* сеть моргнула — подождём и повторим */ }
-      await pause(2000 + Math.random() * 3000);
-    }
-    return false;
-  }
+  const report = payload => toBridge({ v: 1, kind: 'result', payload });
 
-  /* ---- главный цикл ------------------------------------------------------ */
+  /* ---- обработка poll-ответа моста ---------------------------------------- */
 
   let refreshAt = 0;
   let recovering = false;
 
-  while (!stopped) {
-    if (!home && !(await findHome())) {
-      say('плеер не отвечает');
-      await pause(5000);
-      continue;
-    }
-
-    let answer = null;
-    try {
-      const me = localDossier() || {};
-      const res = await fetch(home + '/api/cb/agent/poll', {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-        body: JSON.stringify({ id: agentId,
-                               username: String(me.viewer_username || ''),
-                               busy: false }),
-      });
-      answer = await res.json();
-    } catch (e) {
-      say('нет связи с плеером');
-      home = null;                       // плеер перезапустился или исчез
-      await pause(3000 + Math.random() * 5000);
-      continue;
-    }
-
+  async function handleAnswer(answer) {
     const spy = (answer.spy && answer.spy.spy) || {};
     const agent = (answer.spy && answer.spy.agent) || {};
 
@@ -254,8 +245,8 @@
         (spy.state === 'idle' ||
          (spy.room && spy.room.toLowerCase() !== String(mine.room).toLowerCase()))) {
       recovering = true;
-      await report({ act: 'recovery', room: mine.room });
-      continue;
+      report({ act: 'recovery', room: mine.room });
+      return;
     }
     if (spy.state === 'idle' && !mine) recovering = false;
 
@@ -274,8 +265,8 @@
       out.id = cmd.id;
       out.act = cmd.act;
       out.room = cmd.room;
-      await report(out);
-      continue;                          // сразу за следующей командой
+      report(out);
+      return;                          // следующий poll-ответ придёт своим ходом
     }
 
     /* Команд нет: пока идёт spy, периодически подтверждаем поток. */
@@ -284,8 +275,8 @@
         refreshAt = Date.now();
         try {
           const s = await streamUrl(spy.room);
-          await report({ act: 'refresh', room: spy.room,
-                         url: s.url, room_status: s.room_status });
+          report({ act: 'refresh', room: spy.room,
+                   url: s.url, room_status: s.room_status });
         } catch (e) { /* скажется следующим кругом */ }
       }
       say(`spy ${spy.room} · ${agent.username || 'аккаунт'}`);
@@ -294,7 +285,10 @@
     } else {
       say(`${agent.username || 'готов'} · жду команду`);
     }
-    /* Пустой poll-ответ пришёл — сразу висим в следующем: таймеров нет,
-       поэтому фоновый троттлинг вкладки агенту не страшен. */
+  }
+
+  if (openBridge()) {
+    const me = localDossier() || {};
+    toBridge({ v: 1, kind: 'hello', username: String(me.viewer_username || '') });
   }
 })();
