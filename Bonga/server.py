@@ -111,7 +111,11 @@ def cb_reset(error=''):
                    'url': '', 'url_at': 0.0, 'error': error,
                    'stop_tries': 0, 'stop_cmd': '', 'agent_lost': False,
                    'player_seen': 0.0, 'armed': 0.0, 'misses': 0,
-                   'last_balance': None, 'tokens_used': 0})
+                   'last_balance': None, 'tokens_used': 0,
+                   # Баланс до платного входа — точка отсчёта расхода. Кэш
+                   # CB_BALANCE для неё не годится: он мог быть снят когда
+                   # угодно, в том числе в прошлой сессии.
+                   'balance_start': None})
 
 
 cb_reset()
@@ -480,7 +484,23 @@ def _cb_snapshot():
     spy['hls'] = (CB_SPY['url'] if CB_SPY['state'] != 'idle'
                   and isinstance(CB_SPY['url'], str)
                   and CB_SPY['url'].startswith('https://') else '')
+    # Секунды, а не только минуты: показ рвётся на десятках секунд, и по
+    # округлённым до минуты нулям в журнале ничего не сопоставить.
+    spy['seconds'] = (int(now - CB_SPY['started']) if CB_SPY['started'] else 0)
+    spy['balance_start'] = CB_SPY['balance_start']
+    spy['balance_now'] = CB_SPY['last_balance']
     return {'agent': agent, 'spy': spy}
+
+
+def cb_money():
+    """Цена и расход текущей сессии одной строкой. Вызывать под CB_LOCK."""
+    started = CB_SPY['started']
+    seconds = int(time.time() - started) if started else 0
+    was = CB_SPY['balance_start']
+    now = CB_SPY['last_balance']
+    return (f'{CB_SPY["price"]} тк/мин, показ {seconds} с, '
+            f'потрачено {CB_SPY["tokens_used"]} тк, баланс '
+            f'{"?" if was is None else was} → {"?" if now is None else now}')
 
 
 def cb_public_state():
@@ -646,8 +666,9 @@ def cb_stop_now(reason, wait=True):
         if CB_SPY['state'] == 'idle':
             return {'ok': True, 'idle': True}
         room = CB_SPY['room']
+        money = cb_money()
         CB_SPY['state'] = 'stopping'
-    write_log(f'cb spy: стоп {room} ({reason})')
+    write_log(f'cb spy: стоп {room} ({reason}) — {money}')
     if not wait:
         cid = cb_queue('spy_stop', room)
         with CB_LOCK:
@@ -757,7 +778,18 @@ def cb_spy_start(user):
         raise ValueError(f'вход в spy не удался: {error}')
 
     with CB_LOCK:
-        _cb_apply_balance(result, user)
+        # Баланс до платного входа агент читает свежим досье прямо перед
+        # запросом — он и есть точка отсчёта расхода этой сессии.
+        before = _cb_apply_balance(result, user)
+        if before is not None:
+            CB_SPY['balance_start'] = before
+        # Контрольное чтение после входа: первое списание сайт делает в
+        # момент входа, и без него расход пришлось бы ждать до ближайшего
+        # девятисекундного опроса, а показ к тому времени успевает оборваться.
+        after = _cb_apply_balance({'balance': result.get('balance_after')}, user)
+        if before is not None and after is None:
+            write_log(f'cb spy: {user} — баланс после входа не прочитан, '
+                      f'расход считаем от {before} по опросу агента')
 
     url = str(result.get('url') or '')
     if not url.startswith('https://'):
@@ -785,7 +817,9 @@ def cb_spy_start(user):
         # Висящий long-poll плеера-хаба заберёт свежий снимок немедленно,
         # а не через удержание: ячейка оживает в ту же секунду.
         CB_COND.notify_all()
-    write_log(f'cb spy: вход в {user} ({price} тк/мин), поток {cb_url_brief(url)}')
+    with CB_LOCK:
+        money = cb_money()
+    write_log(f'cb spy: вход в {user} — {money}; поток {cb_url_brief(url)}')
     return {'ok': True, 'url': url, 'spy': cb_public_state()}
 
 
