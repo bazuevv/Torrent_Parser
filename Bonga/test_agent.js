@@ -371,7 +371,7 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('вход: отчёт пишет, что видео сайта выключено',
         !!(startRes[0] && startRes[0].site && startRes[0].site.quiet === true),
         JSON.stringify(startRes[0] && startRes[0].site));
-  check('вход: плашка v13', /Агент CB v13/.test(g.badge()), g.badge());
+  check('вход: плашка v14', /Агент CB v14/.test(g.badge()), g.badge());
 
   let cdnBlocked = false;
   try {
@@ -389,8 +389,9 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   g.poll({ spy: { spy: { state: 'spying', room: 'testroom' }, agent: { username: 'adm211' } },
            cmd: null });
   for (let i = 0; i < 50; i++) await Promise.resolve();
-  check('плашка: счётчик отсечённого CDN',
-        /отсечено [1-9]/.test(g.badge()) && /ушло 0/.test(g.badge()),
+  check('плашка: счётчик трафика вкладки',
+        /трафик /.test(g.badge()) && /отсечено [1-9]/.test(g.badge()) &&
+        /ушло 0/.test(g.badge()),
         g.badge());
 
   /* Сторож не должен сбрасывать src: это и давало мерцание раз в 0.5 с. */

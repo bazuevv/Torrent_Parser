@@ -2787,8 +2787,8 @@
       const act = (data.payload || {}).act || '?';
       if (act !== 'balance') {
         const cdn = (data.payload || {}).cdn;
-        const extra = (cdn && (cdn.blocked || cdn.passed))
-          ? ` · CDN вкладки отсечено ${cdn.blocked || 0}, ушло ${cdn.passed || 0}`
+        const extra = (cdn && (cdn.blocked || cdn.passed || cdn.bytes))
+          ? ` · трафик вкладки ${cdn.bytes || 0} Б, ушло ${cdn.passed || 0}, отсечено ${cdn.blocked || 0}`
           : '';
         logEvent('spy.агент', `закладка отчиталась: ${act}${extra}`, 'act');
       }

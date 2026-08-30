@@ -30,7 +30,7 @@
                    playerQuality и сайт снимает право на 30-й секунде. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 13;
+  const AGENT_VERSION = 14;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -60,11 +60,13 @@
   let helloTimer = 0;
     let copyTimer = 0;
     let cdnTimer = 0;
+    let cdnWatch = null;
     const off = () => {
     stopped = true;
     clearInterval(helloTimer);
     clearTimeout(copyTimer);
     clearInterval(cdnTimer);
+    try { if (cdnWatch && cdnWatch.disconnect) cdnWatch.disconnect(); } catch (e) {}
     badge.remove();
     delete window.__cbAgent;
     gateSiteMedia(false);
@@ -498,37 +500,43 @@
            /\/(seg_|chunklist|llhls|stream\?room=)/i.test(u);
   };
 
-  /* Отсечено — наш wrap не пустил fetch/XHR. Ушло — браузер всё же скачал
-     (свой fetch у hls.js, native src): это и есть лишний трафик вкладки. */
+  /* Трафик вкладки: отсечено — wrap не пустил запрос; ушло — браузер всё же
+     скачал (свой fetch у hls.js, native src). Размер по Resource Timing:
+     у CDN часто нет Timing-Allow-Origin, тогда transferSize=0, но запрос
+     всё равно считаем. Нельзя перечитывать весь буфер performance: там
+     сидят куски с начала жизни страницы, в том числе до spy. */
   let cdnBlocked = 0;
   let cdnPassed = 0;
   let cdnBytes = 0;
   function resetCdnStats() { cdnBlocked = 0; cdnPassed = 0; cdnBytes = 0; }
-  function scanCdnLoaded() {
+  function fmtTraffic(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' Б';
+    if (n < 1024 * 1024) return Math.round(n / 102.4) / 10 + ' КБ';
+    return Math.round(n / 104857.6) / 10 + ' МБ';
+  }
+  function noteCdnLoaded(e) {
+    const name = (e && e.name) || '';
+    if (!isCdnMedia(name) && !/live\.mmcdn\.com/i.test(name)) return;
+    cdnPassed += 1;
+    cdnBytes += Number(e.transferSize) || Number(e.encodedBodySize) || 0;
+  }
+  function startCdnWatch() {
     try {
-      if (typeof performance === 'undefined' || !performance.getEntriesByType)
-        return;
-      const list = performance.getEntriesByType('resource');
-      let n = 0, bytes = 0;
-      for (let i = 0; i < list.length; i++) {
-        const e = list[i];
-        if (!isCdnMedia(e && e.name)) continue;
-        n += 1;
-        bytes += Number(e.transferSize) || 0;
-      }
-      cdnPassed = n;
-      cdnBytes = bytes;
-    } catch (e) {}
+      if (typeof PerformanceObserver !== 'function') return;
+      cdnWatch = new PerformanceObserver(list => {
+        const ents = list.getEntries();
+        for (let i = 0; i < ents.length; i++) noteCdnLoaded(ents[i]);
+      });
+      cdnWatch.observe({ type: 'resource', buffered: false });
+    } catch (e) { cdnWatch = null; }
   }
   function cdnStats() {
-    scanCdnLoaded();
     return { blocked: cdnBlocked, passed: cdnPassed, bytes: cdnBytes };
   }
   function cdnLine() {
     const s = cdnStats();
-    const kb = Math.round((s.bytes || 0) / 1024);
-    return `CDN отсечено ${s.blocked} · ушло ${s.passed}` +
-           (kb ? ` (${kb} КБ)` : '');
+    return `трафик ${fmtTraffic(s.bytes)} · ушло ${s.passed} · отсечено ${s.blocked}`;
   }
 
   const SILENCE_MS = 500;
@@ -814,13 +822,14 @@
     } else {
       // Комнату показываем в плашке: по ней сразу видно, стоит ли вкладка
       // там, где нужно, или её ещё предстоит перевести.
-      say(`${agent.username || 'готов'} · ${tabRoom() || 'главная'} · жду команду`);
+      say(`${agent.username || 'готов'} · ${tabRoom() || 'главная'} · ${cdnLine()}`);
     }
   }
 
   /* Единственный канал к плееру — window.opener. Вкладку, открытую не
      плеером, связать с ним нечем: fetch запрещает CSP сайта, а window.open
      по имени находит только окна своей группы вкладок. */
+  startCdnWatch();
   if (window.opener && !window.opener.closed) {
     transport = window.opener;
     hello();
