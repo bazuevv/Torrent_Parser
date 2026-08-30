@@ -541,6 +541,21 @@
   .tcap .tspy:hover { filter: brightness(1.25); }
   .tcap .tspy.on { background: #b5372c; color: #fff; }
   .tcap .tspy.dim { opacity: .55; }
+  .tcap .tspyMeta {
+    min-width: 0; display: inline-flex; align-items: center; gap: 4px;
+    color: #d8b277; font-size: 10px; font-variant-numeric: tabular-nums;
+  }
+  .tcap .tspyMeta[hidden] { display: none; }
+  .tcap .tspyTokens { flex: 0 0 auto; font-style: normal; white-space: nowrap; }
+  .tcap .tspyHls {
+    min-width: 24px; max-width: 210px; overflow: hidden; text-overflow: ellipsis;
+    color: #8ea0b8; white-space: nowrap;
+  }
+  .tcap .tspyCopy {
+    flex: 0 0 auto; padding: 1px 4px; border-radius: 4px; cursor: pointer;
+    color: #a9c8fb; background: rgba(110, 168, 254, .16); font-size: 11px;
+  }
+  .tcap .tspyCopy:hover { filter: brightness(1.3); }
   /* Плашка «приват» теплее красной «ушла»: комната на месте, просто закрыта. */
   .tile.private .off { background: rgba(158, 106, 22, .92); }
   /* Постоянный индикатор слышимой ячейки. Класс loud уже является источником
@@ -4124,6 +4139,7 @@
     tile.edge = '';
     tile.box.querySelector('b').textContent = '';
     tile.box.querySelector('.tq').textContent = '';
+    tile.box.querySelector('.tspyMeta').hidden = true;
     tile.box.querySelector('.empty').hidden = false;
     tile.box.classList.remove('loud', 'audible', 'busy', 'cb'); // пустой ячейке панель ни к чему
     resetTileNormalizer(tile);
@@ -4674,10 +4690,24 @@
      остальное время скрыта, чтобы не засорять сетку. */
   function paintSpy(tile) {
     const btn = tile.box.querySelector('.tspy');
+    const meta = tile.box.querySelector('.tspyMeta');
     if (!btn) return;
-    if (!tile.user || !isChaturbate(tile.edge)) { btn.hidden = true; return; }
+    if (!tile.user || !isChaturbate(tile.edge)) {
+      btn.hidden = true;
+      if (meta) meta.hidden = true;
+      return;
+    }
     const spy = spyOf();
     const mine = spyMine(tile.user);
+    if (meta) {
+      const hls = mine ? String(spy.hls || '') : '';
+      meta.hidden = !mine || !['spying', 'stopping'].includes(spy.state);
+      meta.querySelector('.tspyTokens').textContent = `🪙 ${Number(spy.tokens) || 0}`;
+      const address = meta.querySelector('.tspyHls');
+      address.textContent = hls;
+      address.title = hls;
+      meta.querySelector('.tspyCopy').hidden = !hls;
+    }
     if (spy.state === 'spying' && mine) {
       btn.hidden = false;
       btn.classList.add('on');
@@ -5152,6 +5182,10 @@
                     '<i class="tsound" role="button" tabindex="0" data-i18n-title="ячейка.ручнаяГромкость">🔊</i>' +
                     '<i class="tnorm"></i>' +
                     '<span class="tspy" role="button" tabindex="0" hidden></span>' +
+                    '<span class="tspyMeta" hidden><i class="tspyTokens"></i>' +
+                      '<span class="tspyHls"></span>' +
+                      '<span class="tspyCopy" role="button" tabindex="0" ' +
+                        'title="Копировать HLS">⧉</span></span>' +
                     '<span class="tcopy" data-i18n-title="ячейка.копировать">⧉</span>' +
                     '<i class="tq"></i></span>' +
                     '<div class="tnormMenu" hidden>' +
@@ -5341,6 +5375,14 @@
       e.stopPropagation();
       if (!tile.user || !isChaturbate(tile.edge)) return;
       spyToggle(tile.user);
+    };
+    box.querySelector('.tspyCopy').onclick = e => {
+      e.stopPropagation();
+      const hls = String(spyOf().hls || '');
+      if (!hls || !spyMine(tile.user)) return;
+      navigator.clipboard.writeText(hls)
+        .then(() => say('HLS скопирован', 'ok'))
+        .catch(() => say('Не удалось скопировать HLS', 'err'));
     };
     tiles.push(tile);
     screens[screenAt].box.appendChild(box);

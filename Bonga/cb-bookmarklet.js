@@ -21,7 +21,8 @@
      вход в spy:  POST /tipping/spy_on_private_show_request/<room>/
                    chat_username, price, fan_club_price + X-CSRFToken
      выход:       POST /tipping/private_show_cancel/<room>/
-                   understands_minimum_charge=true
+                   пустое тело для spy; understands_minimum_charge=true
+                   только при подтверждённом минимальном времени private
      поток:       POST /get_edge_hls_url_ajax/ (room_slug, bandwidth)
                    — при активном spy начинает отдавать приватный url;
                    запасной источник — hls_source в initialRoomDossier. */
@@ -302,10 +303,17 @@
   }
 
   async function doStop(cmd) {
-    const r = await post(`/tipping/private_show_cancel/${cmd.room}/`, {
-      understands_minimum_charge: 'true',
-    });
-    const data = softParse(r.text);
+    /* Штатный leavePrivateOrSpyShow для PrivateSpying отправляет пустое тело.
+       understands_minimum_charge относится к досрочному выходу зрителя из
+       обычного private; с ним cancel spy отвечал success:false и не выходил. */
+    let r = await post(`/tipping/private_show_cancel/${cmd.room}/`, {});
+    let data = softParse(r.text);
+    if (!stopDone(data, r.text) && Number(data.remaining_seconds) > 0) {
+      r = await post(`/tipping/private_show_cancel/${cmd.room}/`, {
+        understands_minimum_charge: 'true',
+      });
+      data = softParse(r.text);
+    }
     try { localStorage.removeItem(SPY_KEY); } catch (e) {}
     if (stopDone(data, r.text))
       return { ok: true, raw: r.text.slice(0, 500) };

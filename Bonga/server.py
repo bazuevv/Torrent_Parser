@@ -14,6 +14,7 @@
 
 import itertools
 import json
+import math
 import os
 import re
 import shutil
@@ -373,6 +374,12 @@ def _cb_snapshot():
            ('state', 'room', 'price', 'error', 'agent_lost')}
     spy['minutes'] = (int((now - CB_SPY['started']) // 60)
                       if CB_SPY['started'] else 0)
+    elapsed = max(0.0, now - CB_SPY['started']) if CB_SPY['started'] else 0.0
+    spy['tokens'] = (math.ceil(CB_SPY['price'] * elapsed / 60)
+                     if elapsed and CB_SPY['state'] != 'idle' else 0)
+    spy['hls'] = (CB_SPY['url'] if CB_SPY['state'] != 'idle'
+                  and isinstance(CB_SPY['url'], str)
+                  and CB_SPY['url'].startswith('https://') else '')
     return {'agent': agent, 'spy': spy}
 
 
