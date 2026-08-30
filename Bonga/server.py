@@ -294,12 +294,19 @@ def chaturbate_stream(user, force=False):
         host = (urlparse(fresh).hostname or '').lower()
         good = (fresh.startswith('https://') and
                 (host.endswith('.mmcdn.com') or host.endswith('.highwebmedia.com')))
+        if not fresh:
+            verdict = 'адреса нет'
+        elif not good:
+            verdict = 'адрес с чужого хоста'
+        elif fresh != old_spy_url:
+            verdict = 'адрес сменился'
+        else:
+            verdict = 'адрес тот же'
         write_log(
             f'cb spy: url_get {user} после fatal-ошибки плеера — '
             f'{"агент промолчал" if result is None else "агент ответил"}, '
             f'было {cb_url_brief(old_spy_url)}, стало {cb_url_brief(fresh)} '
-            f'({"адрес сменился" if fresh != old_spy_url else "адрес тот же"}, '
-            f'room_status={status or "не сказан"})')
+            f'({verdict}, room_status={status or "не сказан"})')
 
         # Совпадение адреса — норма, а не повод прекращать платный показ:
         # spy у Chaturbate раздаётся по стабильному пути
@@ -335,7 +342,7 @@ def chaturbate_stream(user, force=False):
                 CB_SPY['misses'] += 1
             misses = CB_SPY['misses'] if mine else 0
             held = CB_SPY['url'] if mine else ''
-        write_log(f'cb spy: url_get {user} без адреса — промах {misses} из 2')
+        write_log(f'cb spy: url_get {user} — {verdict}, промах {misses} из 2')
         if misses >= 2:
             cb_stop_now('поток не подтверждён двумя запросами подряд', wait=False)
         elif held:
