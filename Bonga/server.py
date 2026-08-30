@@ -100,7 +100,7 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
-CB_AGENT_VERSION = 4       # v4 сообщает фактический баланс каждые 9 секунд
+CB_AGENT_VERSION = 5       # v5 читает баланс сразу после входа и шлёт ответ сайта
 
 
 def cb_reset(error=''):
@@ -644,9 +644,11 @@ def cb_agent_event(act, payload):
                 CB_SPY['misses'] = 0
             else:
                 CB_SPY['misses'] += 1          # подписка могла умереть
+                raw = str(payload.get('raw') or '')[:600]
                 write_log(f'cb spy: refresh {room} без адреса — промах '
                           f'{CB_SPY["misses"]} из 2 (room_status='
-                          f'{room_status or "не сказан"})')
+                          f'{room_status or "не сказан"})'
+                          + (f'; сайт ответил: {raw}' if raw else ''))
             if room_status and room_status != 'private':
                 # шоу кончилось само, списание остановлено сайтом
                 write_log(f'cb spy: шоу {room} кончилось ({room_status})')

@@ -28,7 +28,7 @@
                    запасной источник — hls_source в initialRoomDossier. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 4;
+  const AGENT_VERSION = 5;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   const REFRESH_MS = 45000;
@@ -300,17 +300,27 @@
     return Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
   };
 
+  /* Возвращает ещё и raw — что именно ответил сайт. Без этого «агент не отдал
+     адреса» в журнале сервера неотличимо от «сайт отдал адрес, а мы его не
+     признали»: прецедент 30.08, показ умер на 403, а причина осталась
+     неизвестной, потому что ответ Chaturbate никуда не записывался. */
   async function streamUrl(room) {
+    let raw = '';
     try {
       const r = await post('/get_edge_hls_url_ajax/', { room_slug: room, bandwidth: 'high' });
+      raw = `ajax HTTP ${r.status}: ${r.text.slice(0, 400)}`;
       const data = softParse(r.text);
       if (data && typeof data.url === 'string' && data.url.startsWith('https://'))
-        return { url: data.url, room_status: String(data.room_status || '') };
-    } catch (e) { /* попробуем dossier */ }
+        return { url: data.url, room_status: String(data.room_status || ''), raw };
+    } catch (e) {
+      raw = `ajax не прошёл: ${(e && e.message) || e}`;
+    }
     const d = await roomDossier(room);
     if (d && typeof d.hls_source === 'string' && d.hls_source.startsWith('https://'))
-      return { url: d.hls_source, room_status: String(d.room_status || 'private') };
-    return { url: '', room_status: '' };
+      return { url: d.hls_source, room_status: String(d.room_status || 'private'),
+               raw: `${raw} · адрес взят из dossier` };
+    return { url: '', room_status: String((d && d.room_status) || ''),
+             raw: `${raw} · dossier ${d ? 'без hls_source' : 'недоступен'}` };
   }
 
   /* ---- команды ---------------------------------------------------------- */
@@ -342,8 +352,14 @@
     const s = await streamUrl(cmd.room);
     try { localStorage.setItem(SPY_KEY, JSON.stringify({ room: cmd.room, at: Date.now() })); } catch (e) {}
     try { localStorage.setItem(BALANCE_ROOM_KEY, cmd.room); } catch (e) {}
+    /* Контрольное чтение баланса сразу после входа. Первое списание сайт
+       делает в момент входа, а рядовой опрос приходит раз в 9 секунд — показ
+       успевает оборваться раньше, и тогда за что списали остаётся неясным.
+       balance здесь — точка отсчёта расхода, balance_after — цена входа. */
+    const after = dossierBalance(await roomDossier(cmd.room, true));
     return { ok: true, url: s.url, room_status: s.room_status, price, balance,
-             raw: r.text.slice(0, 2000) };
+             balance_after: after,
+             raw: `вход: ${r.text.slice(0, 800)} · поток: ${s.raw}` };
   }
 
   async function doStop(cmd) {
@@ -367,7 +383,7 @@
 
   async function doGetUrl(cmd) {
     const s = await streamUrl(cmd.room);
-    return { ok: !!s.url, url: s.url, room_status: s.room_status };
+    return { ok: !!s.url, url: s.url, room_status: s.room_status, raw: s.raw };
   }
 
   const report = payload => toHub({ v: 1, kind: 'result',
@@ -450,7 +466,8 @@
         try {
           const s = await streamUrl(spy.room);
           report({ act: 'refresh', room: spy.room,
-                   url: s.url, room_status: s.room_status });
+                   url: s.url, room_status: s.room_status,
+                   raw: s.url ? '' : s.raw });
         } catch (e) { /* скажется следующим кругом */ }
       }
       say(`spy ${spy.room} · ${agent.username || 'аккаунт'}`);
