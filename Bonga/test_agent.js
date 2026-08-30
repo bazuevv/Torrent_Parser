@@ -55,7 +55,7 @@ function makeClock() {
 }
 
 /* --- запуск агента в песочнице -------------------------------------------- */
-function launch({ fetchImpl, opener = true, dossier = null }) {
+function launch({ fetchImpl, opener = true, dossier = null, webpack = null, video = null }) {
   const clock = makeClock();
   const sent = [];
   const store = new Map();
@@ -68,6 +68,7 @@ function launch({ fetchImpl, opener = true, dossier = null }) {
   const hub = { closed: false, postMessage: (p) => sent.push(p) };
 
   const opened = [];
+  const videoEl = video || { muted: false, play: async () => {} };
   const win = {
     __proto__: null,
     opener: opener ? hub : null,
@@ -79,14 +80,18 @@ function launch({ fetchImpl, opener = true, dossier = null }) {
     // Досье сайт кладёт только на страницу комнаты — по нему агент и
     // определяет, где стоит вкладка.
     initialRoomDossier: dossier,
+    webpackChunk_multimediallc_cb_ts: webpack,
   };
   const sandbox = {
     window: win,
     document: {
       cookie: 'csrftoken=abc123',
       body: el(),
+      hidden: true,
+      visibilityState: 'hidden',
       createElement: el,
-      querySelector: () => ({}),
+      querySelector: () => videoEl,
+      getElementById: id => (id === 'chat-player' ? videoEl : null),
       addEventListener() {},
     },
     localStorage: {
@@ -111,6 +116,9 @@ function launch({ fetchImpl, opener = true, dossier = null }) {
     String,
     Math,
     Error,
+    Object,
+    Function,
+    webpackChunk_multimediallc_cb_ts: webpack,
   };
   sandbox.globalThis = sandbox;
   win.location = sandbox.location;
@@ -217,6 +225,118 @@ function launch({ fetchImpl, opener = true, dossier = null }) {
   check('на главной: комната пустая', greet(f).room === '', JSON.stringify(greet(f)));
   check('на главной: имя аккаунта всё равно есть', greet(f).username === 'adm211',
         JSON.stringify(greet(f)));
+
+  /* --- 6. После входа агент будит плеер сайта -----------------------------
+     POST spy_on_private_show_request только оплачивает вход. Штатный код
+     сайта следом делает changeStatus("privatespying") — иначе их плеер
+     остаётся в privatenotwatching, не шлёт playerQuality и сайт закрывает
+     поток на 30-й секунде (lin_rin 14:42, вкладка уже была на комнате). */
+  function dossierHtml() {
+    const json = JSON.stringify({
+      broadcaster_username: 'testroom',
+      viewer_username: 'adm211',
+      room_status: 'private',
+      spy_private_show_price: 6,
+      token_balance: 200,
+    }).replace(/"/g, '\\u0022');
+    return `window.initialRoomDossier = "${json}";`;
+  }
+  const startUrl = 'https://edge1.live.mmcdn.com/v1/edge/streams/origin.testroom.ULID/llhls.m3u8?token=t';
+  const startFetch = async (href) => {
+    const u = String(href);
+    if (u.includes('spy_on_private_show_request'))
+      return { ok: true, status: 200, text: async () => JSON.stringify({ success: true }) };
+    if (u.includes('private_show_cancel'))
+      return { ok: true, status: 200,
+               text: async () => JSON.stringify({ success: true, remaining_seconds: 0,
+                                                  can_access: true }) };
+    if (u.includes('get_edge_hls_url'))
+      return { ok: true, status: 200,
+               text: async () => JSON.stringify({ success: true, url: startUrl,
+                                                  room_status: 'private' }) };
+    return { ok: true, status: 200, text: async () => dossierHtml() };
+  };
+
+  function makeWebpack() {
+    const statuses = [];
+    const conn = {
+      status: 'privatenotwatching',
+      changeStatus(next) { statuses.push(next); this.status = next; },
+    };
+    const factories = {
+      32939(module, exports) {
+        /* Имена roomLoaded/roomCleanup обязаны быть в тексте фабрики:
+           агент ищет модуль по ним, а не по номеру — номер плывёт с cachebust. */
+        const roomLoaded = {
+          eventName: 'roomLoaded',
+          listen(fn) {
+            fn({ chatConnection: conn, dossier: {} });
+            return { removeListener() {} };
+          },
+        };
+        const roomCleanup = { eventName: 'roomCleanup' };
+        exports.X0 = roomLoaded;
+        exports.Gr = roomCleanup;
+      },
+    };
+    const cache = Object.create(null);
+    function req(id) {
+      if (cache[id]) return cache[id].exports;
+      const box = { exports: {} };
+      cache[id] = box;
+      factories[id](box, box.exports, req);
+      return box.exports;
+    }
+    req.m = factories;
+    const chunks = [];
+    chunks.push = function (chunk) {
+      const runtime = chunk[2];
+      if (typeof runtime === 'function') runtime(req);
+      return Array.prototype.push.call(this, chunk);
+    };
+    return { chunks, conn, statuses };
+  }
+
+  const played = [];
+  const videoStub = { muted: false, play: async () => { played.push('play'); } };
+  const wp = makeWebpack();
+  const g = launch({ fetchImpl: startFetch, webpack: wp.chunks, video: videoStub,
+                     dossier: { broadcaster_username: 'testroom' } });
+  g.ready();
+  g.poll({ spy: { spy: { state: 'idle', room: '' }, agent: { username: 'adm211' } },
+           cmd: { id: 's1', act: 'spy_start', room: 'testroom' } });
+  for (let i = 0; i < 200; i++) await Promise.resolve();
+  const startRes = g.results().filter(p => p.act === 'spy_start');
+  check('вход: команда выполнилась', startRes.length === 1 && startRes[0].ok === true,
+        JSON.stringify(startRes[0]));
+  check('вход: плеер сайта переведён в privatespying',
+        wp.statuses[0] === 'privatespying', JSON.stringify(wp.statuses));
+  check('вход: отчёт знает, что плеер найден',
+        !!(startRes[0] && startRes[0].site && startRes[0].site.conn),
+        JSON.stringify(startRes[0] && startRes[0].site));
+  check('вход: video.play вызван', played.length >= 1, JSON.stringify(played));
+  check('вход: вкладка притворяется видимой',
+        startRes[0] && startRes[0].site && startRes[0].site.vis === true,
+        JSON.stringify(startRes[0] && startRes[0].site));
+
+  g.poll({ spy: { spy: { state: 'spying', room: 'testroom' }, agent: { username: 'adm211' } },
+           cmd: { id: 's2', act: 'spy_stop', room: 'testroom' } });
+  for (let i = 0; i < 200; i++) await Promise.resolve();
+  check('выход: плеер сайта возвращён в privatenotwatching',
+        wp.statuses.includes('privatenotwatching'), JSON.stringify(wp.statuses));
+
+  const h = launch({ fetchImpl: startFetch, dossier: { broadcaster_username: 'testroom' } });
+  h.ready();
+  h.poll({ spy: { spy: { state: 'idle', room: '' }, agent: { username: 'adm211' } },
+           cmd: { id: 's3', act: 'spy_start', room: 'testroom' } });
+  for (let i = 0; i < 200; i++) await Promise.resolve();
+  const degraded = h.results().filter(p => p.act === 'spy_start');
+  check('без webpack: вход всё равно проходит',
+        degraded.length === 1 && degraded[0].ok === true,
+        JSON.stringify(degraded[0]));
+  check('без webpack: в отчёте плеер не найден',
+        degraded[0] && degraded[0].site && degraded[0].site.conn === false,
+        JSON.stringify(degraded[0] && degraded[0].site));
 
   console.log('\nИТОГ:', ok ? 'всё сошлось' : 'ЕСТЬ ПРОВАЛЫ');
   process.exit(ok ? 0 : 1);

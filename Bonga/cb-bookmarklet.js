@@ -24,10 +24,13 @@
                    только при подтверждённом минимальном времени private
      поток:       POST /get_edge_hls_url_ajax/ (room_slug, bandwidth)
                    — при активном spy начинает отдавать приватный url;
-                   запасной источник — hls_source в initialRoomDossier. */
+                   запасной источник — hls_source в initialRoomDossier.
+     после входа: chatConnection.changeStatus("privatespying") — иначе
+                   их плеер остаётся в privatenotwatching, не шлёт
+                   playerQuality и сайт снимает право на 30-й секунде. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 8;
+  const AGENT_VERSION = 9;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -311,6 +314,127 @@
              raw: `${raw} · dossier ${d ? 'без hls_source' : 'недоступен'}` };
   }
 
+  /* ---- плеер сайта --------------------------------------------------------
+     Наш POST в tipping/* оплачивает вход, но штатный обработчик после успеха
+     ещё делает chatConnection.changeStatus("privatespying"). Без этого их
+     видео остаётся в privatenotwatching: overlay вместо потока, sendQuality
+     не уходит (бандл 6784-prod, startQualityTracking / sendQuality), и сайт
+     отзывает право ровно на 30-й секунде — прогоны 30.08, в том числе lin_rin
+     уже со вкладкой на странице комнаты.
+
+     chatConnection живёт в событии roomLoaded (история длины 1, listen
+     сразу отдаёт последний контекст). К нему не привязаться из DOM: id
+     вебпак-модуля меняется с каждым cachebust, поэтому ищем фабрику по
+     строкам roomLoaded/roomCleanup и зовём её через webpack require.
+
+     Вкладка Chaturbate при просмотре в нашем плеере в фоне. sendQuality
+     не шлёт метрики при document.hidden — на время spy притворяемся, что
+     вкладка видима, иначе даже privatespying не спасёт. */
+
+  const SITE_SPYING = 'privatespying';
+  const SITE_IDLE = 'privatenotwatching';
+
+  function webpackRequire() {
+    const chunks = globalThis.webpackChunk_multimediallc_cb_ts;
+    if (!chunks || typeof chunks.push !== 'function') return null;
+    let req = null;
+    try {
+      chunks.push([[`cbAgent_${Date.now()}`], {}, r => { req = r; }]);
+    } catch (e) { return null; }
+    return req && req.m ? req : null;
+  }
+
+  function roomLoadedEvent(req) {
+    if (!req || !req.m) return null;
+    for (const id of Object.keys(req.m)) {
+      let src = '';
+      try { src = Function.prototype.toString.call(req.m[id]); } catch (e) { continue; }
+      if (src.indexOf('roomLoaded') < 0 || src.indexOf('roomCleanup') < 0) continue;
+      let exp;
+      try { exp = req(id); } catch (e) { continue; }
+      if (!exp || typeof exp !== 'object') continue;
+      for (const key of Object.keys(exp)) {
+        const v = exp[key];
+        if (v && v.eventName === 'roomLoaded' && typeof v.listen === 'function')
+          return v;
+      }
+    }
+    return null;
+  }
+
+  function chatConnFrom(evt) {
+    if (!evt) return null;
+    let conn = null;
+    let handle = null;
+    try {
+      handle = evt.listen(ctx => {
+        if (ctx && ctx.chatConnection &&
+            typeof ctx.chatConnection.changeStatus === 'function')
+          conn = ctx.chatConnection;
+      });
+    } catch (e) { return null; }
+    try { if (handle && handle.removeListener) handle.removeListener(); } catch (e) {}
+    return conn;
+  }
+
+  let visPatched = false;
+  function pretendTabVisible(on) {
+    try {
+      if (on && !visPatched) {
+        Object.defineProperty(document, 'hidden',
+                              { configurable: true, get: () => false });
+        Object.defineProperty(document, 'visibilityState',
+                              { configurable: true, get: () => 'visible' });
+        visPatched = true;
+      } else if (!on && visPatched) {
+        delete document.hidden;
+        delete document.visibilityState;
+        visPatched = false;
+      }
+    } catch (e) { /* hidden мог быть неconfigurable */ }
+  }
+
+  function wakeSiteVideo() {
+    try {
+      const v = document.getElementById('chat-player') ||
+                document.querySelector('[data-testid="video"]');
+      if (!v || typeof v.play !== 'function') return false;
+      v.muted = true;
+      const p = v.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function tellSitePlayer(status) {
+    const out = { status, conn: false, video: false, vis: visPatched };
+    const conn = chatConnFrom(roomLoadedEvent(webpackRequire()));
+    if (conn) {
+      try {
+        out.was = String(conn.status || '');
+        conn.changeStatus(status);
+        out.conn = true;
+      } catch (e) {
+        out.error = String((e && e.message) || e);
+      }
+    }
+    if (status === SITE_SPYING) {
+      pretendTabVisible(true);
+      out.vis = visPatched;
+      out.video = wakeSiteVideo();
+    } else {
+      pretendTabVisible(false);
+      out.vis = visPatched;
+    }
+    return out;
+  }
+
+  const siteLine = site => site.conn
+    ? `плеер сайта ${site.was || '?'} → ${site.status}` +
+      `${site.vis ? ', вкладка как видимая' : ''}` +
+      `${site.video ? ', video.play' : ''}`
+    : `плеер сайта не найден (${site.error || 'нет roomLoaded'})`;
+
   /* ---- команды ---------------------------------------------------------- */
 
   async function doStart(cmd) {
@@ -345,9 +469,10 @@
        успевает оборваться раньше, и тогда за что списали остаётся неясным.
        balance здесь — точка отсчёта расхода, balance_after — цена входа. */
     const after = dossierBalance(await roomDossier(cmd.room, true));
+    const site = tellSitePlayer(SITE_SPYING);
     return { ok: true, url: s.url, room_status: s.room_status, price, balance,
-             balance_after: after,
-             raw: `вход: ${r.text.slice(0, 800)} · поток: ${s.raw}` };
+             balance_after: after, site,
+             raw: `вход: ${r.text.slice(0, 800)} · поток: ${s.raw} · ${siteLine(site)}` };
   }
 
   async function doStop(cmd) {
@@ -363,10 +488,11 @@
       data = softParse(r.text);
     }
     try { localStorage.removeItem(SPY_KEY); } catch (e) {}
+    const site = tellSitePlayer(SITE_IDLE);
     if (stopDone(data, r.text))
-      return { ok: true, raw: r.text.slice(0, 500) };
+      return { ok: true, site, raw: `${r.text.slice(0, 500)} · ${siteLine(site)}` };
     return { ok: false, error: `сайт отклонил остановку (HTTP ${r.status})`,
-             raw: r.text.slice(0, 1000) };
+             site, raw: `${r.text.slice(0, 1000)} · ${siteLine(site)}` };
   }
 
   async function doGetUrl(cmd) {
