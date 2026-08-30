@@ -595,6 +595,12 @@ def cb_agent_poll(agent_id, username, busy, version=0):
         # «потрачено 1 тк» минуту и скакнул до 3 лишь на выходе, потому что
         # цифры обновлялись только вместе с концом ожидания.
         was = _cb_sig()
+        # Команду отдаём только тому, кому есть куда её доставить. Пустое имя
+        # означает, что живой закладки за этим опросом нет: такой опрашивающий
+        # забирал команду и молча терял её, а сервер узнавал об этом лишь через
+        # CB_CMD_TTL. Прецедент 30.08: остановка ждала подтверждения 95 секунд —
+        # три круга по тридцать, пока команду перехватывала вкладка-мост.
+        can_run = bool(username)
         while True:
             now = time.time()
             cmd = None
@@ -602,9 +608,17 @@ def cb_agent_poll(agent_id, username, busy, version=0):
                 if not item['claimed'] or now - item['claimed'] > CB_CMD_TTL:
                     if cmd is None or item['at'] < cmd['at']:
                         cmd = item
+            if cmd is not None and not can_run:
+                if not cmd.get('idle_logged'):
+                    cmd['idle_logged'] = True
+                    write_log(f'cb agent: команда {cmd["act"]} {cmd["room"]} ждёт — '
+                              f'опрос {agent_id} без живой закладки')
+                cmd = None
             if cmd is not None:
                 cmd['claimed'] = now
-                return {'now': int(now), 'cmd': dict(cmd), 'spy': _cb_snapshot()}
+                payload = {key: value for key, value in cmd.items()
+                           if key != 'idle_logged'}   # пометка журнала, не для агента
+                return {'now': int(now), 'cmd': payload, 'spy': _cb_snapshot()}
             left = deadline - now
             if left <= 0 or _cb_sig() != was:
                 return {'now': int(now), 'cmd': None, 'spy': _cb_snapshot()}

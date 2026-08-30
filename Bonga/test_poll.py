@@ -31,13 +31,17 @@ def check(name, cond, extra=''):
     ok &= bool(cond)
 
 
-def poll_in_thread(agent_id='player-hub'):
-    """Запускает long-poll в потоке; возвращает функцию ожидания результата."""
+def poll_in_thread(agent_id='player-hub', username='adm211'):
+    """Запускает long-poll в потоке; возвращает функцию ожидания результата.
+
+    Пустое username — опрос без живой закладки за ним: плеер шлёт его именно
+    так, когда вкладка Chaturbate потеряна.
+    """
     box = {}
 
     def run():
         start = time.time()
-        box['answer'] = server.cb_agent_poll(agent_id, 'adm211', False,
+        box['answer'] = server.cb_agent_poll(agent_id, username, False,
                                             server.CB_AGENT_VERSION)
         box['took'] = time.time() - start
 
@@ -118,7 +122,25 @@ check('смена состояния: вернулся досрочно', box.ge
 check('смена состояния: снимок это показывает',
       session(box['answer'])['state'] == 'stopping')
 
-# 5. Само течение времени поводом для возврата быть не должно.
+# 5. Опрос без живой закладки команду забирать не вправе.
+arm()
+wait = poll_in_thread(agent_id='deadhub', username='')
+time.sleep(0.3)
+server.cb_queue('spy_stop', ROOM)
+box = wait()
+check('без закладки: команду не отдали', box['answer']['cmd'] is None,
+      str(box['answer']['cmd']))
+check('без закладки: команда осталась в очереди', len(server.CB_CMDS) == 1,
+      str(list(server.CB_CMDS)))
+
+# 6. …и она достаётся следующему опросу, за которым закладка есть.
+wait = poll_in_thread()
+box = wait()
+check('живая закладка: получила ту же команду',
+      (box['answer']['cmd'] or {}).get('act') == 'spy_stop',
+      str(box['answer']['cmd']))
+
+# 7. Само течение времени поводом для возврата быть не должно.
 arm()
 wait = poll_in_thread()
 time.sleep(0.6)                    # spy['seconds'] за это время вырос
