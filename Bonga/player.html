@@ -546,7 +546,10 @@
     color: #d8b277; font-size: 10px; font-variant-numeric: tabular-nums;
   }
   .tcap .tspyMeta[hidden] { display: none; }
-  .tcap .tspyTokens { flex: 0 0 auto; font-style: normal; white-space: nowrap; }
+  .tcap .tspyTokens, .tcap .tspyBalance {
+    flex: 0 0 auto; font-style: normal; white-space: nowrap;
+  }
+  .tcap .tspyBalance { color: #9fc7a5; }
   .tcap .tspyHls {
     min-width: 24px; max-width: 210px; overflow: hidden; text-overflow: ellipsis;
     color: #8ea0b8; white-space: nowrap;
@@ -2532,6 +2535,17 @@
       say(t('spy.запущен', { цена: spyOf().price || 0 }), 'ok');
       for (const tile of tiles)
         if (tile.user && isChaturbate(tile.edge)) paintSpy(tile);
+      /* Успешный POST уже содержит URL и состояние spying. Запускаем ячейку
+         прямо отсюда: ожидание следующего poll оставляло платный вход без
+         единого запроса HLS, если снимок был сформирован не в тот момент. */
+      const tile = tiles.find(item => item.user && isChaturbate(item.edge) &&
+        item.user.toLowerCase() === String(room).toLowerCase());
+      if (tile && tile.box.classList.contains('private') &&
+          spyOf().state === 'spying') {
+        spyRelaunch = tile;
+        try { await tilePlay(tile, tile.user, tile.edge); }
+        finally { spyRelaunch = null; }
+      }
     } catch { say(t('spy.сеть'), 'err'); }
   }
 
@@ -2610,6 +2624,8 @@
     username: cbAgentName,
     version: cbAgentVersion,
     anon: !cbAgentName || cbAgentName === 'AnonymousUser',
+    balance: agentOf().balance ?? null,
+    balance_at: agentOf().balance_at || 0,
   });
 
   const cbHubPause = ms => new Promise(resolve => {
@@ -4765,8 +4781,11 @@
     const mine = spyMine(tile.user);
     if (meta) {
       const hls = mine ? String(spy.hls || '') : '';
+      const balance = agentOf().balance;
       meta.hidden = !mine || !['spying', 'stopping'].includes(spy.state);
-      meta.querySelector('.tspyTokens').textContent = `🪙 ${Number(spy.tokens) || 0}`;
+      meta.querySelector('.tspyTokens').textContent = `расход 🪙 ${Number(spy.tokens) || 0}`;
+      meta.querySelector('.tspyBalance').textContent =
+        `баланс 🪙 ${Number.isFinite(Number(balance)) && balance !== null ? Number(balance) : '—'}`;
       const address = meta.querySelector('.tspyHls');
       address.textContent = hls;
       address.title = hls;
@@ -5247,6 +5266,7 @@
                     '<i class="tnorm"></i>' +
                     '<span class="tspy" role="button" tabindex="0" hidden></span>' +
                     '<span class="tspyMeta" hidden><i class="tspyTokens"></i>' +
+                      '<i class="tspyBalance"></i>' +
                       '<span class="tspyHls"></span>' +
                       '<span class="tspyCopy" role="button" tabindex="0" ' +
                         'title="Копировать HLS">⧉</span></span>' +

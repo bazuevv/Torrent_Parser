@@ -14,7 +14,6 @@
 
 import itertools
 import json
-import math
 import os
 import re
 import shutil
@@ -93,6 +92,7 @@ CB_CMDS = {}                                # id команды -> {act, room, a
 CB_RESULTS = {}                             # id команды -> результат от агента
 CB_SEQ = itertools.count(1)
 CB_SPY = {}                                 # см. cb_reset()
+CB_BALANCE = {'value': None, 'at': 0.0}     # последний баланс авторизованного агента
 CB_POLL_HOLD = 25          # сколько держать long-poll агента (сети фон не троттлит)
 CB_AGENT_OFFLINE = 40      # столько без poll-а считаем вкладку с агентом пропавшей
 CB_CMD_TTL = 30            # команда без результата так долго — перевыдать агенту
@@ -100,7 +100,7 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
-CB_AGENT_VERSION = 2       # старые закладки отправляют неверный cancel spy
+CB_AGENT_VERSION = 4       # v4 сообщает фактический баланс каждые 9 секунд
 
 
 def cb_reset(error=''):
@@ -110,7 +110,8 @@ def cb_reset(error=''):
     CB_SPY.update({'state': 'idle', 'room': '', 'price': 0, 'started': 0.0,
                    'url': '', 'url_at': 0.0, 'error': error,
                    'stop_tries': 0, 'stop_cmd': '', 'agent_lost': False,
-                   'player_seen': 0.0, 'armed': 0.0, 'misses': 0})
+                   'player_seen': 0.0, 'armed': 0.0, 'misses': 0,
+                   'last_balance': None, 'tokens_used': 0})
 
 
 cb_reset()
@@ -382,7 +383,8 @@ def chaturbate_dossier(user):
 def _cb_snapshot():
     """Снимок spy-машины и агентов; вызывать строго под CB_LOCK."""
     now = time.time()
-    agent = {'online': False, 'username': '', 'version': 0, 'anon': True}
+    agent = {'online': False, 'username': '', 'version': 0, 'anon': True,
+             'balance': CB_BALANCE['value'], 'balance_at': int(CB_BALANCE['at'])}
     freshest = None
     for item in CB_AGENTS.values():
         if now - item['last'] <= CB_AGENT_OFFLINE and (
@@ -392,14 +394,16 @@ def _cb_snapshot():
         name = freshest.get('username') or ''
         agent = {'online': True, 'username': name,
                  'version': int(freshest.get('version') or 0),
-                 'anon': not name or name == 'AnonymousUser'}
+                 'anon': not name or name == 'AnonymousUser',
+                 'balance': CB_BALANCE['value'],
+                 'balance_at': int(CB_BALANCE['at'])}
     spy = {key: CB_SPY[key] for key in
            ('state', 'room', 'price', 'error', 'agent_lost')}
     spy['minutes'] = (int((now - CB_SPY['started']) // 60)
                       if CB_SPY['started'] else 0)
-    elapsed = max(0.0, now - CB_SPY['started']) if CB_SPY['started'] else 0.0
-    spy['tokens'] = (math.ceil(CB_SPY['price'] * elapsed / 60)
-                     if elapsed and CB_SPY['state'] != 'idle' else 0)
+    # Расход берём не из времени и заявленной цены, а из фактических
+    # уменьшений баланса, которые авторизованная вкладка присылает раз в 9 с.
+    spy['tokens'] = CB_SPY['tokens_used'] if CB_SPY['state'] != 'idle' else 0
     spy['hls'] = (CB_SPY['url'] if CB_SPY['state'] != 'idle'
                   and isinstance(CB_SPY['url'], str)
                   and CB_SPY['url'].startswith('https://') else '')
@@ -410,6 +414,32 @@ def cb_public_state():
     """Снимок для плеера. Вызывать без CB_LOCK."""
     with CB_LOCK:
         return _cb_snapshot()
+
+
+def _cb_apply_balance(payload, room=''):
+    """Применяет баланс из сообщения агента. Вызывать под CB_LOCK.
+
+    Суммируем только уменьшения: пополнение во время Spy не должно стирать
+    уже понесённый расход. Другие траты аккаунта в эти секунды сайт отдельно
+    не маркирует, поэтому источником истины остаётся наблюдаемая дельта.
+    """
+    raw = payload.get('balance') if isinstance(payload, dict) else None
+    if isinstance(raw, bool):
+        return None
+    try:
+        balance = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if balance < 0:
+        return None
+    CB_BALANCE.update({'value': balance, 'at': time.time()})
+    mine = room and room.lower() == CB_SPY['room'].lower()
+    if mine and CB_SPY['state'] in ('starting', 'spying', 'stopping'):
+        previous = CB_SPY['last_balance']
+        if previous is not None and balance < previous:
+            CB_SPY['tokens_used'] += previous - balance
+        CB_SPY['last_balance'] = balance
+    return balance
 
 
 def cb_queue(act, room):
@@ -477,7 +507,7 @@ def cb_agent_result(payload):
     cid = str(payload.get('id') or '')
     raw = str(payload.get('raw') or '')[:2000]
 
-    if act in ('refresh', 'recovery'):
+    if act in ('refresh', 'recovery', 'balance'):
         return cb_agent_event(act, payload)
 
     with CB_COND:
@@ -498,8 +528,9 @@ def cb_agent_event(act, payload):
     room_status = str(payload.get('room_status') or '')
     url = payload.get('url')
     stop_room = ''
-    with CB_LOCK:
+    with CB_COND:
         mine = room and room.lower() == CB_SPY['room'].lower()
+        _cb_apply_balance(payload, room)
         if act == 'recovery':
             # агент считает себя в spy, а сервер с ним не согласен: списание
             # может идти прямо сейчас, orphan останавливаем безусловно
@@ -521,6 +552,7 @@ def cb_agent_event(act, payload):
                 # шоу кончилось само, списание остановлено сайтом
                 write_log(f'cb spy: шоу {room} кончилось ({room_status})')
                 cb_reset()
+        CB_COND.notify_all()          # баланс/URL сразу попадут в poll плеера
     if stop_room:
         cid = cb_queue('spy_stop', stop_room)
         with CB_LOCK:
@@ -644,6 +676,9 @@ def cb_spy_start(user):
         with CB_LOCK:
             cb_reset(error)
         raise ValueError(f'вход в spy не удался: {error}')
+
+    with CB_LOCK:
+        _cb_apply_balance(result, user)
 
     url = str(result.get('url') or '')
     if not url.startswith('https://'):

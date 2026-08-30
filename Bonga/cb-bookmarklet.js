@@ -28,9 +28,11 @@
                    запасной источник — hls_source в initialRoomDossier. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 3;
+  const AGENT_VERSION = 4;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
+  const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   const REFRESH_MS = 45000;
+  const BALANCE_MS = 9000;
 
   /* Второе нажатие закладки выключает агента. */
   if (window.__cbAgent) {
@@ -278,16 +280,25 @@
     } catch (e) { return null; }
   }
 
-  async function roomDossier(room) {
-    const own = localDossier();
+  async function roomDossier(room, fresh = false) {
+    const own = fresh ? null : localDossier();
     if (own && String(own.broadcaster_username || '').toLowerCase() === room.toLowerCase())
       return own;
     try {
-      const res = await fetch('/' + room + '/', { credentials: 'same-origin' });
+      const res = await fetch('/' + room + '/?agent_balance=' + Date.now(), {
+        credentials: 'same-origin', cache: 'no-store',
+      });
       if (!res.ok) return null;
       return parseDossier(await res.text());
     } catch (e) { return null; }
   }
+
+  const dossierBalance = dossier => {
+    if (!dossier || dossier.token_balance === undefined || dossier.token_balance === null)
+      return null;
+    const value = Number(dossier.token_balance);
+    return Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+  };
 
   async function streamUrl(room) {
     try {
@@ -305,7 +316,7 @@
   /* ---- команды ---------------------------------------------------------- */
 
   async function doStart(cmd) {
-    const d = await roomDossier(cmd.room);
+    const d = await roomDossier(cmd.room, true);
     if (!d) return { ok: false, error: 'страница комнаты недоступна' };
     const viewer = String(d.viewer_username || '');
     if (!viewer || viewer === 'AnonymousUser')
@@ -314,7 +325,7 @@
       return { ok: false, error: `комната не в привате (${d.room_status || '?'})` };
     const price = Number(d.spy_private_show_price) || 0;
     if (!price) return { ok: false, error: 'комната не называет цену spy' };
-    const balance = Number(d.token_balance) || 0;
+    const balance = dossierBalance(d) ?? 0;
     if (balance < price)
       return { ok: false, error: `не хватает токенов: ${balance} < ${price}/мин` };
 
@@ -330,7 +341,8 @@
 
     const s = await streamUrl(cmd.room);
     try { localStorage.setItem(SPY_KEY, JSON.stringify({ room: cmd.room, at: Date.now() })); } catch (e) {}
-    return { ok: true, url: s.url, room_status: s.room_status, price,
+    try { localStorage.setItem(BALANCE_ROOM_KEY, cmd.room); } catch (e) {}
+    return { ok: true, url: s.url, room_status: s.room_status, price, balance,
              raw: r.text.slice(0, 2000) };
   }
 
@@ -360,6 +372,25 @@
 
   const report = payload => toHub({ v: 1, kind: 'result',
                                     payload: { ...payload, agent_version: AGENT_VERSION } });
+
+  /* Баланс запрашиваем независимо от long-poll команд: он может висеть 25 с,
+     а фактический расход Spy должен появляться в плеере каждые 9 секунд. */
+  let balanceBusy = false;
+  const reportBalance = async () => {
+    if (stopped || balanceBusy) return;
+    let room = '';
+    try {
+      const mine = JSON.parse(localStorage.getItem(SPY_KEY) || 'null');
+      room = String((mine && mine.room) || localStorage.getItem(BALANCE_ROOM_KEY) || '');
+    } catch (e) { return; }
+    if (!room) return;
+    balanceBusy = true;
+    try {
+      const balance = dossierBalance(await roomDossier(room, true));
+      if (balance !== null) report({ act: 'balance', room, balance });
+    } finally { balanceBusy = false; }
+  };
+  setInterval(reportBalance, BALANCE_MS);
 
   /* ---- обработка poll-ответа моста ---------------------------------------- */
 
