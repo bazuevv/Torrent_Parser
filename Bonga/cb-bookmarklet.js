@@ -28,6 +28,7 @@
                    запасной источник — hls_source в initialRoomDossier. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
+  const AGENT_VERSION = 2;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const REFRESH_MS = 45000;
 
@@ -111,7 +112,7 @@
 
   const hello = () => {
     const msg = { v: 1, kind: 'hello',
-                  username: viewerName() };
+                  username: viewerName(), agent_version: AGENT_VERSION };
     toHub(msg);
     if (window.opener && window.opener !== transport && !window.opener.closed) {
       try { window.opener.postMessage(msg, PLAYER); } catch (e) {}
@@ -178,7 +179,8 @@
      Пинг дублируется в opener: после перезагрузки плеера связь восстанав-
      ливается сама, как только плеер снова привяжет вкладку. */
   const pingHub = () => {
-    const msg = { v: 1, kind: 'ping', username: viewerName() };
+    const msg = { v: 1, kind: 'ping', username: viewerName(),
+                  agent_version: AGENT_VERSION };
     toHub(msg);
     if (window.opener && window.opener !== transport && !window.opener.closed) {
       try { window.opener.postMessage(msg, PLAYER); } catch (e) {}
@@ -224,8 +226,7 @@
        Это успешная остановка для нашей машины состояний, а не повод навечно
        оставаться в stopping и повторять одну и ту же команду. */
     return !!data && isTrue(data.can_access) &&
-      Number(data.remaining_seconds) === 0 &&
-      Number(data.tokens_per_minute) === 0;
+      Number(data.remaining_seconds) === 0;
   };
 
   /* ---- данные комнаты ------------------------------------------------------ */
@@ -326,7 +327,8 @@
     return { ok: !!s.url, url: s.url, room_status: s.room_status };
   }
 
-  const report = payload => toHub({ v: 1, kind: 'result', payload });
+  const report = payload => toHub({ v: 1, kind: 'result',
+                                    payload: { ...payload, agent_version: AGENT_VERSION } });
 
   /* ---- обработка poll-ответа моста ---------------------------------------- */
 

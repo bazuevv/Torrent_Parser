@@ -2581,6 +2581,7 @@
      всего две — плеер и сам сайт. */
   let cbWindow = null;               // вкладка Chaturbate, открытая плеером
   let cbAgentName = '';
+  let cbAgentVersion = 0;
   let cbAgentSeen = 0;
   const cbAgentFresh = () => Date.now() - cbAgentSeen < 20000;
 
@@ -2598,6 +2599,7 @@
     if (!data || data.v !== 1) return;
     if (data.kind === 'hello' || data.kind === 'ping') {
       cbAgentName = String(data.username || '');
+      cbAgentVersion = Number(data.agent_version) || 0;
       cbAgentSeen = Date.now();
       if (data.kind === 'hello') toAgent({ v: 1, kind: 'ready' });
     } else if (data.kind === 'result') {
@@ -2634,6 +2636,7 @@
           body: JSON.stringify({
             id: 'player-hub',
             username: cbAgentFresh() ? cbAgentName : '',
+            agent_version: cbAgentFresh() ? cbAgentVersion : 0,
             busy: false,
           }),
         });

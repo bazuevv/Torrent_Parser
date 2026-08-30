@@ -59,7 +59,7 @@
     try { localStorage.setItem('cbBridgeId', agentId); } catch (e) {}
   }
 
-  const meta = { username: '', lastPing: 0 };
+  const meta = { username: '', agentVersion: 0, lastPing: 0 };
   const cbAlive = () => {
     try { return window.opener && !window.opener.closed; } catch (e) { return false; }
   };
@@ -90,6 +90,7 @@
     }
     if (data.kind === 'hello' || data.kind === 'ping') {
       meta.username = String(data.username || '');
+      meta.agentVersion = Number(data.agent_version) || 0;
       meta.lastPing = Date.now();
       if (data.kind === 'hello') {
         log(`hello от ${cbOrigin} (${meta.username || 'аноним'})`);
@@ -115,6 +116,7 @@
           body: JSON.stringify({
             id: agentId,
             username: agentAlive() ? meta.username : '',
+            agent_version: agentAlive() ? meta.agentVersion : 0,
             busy: false,
           }),
         });

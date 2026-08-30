@@ -100,6 +100,7 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
+CB_AGENT_VERSION = 2       # старые закладки отправляют неверный cancel spy
 
 
 def cb_reset(error=''):
@@ -360,7 +361,7 @@ def chaturbate_dossier(user):
 def _cb_snapshot():
     """Снимок spy-машины и агентов; вызывать строго под CB_LOCK."""
     now = time.time()
-    agent = {'online': False, 'username': '', 'anon': True}
+    agent = {'online': False, 'username': '', 'version': 0, 'anon': True}
     freshest = None
     for item in CB_AGENTS.values():
         if now - item['last'] <= CB_AGENT_OFFLINE and (
@@ -369,6 +370,7 @@ def _cb_snapshot():
     if freshest is not None:
         name = freshest.get('username') or ''
         agent = {'online': True, 'username': name,
+                 'version': int(freshest.get('version') or 0),
                  'anon': not name or name == 'AnonymousUser'}
     spy = {key: CB_SPY[key] for key in
            ('state', 'room', 'price', 'error', 'agent_lost')}
@@ -387,18 +389,6 @@ def cb_public_state():
     """Снимок для плеера. Вызывать без CB_LOCK."""
     with CB_LOCK:
         return _cb_snapshot()
-
-
-def cb_agent_ready():
-    """Есть ли онлайн-агент с авторизованной вкладкой (не AnonymousUser)."""
-    now = time.time()
-    with CB_LOCK:
-        for item in CB_AGENTS.values():
-            fresh = now - item['last'] <= CB_AGENT_OFFLINE
-            name = item.get('username') or ''
-            if fresh and name and name != 'AnonymousUser':
-                return True
-        return False
 
 
 def cb_queue(act, room):
@@ -433,12 +423,12 @@ def cb_wait_result(cid, timeout):
             CB_COND.wait(left)
 
 
-def cb_agent_poll(agent_id, username, busy):
+def cb_agent_poll(agent_id, username, busy, version=0):
     """Long-poll агента: ждать команду до CB_POLL_HOLD, потом пустой ответ."""
     deadline = time.time() + CB_POLL_HOLD
     with CB_COND:
         CB_AGENTS[agent_id] = {'last': time.time(), 'username': username,
-                               'busy': bool(busy)}
+                               'busy': bool(busy), 'version': int(version or 0)}
         # Хаб-цикл живёт в самой странице плеера: пока он поллит — плеер
         # открыт, и watchdog spy не должен останавливать показ.
         if agent_id == 'player-hub':
@@ -544,9 +534,10 @@ def cb_stop_done(result):
         return True
     try:
         raw = json.loads(str(result.get('raw') or ''))
-        return (isinstance(raw, dict) and raw.get('can_access') is True
+        return (int(result.get('agent_version') or 0) >= CB_AGENT_VERSION
+                and isinstance(raw, dict) and raw.get('can_access') is True
                 and int(raw.get('remaining_seconds')) == 0
-                and int(raw.get('tokens_per_minute')) == 0)
+                )
     except (TypeError, ValueError, json.JSONDecodeError):
         return False
 
@@ -579,9 +570,13 @@ def cb_stop_wait(room):
 
 def cb_spy_start(user):
     """Старт spy из плеера: проверки, команда агенту, ожидание URL."""
-    if not cb_agent_ready():
+    agent = cb_public_state()['agent']
+    if not agent.get('online') or agent.get('anon'):
         raise ValueError('агент Chaturbate не подключён: откройте вкладку '
                          'chaturbate.com с входом в аккаунт и закладкой')
+    if int(agent.get('version') or 0) < CB_AGENT_VERSION:
+        raise ValueError('агент Chaturbate устарел — удалите старую закладку '
+                         'и заново добавьте её из плеера')
 
     dossier = chaturbate_dossier(user)
     if dossier['status'] != 'private':
@@ -2121,10 +2116,14 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_error(400, 'expected object')
             agent_id = str(body.get('id') or '')
             username = str(body.get('username') or '')[:60]
+            try:
+                agent_version = max(0, int(body.get('agent_version') or 0))
+            except (TypeError, ValueError):
+                agent_version = 0
             if not ID_RE.match(agent_id):
                 return self.send_error(400, 'bad id')
             return self._json(cb_agent_poll(agent_id, username,
-                                            bool(body.get('busy'))))
+                                            bool(body.get('busy')), agent_version))
 
         if path == '/api/cb/agent/result':
             if not isinstance(body, dict):
