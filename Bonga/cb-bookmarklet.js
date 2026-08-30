@@ -28,7 +28,7 @@
                    запасной источник — hls_source в initialRoomDossier. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 2;
+  const AGENT_VERSION = 3;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const REFRESH_MS = 45000;
 
@@ -43,22 +43,53 @@
     'padding:8px 12px;border-radius:8px;background:#1c1f26;color:#e6e8ec;' +
     'font:12px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.5);' +
     'cursor:pointer;max-width:320px';
-  badge.title = 'Нажмите, чтобы выключить агента';
-  const say = text => { badge.textContent = 'Агент CB: ' + text; };
+  const badgeTitle = 'Нажмите, чтобы скопировать. Повторный запуск закладки выключает агента';
+  badge.title = badgeTitle;
+  const say = text => { badge.textContent = `Агент CB v${AGENT_VERSION}: ${text}`; };
 
   let stopped = false;
   let transport = null;               // окно-собеседник: плеер или вкладка-мост
   let transportReady = false;
   let helloTimer = 0;
   let helloDeadline = 0;
+  let copyTimer = 0;
   const off = () => {
     stopped = true;
     clearInterval(helloTimer);
+    clearTimeout(copyTimer);
     badge.remove();
     delete window.__cbAgent;
     /* Ни плеер, ни мост не закрываем: следующий запуск найдёт их же. */
   };
-  badge.onclick = off;
+  const copyBadge = async () => {
+    const text = badge.textContent;
+    let copied = false;
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText)
+        throw new Error('Clipboard API недоступен');
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch (e) {
+      /* Старые браузеры или строгие разрешения Clipboard API: копируем
+         тем же пользовательским кликом через временное текстовое поле. */
+      const field = document.createElement('textarea');
+      field.value = text;
+      field.setAttribute('readonly', '');
+      field.style.cssText = 'position:fixed;left:-9999px;top:0';
+      document.body.appendChild(field);
+      field.select();
+      try { copied = document.execCommand('copy'); } catch (copyError) {}
+      field.remove();
+    }
+    clearTimeout(copyTimer);
+    badge.style.outline = copied ? '2px solid #4fd38a' : '2px solid #ff6b6b';
+    badge.title = copied ? `Скопировано: ${text}` : 'Не удалось скопировать информацию';
+    copyTimer = setTimeout(() => {
+      badge.style.outline = '';
+      badge.title = badgeTitle;
+    }, 1400);
+  };
+  badge.onclick = copyBadge;
   document.body.appendChild(badge);
   window.__cbAgent = { badge, off };
 

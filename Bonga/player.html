@@ -7069,7 +7069,7 @@
 
   // Агент spy-режима Chaturbate: та же схема, но закладка живёт на
   // chaturbate.com и исполняет платные команды от имени сессии сайта.
-  fetch('cb-bookmarklet.js')
+  fetch('cb-bookmarklet.js', { cache: 'no-store' })
     .then(r => r.text())
     .then(src => {
       $('bmLinkCb').href = 'javascript:' +
