@@ -60,15 +60,31 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   const sent = [];
   const store = new Map();
   const byId = {};
-  const el = () => {
+  const el = (tag) => {
     const n = {
       id: '',
+      tagName: String(tag || 'div').toUpperCase(),
+      type: '',
+      checked: false,
+      children: [],
+      parentNode: null,
       style: { cssText: '', opacity: '', visibility: '' },
       textContent: '', title: '', dataset: {},
       setAttribute() {},
       remove() { if (n.id) delete byId[n.id]; },
       select() {},
-      appendChild(child) { if (child && child.id) byId[child.id] = child; },
+      appendChild(child) {
+        n.children.push(child);
+        if (child) child.parentNode = n;
+        if (child && child.id) byId[child.id] = child;
+        return child;
+      },
+      removeChild(child) {
+        const i = n.children.indexOf(child);
+        if (i >= 0) n.children.splice(i, 1);
+        if (child && child.id) delete byId[child.id];
+        return child;
+      },
       addEventListener() {}, querySelector: () => null,
     };
     return n;
@@ -102,7 +118,7 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
       documentElement: host,
       hidden: true,
       visibilityState: 'hidden',
-      createElement: el,
+      createElement: tag => el(tag),
       querySelector: () => videoEl,
       querySelectorAll: sel => (String(sel).indexOf('video') >= 0 ? [videoEl] : []),
       getElementById: id => (id === 'chat-player' ? videoEl : (byId[id] || null)),
@@ -157,13 +173,18 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   const ready = () => listeners.message({
     origin: PLAYER, source: hub, data: { v: 1, kind: 'ready' },
   });
-  const badge = () => ((win.__cbAgent || {}).badge || {}).textContent || '';
+  const badge = () => {
+    const a = win.__cbAgent || {};
+    if (typeof a.copyText === 'function') return a.copyText();
+    return (a.badge || {}).textContent || '';
+  };
+  const videoToggle = () => (win.__cbAgent || {}).videoInput || null;
   const fireDoc = (kind, target) => {
     (docEvents[kind] || []).forEach(fn => {
       try { fn({ target }); } catch (e) {}
     });
   };
-  return { clock, sent, poll, ready, store, opened, badge, sandbox, fireDoc,
+  return { clock, sent, poll, ready, store, opened, badge, videoToggle, sandbox, fireDoc,
            results: () => sent.filter(m => m.kind === 'result').map(m => m.payload) };
 }
 
@@ -360,10 +381,12 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
         (() => {
           const lines = g.badge().split('\n');
           return lines.length === 2 &&
-            /Агент CB v17: связь с плеером есть, жду команду/.test(lines[0]) &&
+            /Агент CB v18: связь с плеером есть, жду команду/.test(lines[0]) &&
             /^видеотрафик /.test(lines[1]);
         })(),
         g.badge());
+  check('ползунок: по умолчанию выключен',
+        g.videoToggle() && g.videoToggle().checked === false);
   g.poll({ spy: { spy: { state: 'idle', room: '' }, agent: { username: 'adm211' } },
            cmd: { id: 's1', act: 'spy_start', room: 'testroom' } });
   for (let i = 0; i < 200; i++) await Promise.resolve();
@@ -385,11 +408,11 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('вход: отчёт пишет, что видео сайта выключено',
         !!(startRes[0] && startRes[0].site && startRes[0].site.quiet === true),
         JSON.stringify(startRes[0] && startRes[0].site));
-  check('вход: плашка v17 — состояние и видеотрафик на разных строках',
+  check('вход: плашка v18 — состояние и видеотрафик на разных строках',
         (() => {
           const lines = g.badge().split('\n');
           return lines.length === 2 &&
-            /Агент CB v17: spy testroom$/.test(lines[0]) &&
+            /Агент CB v18: spy testroom$/.test(lines[0]) &&
             /^видеотрафик /.test(lines[1]);
         })(),
         g.badge());
@@ -414,6 +437,25 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
         /видеотрафик /.test(g.badge()) && /отсечено [1-9]/.test(g.badge()) &&
         /ушло 0/.test(g.badge()) && g.badge().split('\n').length === 2,
         g.badge());
+
+  const tog = g.videoToggle();
+  tog.checked = true;
+  tog.onchange({ stopPropagation() {} });
+  cdnHits = 0;
+  const allowed = await g.sandbox.fetch(cdnPlaylist);
+  check('ползунок вкл: HLS сайта проходит',
+        allowed && allowed.ok === true && cdnHits === 1,
+        `hits=${cdnHits}`);
+  tog.checked = false;
+  tog.onchange({ stopPropagation() {} });
+  cdnHits = 0;
+  let blockedAgain = false;
+  try { await g.sandbox.fetch(cdnPlaylist); } catch (e) {
+    blockedAgain = /cdn media blocked/.test(String(e && e.message || e));
+  }
+  check('ползунок выкл: HLS сайта снова режется',
+        blockedAgain && cdnHits === 0,
+        `blocked=${blockedAgain} hits=${cdnHits}`);
 
   /* Сторож не должен сбрасывать src: это и давало мерцание раз в 0.5 с. */
   const pausesAtStart = paused.length;

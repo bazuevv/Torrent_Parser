@@ -30,7 +30,7 @@
                    playerQuality и сайт снимает право на 30-й секунде. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 17;
+  const AGENT_VERSION = 18;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -49,14 +49,53 @@
   badge.style.cssText = 'position:fixed;z-index:2147483647;right:12px;bottom:12px;' +
     'padding:8px 12px;border-radius:8px;background:#1c1f26;color:#e6e8ec;' +
     'font:12px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.5);' +
-    'cursor:pointer;max-width:320px;white-space:pre-line';
+    'cursor:pointer;max-width:320px';
   const badgeTitle = 'Нажмите, чтобы скопировать. Повторный запуск закладки выключает агента';
   badge.title = badgeTitle;
   /* Первая строка — состояние, вторая всегда видеотрафик вкладки сайта.
      Иначе в ожидании команды («связь с плеером есть») счётчика не было. */
   let statusText = '';
+  let siteVideoOn = false;            // видео плеера сайта; по умолчанию выкл
+  let spyNow = { state: 'idle', room: '' };
+  const statusEl = document.createElement('div');
+  const trafficEl = document.createElement('div');
+  trafficEl.style.cssText = 'color:#9aa3af';
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;' +
+    'gap:8px;margin-top:6px';
+  const lab = document.createElement('span');
+  lab.textContent = 'видео плеера';
+  lab.style.cssText = 'color:#c5cad3';
+  const sw = document.createElement('span');
+  sw.style.cssText = 'position:relative;width:36px;height:20px;flex:0 0 auto';
+  const videoInput = document.createElement('input');
+  videoInput.type = 'checkbox';
+  videoInput.checked = false;
+  videoInput.title = 'Видео плеера сайта. Выкл — картинка только у нас, сайт не качает HLS';
+  videoInput.style.cssText = 'position:absolute;inset:0;opacity:0;width:36px;height:20px;' +
+    'margin:0;cursor:pointer;z-index:1';
+  const track = document.createElement('span');
+  const knob = document.createElement('span');
+  const paintSwitch = () => {
+    track.style.cssText = 'display:block;width:36px;height:20px;border-radius:10px;' +
+      'background:' + (siteVideoOn ? '#4fd38a' : '#3d4450');
+    knob.style.cssText = 'position:absolute;top:2px;width:16px;height:16px;border-radius:50%;' +
+      'background:#e6e8ec;left:' + (siteVideoOn ? '18px' : '2px') +
+      ';transition:left .15s';
+  };
+  paintSwitch();
+  sw.appendChild(track);
+  sw.appendChild(knob);
+  sw.appendChild(videoInput);
+  row.appendChild(lab);
+  row.appendChild(sw);
+  badge.appendChild(statusEl);
+  badge.appendChild(trafficEl);
+  badge.appendChild(row);
+  const copyText = () => `Агент CB v${AGENT_VERSION}: ${statusText}\n${cdnLine()}`;
   const paintTraffic = () => {
-    badge.textContent = `Агент CB v${AGENT_VERSION}: ${statusText}\n${cdnLine()}`;
+    statusEl.textContent = `Агент CB v${AGENT_VERSION}: ${statusText}`;
+    trafficEl.textContent = cdnLine();
   };
   const say = text => { statusText = String(text || ''); paintTraffic(); };
 
@@ -84,7 +123,7 @@
     /* Плеер не закрываем: следующий запуск найдёт его же. */
   };
   const copyBadge = async () => {
-    const text = badge.textContent;
+    const text = copyText();
     let copied = false;
     try {
       if (!navigator.clipboard || !navigator.clipboard.writeText)
@@ -111,9 +150,19 @@
       badge.title = badgeTitle;
     }, 1400);
   };
+  const onVideoToggle = ev => {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+    siteVideoOn = !!videoInput.checked;
+    paintSwitch();
+    applySiteVideo(false);
+  };
+  videoInput.onchange = onVideoToggle;
+  videoInput.onclick = onVideoToggle;
+  videoInput.onmousedown = ev => { if (ev && ev.stopPropagation) ev.stopPropagation(); };
+  row.onclick = ev => { if (ev && ev.stopPropagation) ev.stopPropagation(); };
   badge.onclick = copyBadge;
   document.body.appendChild(badge);
-  window.__cbAgent = { badge, off };
+  window.__cbAgent = { badge, off, videoInput, copyText };
 
   /* ---- связь с плеером ----------------------------------------------------
      Говорим с окном, которое открыло эту вкладку: это и есть плеер, он же
@@ -493,11 +542,40 @@
   }
 
   function onSitePlaying(e) {
+    if (siteVideoOn) return;
     const t = e && e.target;
     if (!t) return;
     const tag = String(t.tagName || '').toUpperCase();
     if (tag !== 'VIDEO' && tag !== 'AUDIO') return;
     pauseSiteVideo(false);
+  }
+
+  function showSiteVideo() {
+    quietCss(false);
+    const list = allSiteVideos();
+    for (let i = 0; i < list.length; i++) {
+      const v = list[i];
+      try {
+        if (v.style) {
+          v.style.opacity = '';
+          v.style.visibility = '';
+        }
+      } catch (e) {}
+      try { if (typeof v.play === 'function') v.play(); } catch (e) {}
+    }
+  }
+
+  /* quiet=false — показать плеер сайта; hard — сбросить src только на входе. */
+  function applySiteVideo(hard) {
+    const inSpy = spyNow.state === 'spying' || spyNow.state === 'starting';
+    if (!inSpy) return;
+    if (siteVideoOn) {
+      gateSiteMedia(false);
+      showSiteVideo();
+    } else {
+      gateSiteMedia(true);
+      pauseSiteVideo(!!hard);
+    }
   }
 
   /* Сегменты и плейлисты CDN — это и есть параллельная трансляция. Ajax
@@ -632,8 +710,10 @@
        открыть HLS до перехвата. */
     if (status === SITE_SPYING) {
       pretendTabVisible(true);
-      gateSiteMedia(true);
-      out.quiet = pauseSiteVideo(true);
+      if (!siteVideoOn) {
+        gateSiteMedia(true);
+        out.quiet = pauseSiteVideo(true);
+      }
       out.vis = visPatched;
     }
     const conn = chatConnFrom(roomLoadedEvent(webpackRequire()));
@@ -651,7 +731,8 @@
       pretendTabVisible(false);
       out.vis = visPatched;
     }
-    if (status === SITE_SPYING) out.quiet = pauseSiteVideo(true) || out.quiet;
+    if (status === SITE_SPYING && !siteVideoOn)
+      out.quiet = pauseSiteVideo(true) || out.quiet;
     return out;
   }
 
@@ -755,7 +836,6 @@
   /* Обновление потока живёт своим таймером, а не внутри разбора poll-ответа:
      тот возвращается раз в CB_POLL_HOLD (25 с), поэтому двадцатисекундный
      цикл оттуда недостижим в принципе. */
-  let spyNow = { state: 'idle', room: '' };
   let refreshBusy = false;
   const refreshStream = async () => {
     if (stopped || refreshBusy) return;

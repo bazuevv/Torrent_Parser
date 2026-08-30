@@ -100,7 +100,7 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
-CB_AGENT_VERSION = 17      # v17: recovery не глотает spy_start
+CB_AGENT_VERSION = 18      # v18: ползунок видео плеера сайта на плашке
 
 
 def cb_status_live(status):
