@@ -214,6 +214,18 @@
     return out;
   }
   const isTrue = v => v === true || v === 'true' || v === 'True' || v === 1;
+  const stopDone = (data, text) => {
+    if (isTrue(data && data.success)) return true;
+    if (/not (?:currently )?(?:in|watching)|no active|nothing to cancel/i.test(text))
+      return true;
+    /* Когда приват завершает сама модель, cancel отвечает success:false,
+       но одновременно сообщает, что оплачиваемого просмотра уже нет.
+       Это успешная остановка для нашей машины состояний, а не повод навечно
+       оставаться в stopping и повторять одну и ту же команду. */
+    return !!data && isTrue(data.can_access) &&
+      Number(data.remaining_seconds) === 0 &&
+      Number(data.tokens_per_minute) === 0;
+  };
 
   /* ---- данные комнаты ------------------------------------------------------ */
 
@@ -294,9 +306,8 @@
       understands_minimum_charge: 'true',
     });
     const data = softParse(r.text);
-    const gone = /not (?:currently )?(?:in|watching)|no active|nothing to cancel/i.test(r.text);
     try { localStorage.removeItem(SPY_KEY); } catch (e) {}
-    if (isTrue(data && data.success) || gone)
+    if (stopDone(data, r.text))
       return { ok: true, raw: r.text.slice(0, 500) };
     return { ok: false, error: `сайт отклонил остановку (HTTP ${r.status})`,
              raw: r.text.slice(0, 1000) };

@@ -528,6 +528,22 @@ def cb_stop_now(reason, wait=True):
     return cb_stop_wait(room)
 
 
+def cb_stop_done(result):
+    """Сайт мог сам завершить приват до cancel: success тогда false, но
+    remaining_seconds и tokens_per_minute уже нулевые — списания больше нет."""
+    if not isinstance(result, dict):
+        return False
+    if result.get('ok') or 'не в привате' in str(result.get('error') or ''):
+        return True
+    try:
+        raw = json.loads(str(result.get('raw') or ''))
+        return (isinstance(raw, dict) and raw.get('can_access') is True
+                and int(raw.get('remaining_seconds')) == 0
+                and int(raw.get('tokens_per_minute')) == 0)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def cb_stop_wait(room):
     """Перекладывает команду стопа и ждёт результат один TTL."""
     cid = cb_queue('spy_stop', room)
@@ -535,8 +551,7 @@ def cb_stop_wait(room):
         if CB_SPY['room'].lower() == room.lower():
             CB_SPY['stop_cmd'] = cid
     result = cb_wait_result(cid, CB_CMD_TTL + 5)
-    soft_done = 'не в привате' in str((result or {}).get('error') or '')
-    if result is not None and (result.get('ok') or soft_done):
+    if cb_stop_done(result):
         with CB_LOCK:
             if CB_SPY['room'].lower() == room.lower():
                 cb_reset()
@@ -664,8 +679,16 @@ def cb_guard():
                     if act == 'spy_stop':
                         room = str(payload.get('room') or '')
                         if room.lower() == CB_SPY['room'].lower():
-                            write_log(f'cb spy: {room} остановлен (guard)')
-                            cb_reset()
+                            if cb_stop_done(payload):
+                                write_log(f'cb spy: {room} остановлен (guard)')
+                                cb_reset()
+                            else:
+                                # Просроченный ответ с ошибкой не означает,
+                                # что списание прекратилось. Сбрасываем лишь
+                                # id команды: блок stopping ниже безопасно
+                                # поставит новую попытку.
+                                CB_SPY['stop_cmd'] = ''
+                                write_log(f'cb spy: стоп {room} не подтверждён, повтор')
                     elif act in ('spy_start', 'url_get') and payload.get('url'):
                         # поздний старт: покажется следующим stream-запросом
                         CB_SPY.update({'url': str(payload['url']),
@@ -693,8 +716,7 @@ def cb_guard():
                     requeue_stop = room        # команда потерялась — заново
                 elif pending is None:          # результат лежит без ждущего
                     payload = CB_RESULTS.pop(cid, None) or {}
-                    soft = 'не в привате' in str(payload.get('error') or '')
-                    if payload.get('ok') or soft:
+                    if cb_stop_done(payload):
                         write_log(f'cb spy: {room} остановлен (guard)')
                         cb_reset()
                     else:
