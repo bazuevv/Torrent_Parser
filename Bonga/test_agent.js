@@ -371,7 +371,7 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('вход: отчёт пишет, что видео сайта выключено',
         !!(startRes[0] && startRes[0].site && startRes[0].site.quiet === true),
         JSON.stringify(startRes[0] && startRes[0].site));
-  check('вход: плашка v12', /Агент CB v12/.test(g.badge()), g.badge());
+  check('вход: плашка v13', /Агент CB v13/.test(g.badge()), g.badge());
 
   let cdnBlocked = false;
   try {
@@ -385,6 +385,13 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   const ajaxText = await ajax.text();
   check('вход: ajax чата по-прежнему проходит',
         ajax.ok && /"url"/.test(ajaxText), ajaxText.slice(0, 80));
+
+  g.poll({ spy: { spy: { state: 'spying', room: 'testroom' }, agent: { username: 'adm211' } },
+           cmd: null });
+  for (let i = 0; i < 50; i++) await Promise.resolve();
+  check('плашка: счётчик отсечённого CDN',
+        /отсечено [1-9]/.test(g.badge()) && /ушло 0/.test(g.badge()),
+        g.badge());
 
   /* Сторож не должен сбрасывать src: это и давало мерцание раз в 0.5 с. */
   const pausesAtStart = paused.length;
@@ -403,6 +410,10 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
         paused.includes('stopLoad'),
         JSON.stringify({ src: videoStub.src, opacity: videoStub.style.opacity,
                          last: paused.slice(-6) }));
+  const cdnRefresh = g.results().filter(p => p.act === 'refresh' && p.cdn);
+  check('refresh: несёт счётчик CDN',
+        cdnRefresh.some(r => r.cdn.blocked >= 1 && r.cdn.passed === 0),
+        JSON.stringify(cdnRefresh.map(r => r.cdn)));
 
   g.poll({ spy: { spy: { state: 'spying', room: 'testroom' }, agent: { username: 'adm211' } },
            cmd: { id: 's2', act: 'spy_stop', room: 'testroom' } });

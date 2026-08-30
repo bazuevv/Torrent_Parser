@@ -30,7 +30,7 @@
                    playerQuality и сайт снимает право на 30-й секунде. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 12;
+  const AGENT_VERSION = 13;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -58,11 +58,13 @@
   let transport = null;               // окно плеера (оно же window.opener)
   let transportReady = false;
   let helloTimer = 0;
-  let copyTimer = 0;
-  const off = () => {
+    let copyTimer = 0;
+    let cdnTimer = 0;
+    const off = () => {
     stopped = true;
     clearInterval(helloTimer);
     clearTimeout(copyTimer);
+    clearInterval(cdnTimer);
     badge.remove();
     delete window.__cbAgent;
     gateSiteMedia(false);
@@ -496,6 +498,39 @@
            /\/(seg_|chunklist|llhls|stream\?room=)/i.test(u);
   };
 
+  /* Отсечено — наш wrap не пустил fetch/XHR. Ушло — браузер всё же скачал
+     (свой fetch у hls.js, native src): это и есть лишний трафик вкладки. */
+  let cdnBlocked = 0;
+  let cdnPassed = 0;
+  let cdnBytes = 0;
+  function resetCdnStats() { cdnBlocked = 0; cdnPassed = 0; cdnBytes = 0; }
+  function scanCdnLoaded() {
+    try {
+      if (typeof performance === 'undefined' || !performance.getEntriesByType)
+        return;
+      const list = performance.getEntriesByType('resource');
+      let n = 0, bytes = 0;
+      for (let i = 0; i < list.length; i++) {
+        const e = list[i];
+        if (!isCdnMedia(e && e.name)) continue;
+        n += 1;
+        bytes += Number(e.transferSize) || 0;
+      }
+      cdnPassed = n;
+      cdnBytes = bytes;
+    } catch (e) {}
+  }
+  function cdnStats() {
+    scanCdnLoaded();
+    return { blocked: cdnBlocked, passed: cdnPassed, bytes: cdnBytes };
+  }
+  function cdnLine() {
+    const s = cdnStats();
+    const kb = Math.round((s.bytes || 0) / 1024);
+    return `CDN отсечено ${s.blocked} · ушло ${s.passed}` +
+           (kb ? ` (${kb} КБ)` : '');
+  }
+
   const SILENCE_MS = 500;
   let mediaGate = null;
   function gateSiteMedia(on) {
@@ -518,7 +553,10 @@
       mediaGate = { hosts, fetchWas, xhrOpen, xhrSend, playWas, playVideoWas,
                     addSB, XHR, HME, HVE, MS };
 
-      const blocked = () => Promise.reject(new Error('cb-agent: cdn media blocked'));
+      const blocked = () => {
+        cdnBlocked += 1;
+        return Promise.reject(new Error('cb-agent: cdn media blocked'));
+      };
       hosts.forEach((h, i) => {
         if (typeof fetchWas[i] !== 'function') return;
         h.fetch = function (input, init) {
@@ -533,6 +571,7 @@
         };
         XHR.prototype.send = function () {
           if (isCdnMedia(this.__cbAgentUrl)) {
+            cdnBlocked += 1;
             try { this.abort(); } catch (e) {}
             return;
           }
@@ -549,6 +588,7 @@
       }
       try { document.addEventListener('playing', onSitePlaying, true); } catch (e) {}
       quietCss(true);
+      resetCdnStats();
       mediaGate.silenceTimer = setInterval(() => pauseSiteVideo(false), SILENCE_MS);
     } else if (mediaGate) {
       try {
@@ -705,14 +745,20 @@
     refreshBusy = true;
     try {
       const s = await streamUrl(spyNow.room);
+      const cdn = cdnStats();
       report({ act: 'refresh', room: spyNow.room, url: s.url,
-               room_status: s.room_status, raw: s.url ? '' : s.raw });
+               room_status: s.room_status, cdn,
+               raw: s.url ? '' : s.raw });
     } catch (e) {
       report({ act: 'refresh', room: spyNow.room, url: '', room_status: '',
                raw: `запрос не прошёл: ${(e && e.message) || e}` });
     } finally { refreshBusy = false; }
   };
   setInterval(refreshStream, REFRESH_MS);
+  cdnTimer = setInterval(() => {
+    if (stopped || spyNow.state !== 'spying' || !spyNow.room) return;
+    say(`spy ${spyNow.room} · ${cdnLine()}`);
+  }, 2000);
 
   async function handleAnswerSafe(answer) {
     try {
@@ -762,7 +808,7 @@
     }
 
     if (spy.state === 'spying' && spy.room) {
-      say(`spy ${spy.room} · ${agent.username || 'аккаунт'}`);
+      say(`spy ${spy.room} · ${cdnLine()}`);
     } else if (agent.anon) {
       say('вкладка без входа — откройте аккаунт на сайте');
     } else {

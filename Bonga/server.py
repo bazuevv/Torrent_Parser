@@ -100,7 +100,7 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
-CB_AGENT_VERSION = 12      # v12: прячет видео сайта без сброса src каждые 0.5 с
+CB_AGENT_VERSION = 13      # v13: на плашке видно, уходит ли CDN-трафик сайта
 
 
 def cb_reset(error=''):
@@ -666,6 +666,13 @@ def cb_agent_event(act, payload):
                 stop_room = room
                 write_log(f'cb spy: recovery {room} вне сессии — стоп')
         elif act == 'refresh' and mine and CB_SPY['state'] == 'spying':
+            cdn = payload.get('cdn')
+            if isinstance(cdn, dict):
+                write_log(
+                    f'cb spy: CDN вкладки {room}: отсечено {cdn.get("blocked") or 0}, '
+                    f'ушло {cdn.get("passed") or 0}'
+                    + (f', {int(cdn.get("bytes") or 0)} байт'
+                       if cdn.get('bytes') else ''))
             if isinstance(url, str) and url.startswith('https://'):
                 if url != CB_SPY['url']:
                     write_log(f'cb spy: refresh {room} сменил адрес: '

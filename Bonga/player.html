@@ -2785,8 +2785,13 @@
       if (data.kind === 'hello') toAgent({ v: 1, kind: 'ready' });
     } else if (data.kind === 'result') {
       const act = (data.payload || {}).act || '?';
-      if (act !== 'balance')
-        logEvent('spy.агент', `закладка отчиталась: ${act}`, 'act');
+      if (act !== 'balance') {
+        const cdn = (data.payload || {}).cdn;
+        const extra = (cdn && (cdn.blocked || cdn.passed))
+          ? ` · CDN вкладки отсечено ${cdn.blocked || 0}, ушло ${cdn.passed || 0}`
+          : '';
+        logEvent('spy.агент', `закладка отчиталась: ${act}${extra}`, 'act');
+      }
       fetch('api/cb/agent/result', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
