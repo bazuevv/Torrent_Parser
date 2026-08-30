@@ -2562,7 +2562,12 @@
   /* Применение poll-ответа сервера: снимок spy, команда агенту, перерисовка
      кнопок и перезапуск приватных ячеек. Вызывается хаб-циклом ниже. */
   function spyApply(answer) {
-    if (answer.spy) spyInfo = answer.spy;
+    if (answer.spy) {
+      spyInfo = answer.spy;
+      /* Ответ уже мог быть сформирован до свежего hello. Локальный сигнал
+         вкладки точнее такого снимка и не должен снова прятать кнопку. */
+      if (cbAgentFresh()) spyInfo.agent = cbLocalAgent();
+    }
     if (answer.cmd) toAgent({ v: 1, kind: 'poll', answer });
 
     const spy = spyOf();
@@ -2597,7 +2602,26 @@
   let cbAgentName = '';
   let cbAgentVersion = 0;
   let cbAgentSeen = 0;
+  let cbHubWake = null;              // прерывает пассивную 15-секундную паузу
+  let cbHubAbort = null;             // перезапускает poll с новым именем агента
   const cbAgentFresh = () => Date.now() - cbAgentSeen < 20000;
+  const cbLocalAgent = () => ({
+    online: true,
+    username: cbAgentName,
+    version: cbAgentVersion,
+    anon: !cbAgentName || cbAgentName === 'AnonymousUser',
+  });
+
+  const cbHubPause = ms => new Promise(resolve => {
+    let timer = 0;
+    const finish = () => {
+      clearTimeout(timer);
+      if (cbHubWake === finish) cbHubWake = null;
+      resolve();
+    };
+    timer = setTimeout(finish, ms);
+    cbHubWake = finish;
+  });
 
   const toAgent = payload => {
     if (cbWindow && !cbWindow.closed) {
@@ -2615,6 +2639,18 @@
       cbAgentName = String(data.username || '');
       cbAgentVersion = Number(data.agent_version) || 0;
       cbAgentSeen = Date.now();
+      /* postMessage уже доказывает, что закладка жива. Не ждём следующего
+         серверного poll: кнопка меняется в тот же кадр, а спящий/анонимный
+         poll прерываем и сразу запускаем заново с актуальным аккаунтом. */
+      const spy = spyOf();
+      spyInfo = {
+        agent: cbLocalAgent(),
+        spy,
+      };
+      for (const tile of tiles)
+        if (tile.user && isChaturbate(tile.edge)) paintSpy(tile);
+      if (cbHubWake) cbHubWake();
+      if (cbHubAbort) cbHubAbort.abort();
       if (data.kind === 'hello') toAgent({ v: 1, kind: 'ready' });
     } else if (data.kind === 'result') {
       fetch('api/cb/agent/result', {
@@ -2639,14 +2675,17 @@
               if (tile.user && isChaturbate(tile.edge)) paintSpy(tile);
           } catch { /* сервер моргнул — следующим кругом */ }
         }
-        await new Promise(r => setTimeout(r, 15000));
+        await cbHubPause(15000);
         continue;
       }
       if (cbWindow && cbWindow.closed) cbWindow = null;
+      const ctl = new AbortController();
+      cbHubAbort = ctl;
       try {
         const res = await fetch('api/cb/agent/poll', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: ctl.signal,
           body: JSON.stringify({
             id: 'player-hub',
             username: cbAgentFresh() ? cbAgentName : '',
@@ -2656,7 +2695,11 @@
         });
         if (!res.ok) throw new Error(String(res.status));
         spyApply(await res.json());
-      } catch { await new Promise(r => setTimeout(r, 3000)); }
+      } catch (error) {
+        if (error.name !== 'AbortError') await cbHubPause(3000);
+      } finally {
+        if (cbHubAbort === ctl) cbHubAbort = null;
+      }
     }
   })();
 
