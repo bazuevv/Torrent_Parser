@@ -2617,7 +2617,16 @@
       if (cbAgentFresh()) spyInfo.agent = cbLocalAgent();
     }
     spyNote();
-    if (answer.cmd) toAgent({ v: 1, kind: 'poll', answer });
+    if (answer.cmd) {
+      /* Доставку команды журналировать обязательно: сервер видит только то,
+         что команду забрали, и молчание после этого выглядит как «агент не
+         ответил». Прецедент 30.08: остановка ждала подтверждения 95 секунд,
+         и по журналу нельзя было сказать, дошла ли она до закладки вообще. */
+      const sent = toAgent({ v: 1, kind: 'poll', answer });
+      logEvent('spy.агент', `команда ${answer.cmd.act} ${answer.cmd.room} — ` +
+        (sent ? 'передана закладке' : 'ПЕРЕДАТЬ НЕКОМУ: вкладки Chaturbate нет'),
+        sent ? 'act' : 'err');
+    }
 
     const spy = spyOf();
     const now = Date.now();
@@ -2682,11 +2691,28 @@
   };
 
   window.addEventListener('message', event => {
-    if (!cbWindow || event.source !== cbWindow) return;
+    /* Проверяем origin, а не тождество окна. Прежде требовалось
+       event.source === cbWindow, то есть плеер слушал только ту вкладку,
+       которую открыл сам, — закладку, включённую на странице комнаты,
+       открытой пользователем вручную, он молча отбрасывал, и spy работал
+       лишь с главной. Origin остаётся настоящей границей: чужой сайт ссылку
+       на это окно всё равно не получит. */
     if (!/^https:\/\/([a-z0-9-]+\.)*chaturbate\.com$/.test(event.origin)) return;
     const data = event.data;
     if (!data || data.v !== 1) return;
     if (data.kind === 'hello' || data.kind === 'ping') {
+      if (event.source !== cbWindow) {
+        /* hello — это явное нажатие закладки: такая вкладка и становится
+           каналом. Пинг чужой вкладки принимаем только когда прежний канал
+           умолк, иначе две живые закладки перетягивали бы канал друг у друга
+           каждые десять секунд. */
+        const live = cbWindow && !cbWindow.closed && cbAgentFresh();
+        if (data.kind !== 'hello' && live) return;
+        cbWindow = event.source;
+        logEvent('spy.агент', `закладка отозвалась с ${event.origin}` +
+          ` (${data.username || 'без входа'}, v${Number(data.agent_version) || 0})` +
+          ` — делаю эту вкладку каналом`, 'act');
+      }
       cbAgentName = String(data.username || '');
       cbAgentVersion = Number(data.agent_version) || 0;
       cbAgentSeen = Date.now();
@@ -2704,11 +2730,15 @@
       if (cbHubAbort) cbHubAbort.abort();
       if (data.kind === 'hello') toAgent({ v: 1, kind: 'ready' });
     } else if (data.kind === 'result') {
+      const act = (data.payload || {}).act || '?';
+      if (act !== 'balance')
+        logEvent('spy.агент', `закладка отчиталась: ${act}`, 'act');
       fetch('api/cb/agent/result', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data.payload || {}),
-      }).catch(() => { /* скажется следующим кругом */ });
+      }).catch(() => logEvent('spy.агент',
+        `отчёт ${act} не дошёл до сервера`, 'err'));
     }
   });
 
