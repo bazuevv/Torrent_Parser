@@ -116,6 +116,7 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
     String,
     Math,
     Error,
+    TypeError,
     Object,
     Function,
     webpackChunk_multimediallc_cb_ts: webpack,
@@ -135,7 +136,7 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
     origin: PLAYER, source: hub, data: { v: 1, kind: 'ready' },
   });
   const badge = () => ((win.__cbAgent || {}).badge || {}).textContent || '';
-  return { clock, sent, poll, ready, store, opened, badge,
+  return { clock, sent, poll, ready, store, opened, badge, sandbox,
            results: () => sent.filter(m => m.kind === 'result').map(m => m.payload) };
 }
 
@@ -226,11 +227,13 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('на главной: имя аккаунта всё равно есть', greet(f).username === 'adm211',
         JSON.stringify(greet(f)));
 
-  /* --- 6. После входа агент будит плеер сайта -----------------------------
+  /* --- 6. После входа агент будит плеер сайта, но не качает его HLS -------
      POST spy_on_private_show_request только оплачивает вход. Штатный код
      сайта следом делает changeStatus("privatespying") — иначе их плеер
      остаётся в privatenotwatching, не шлёт playerQuality и сайт закрывает
-     поток на 30-й секунде (lin_rin 14:42, вкладка уже была на комнате). */
+     поток на 30-й секунде (lin_rin 14:42, вкладка уже была на комнате).
+     Их HLS при этом шёл параллельно с нашим (dulce_devil_ 30.08) — агент
+     v10 глушит видео вкладки и режет сегменты CDN, ajax чата не трогает. */
   function dossierHtml() {
     const json = JSON.stringify({
       broadcaster_username: 'testroom',
@@ -242,8 +245,11 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
     return `window.initialRoomDossier = "${json}";`;
   }
   const startUrl = 'https://edge1.live.mmcdn.com/v1/edge/streams/origin.testroom.ULID/llhls.m3u8?token=t';
+  const cdnPlaylist = 'https://edge18-hel.live.mmcdn.com/live-hls/amlst:testroom-sd-c6e-orig/playlist.m3u8';
+  let cdnHits = 0;
   const startFetch = async (href) => {
-    const u = String(href);
+    const u = String(href && href.url || href);
+    if (/mmcdn\.com|highwebmedia\.com/i.test(u)) cdnHits += 1;
     if (u.includes('spy_on_private_show_request'))
       return { ok: true, status: 200, text: async () => JSON.stringify({ success: true }) };
     if (u.includes('private_show_cancel'))
@@ -298,7 +304,18 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   }
 
   const played = [];
-  const videoStub = { muted: false, play: async () => { played.push('play'); } };
+  const paused = [];
+  const videoStub = {
+    id: 'chat-player',
+    muted: false,
+    volume: 1,
+    src: 'blob:x',
+    srcObject: {},
+    play: async () => { played.push('play'); },
+    pause() { paused.push('pause'); },
+    load() { paused.push('load'); },
+    removeAttribute(name) { if (name === 'src') this.src = ''; },
+  };
   const wp = makeWebpack();
   const g = launch({ fetchImpl: startFetch, webpack: wp.chunks, video: videoStub,
                      dossier: { broadcaster_username: 'testroom' } });
@@ -314,16 +331,40 @@ function launch({ fetchImpl, opener = true, dossier = null, webpack = null, vide
   check('вход: отчёт знает, что плеер найден',
         !!(startRes[0] && startRes[0].site && startRes[0].site.conn),
         JSON.stringify(startRes[0] && startRes[0].site));
-  check('вход: video.play вызван', played.length >= 1, JSON.stringify(played));
+  check('вход: video.play не вызван', played.length === 0, JSON.stringify(played));
+  check('вход: видео сайта поставлено на паузу',
+        paused.includes('pause') && videoStub.src === '' && videoStub.muted === true,
+        JSON.stringify({ paused, src: videoStub.src, muted: videoStub.muted }));
   check('вход: вкладка притворяется видимой',
         startRes[0] && startRes[0].site && startRes[0].site.vis === true,
         JSON.stringify(startRes[0] && startRes[0].site));
+  check('вход: отчёт пишет, что видео сайта выключено',
+        !!(startRes[0] && startRes[0].site && startRes[0].site.quiet === true),
+        JSON.stringify(startRes[0] && startRes[0].site));
+  check('вход: плашка v10', /Агент CB v10/.test(g.badge()), g.badge());
+
+  let cdnBlocked = false;
+  try {
+    await g.sandbox.fetch(cdnPlaylist);
+  } catch (e) {
+    cdnBlocked = /cdn media blocked/.test(String(e && e.message || e));
+  }
+  check('вход: HLS сайта на CDN не уходит', cdnBlocked && cdnHits === 0,
+        `blocked=${cdnBlocked} hits=${cdnHits}`);
+  const ajax = await g.sandbox.fetch('https://ru.chaturbate.com/get_edge_hls_url_ajax/');
+  const ajaxText = await ajax.text();
+  check('вход: ajax чата по-прежнему проходит',
+        ajax.ok && /"url"/.test(ajaxText), ajaxText.slice(0, 80));
 
   g.poll({ spy: { spy: { state: 'spying', room: 'testroom' }, agent: { username: 'adm211' } },
            cmd: { id: 's2', act: 'spy_stop', room: 'testroom' } });
   for (let i = 0; i < 200; i++) await Promise.resolve();
   check('выход: плеер сайта возвращён в privatenotwatching',
         wp.statuses.includes('privatenotwatching'), JSON.stringify(wp.statuses));
+  cdnHits = 0;
+  const afterStop = await g.sandbox.fetch(cdnPlaylist);
+  check('выход: заслон CDN снят', afterStop && afterStop.ok === true && cdnHits === 1,
+        `hits=${cdnHits}`);
 
   const h = launch({ fetchImpl: startFetch, dossier: { broadcaster_username: 'testroom' } });
   h.ready();

@@ -100,7 +100,7 @@ CB_PLAYER_WATCHDOG = 90    # плеер столько не спрашивал /
 CB_SPY_MAX = 3600          # предохранитель: дольше часа spy не держим
 CB_URL_FRESH = 120         # столько приватный URL считаем живым без подтверждений
 CB_DOSSIER_TTL = 60
-CB_AGENT_VERSION = 9       # v9: после входа переводит плеер сайта в privatespying
+CB_AGENT_VERSION = 10      # v10: глушит видео плеера сайта, keep-alive остаётся
 
 
 def cb_reset(error=''):

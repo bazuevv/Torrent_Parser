@@ -30,7 +30,7 @@
                    playerQuality и сайт снимает право на 30-й секунде. */
 (() => {
   const PLAYER = '__PLAYER_ORIGIN__';
-  const AGENT_VERSION = 9;
+  const AGENT_VERSION = 10;
   const SPY_KEY = 'cbSpy';            // «я в spy» — для recovery после рестарта сервера
   const BALANCE_ROOM_KEY = 'cbBalanceRoom';
   /* 20 с, а не 45: доступ к потоку сайт закрывает на 30-й секунде после входа
@@ -65,6 +65,8 @@
     clearTimeout(copyTimer);
     badge.remove();
     delete window.__cbAgent;
+    gateSiteMedia(false);
+    pretendTabVisible(false);
     /* Плеер не закрываем: следующий запуск найдёт его же. */
   };
   const copyBadge = async () => {
@@ -329,7 +331,12 @@
 
      Вкладка Chaturbate при просмотре в нашем плеере в фоне. sendQuality
      не шлёт метрики при document.hidden — на время spy притворяемся, что
-     вкладка видима, иначе даже privatespying не спасёт. */
+     вкладка видима, иначе даже privatespying не спасёт.
+
+     Их плеер при privatespying сам качает HLS (dulce_devil_ 30.08: показ
+     в нашем плеере и параллельно на вкладке сайта). Видео сайта глушим:
+     статус и метрики оставляем, сегменты mmcdn/highwebmedia — нет. Нельзя
+     звать их stopVideoAndMetrics: он шлёт unload и сайт снова снимет право. */
 
   const SITE_SPYING = 'privatespying';
   const SITE_IDLE = 'privatenotwatching';
@@ -394,20 +401,109 @@
     } catch (e) { /* hidden мог быть неconfigurable */ }
   }
 
-  function wakeSiteVideo() {
+  const siteVideoEl = () => document.getElementById('chat-player') ||
+                            document.querySelector('[data-testid="video"]');
+
+  function pauseSiteVideo() {
+    const v = siteVideoEl();
+    if (!v) return false;
+    try { if (typeof v.pause === 'function') v.pause(); } catch (e) {}
+    try { v.muted = true; v.volume = 0; } catch (e) {}
     try {
-      const v = document.getElementById('chat-player') ||
-                document.querySelector('[data-testid="video"]');
-      if (!v || typeof v.play !== 'function') return false;
-      v.muted = true;
-      const p = v.play();
-      if (p && typeof p.catch === 'function') p.catch(() => {});
-      return true;
-    } catch (e) { return false; }
+      if (typeof v.removeAttribute === 'function') v.removeAttribute('src');
+      v.src = '';
+      v.srcObject = null;
+      if (typeof v.load === 'function') v.load();
+    } catch (e) {}
+    try {
+      if (v.hls && typeof v.hls.stopLoad === 'function') v.hls.stopLoad();
+    } catch (e) {}
+    try {
+      const p = window.vooduPlayer;
+      if (p && typeof p.pause === 'function') p.pause();
+      if (p && typeof p.stopLoad === 'function') p.stopLoad();
+    } catch (e) {}
+    return true;
+  }
+
+  /* Сегменты и плейлисты CDN — это и есть параллельная трансляция. Ajax
+     get_edge_hls_url на chaturbate.com не трогаем: по нему агент обновляет
+     адрес для нашего плеера. */
+  const isCdnMedia = url => {
+    const u = String((url && url.url) || url || '');
+    if (!/mmcdn\.com|highwebmedia\.com/i.test(u)) return false;
+    return /\.(m3u8|m4s|mp4|ts|jpg|jpeg)(\?|$)/i.test(u) ||
+           /\/(seg_|chunklist|llhls|stream\?room=)/i.test(u);
+  };
+
+  let mediaGate = null;
+  function gateSiteMedia(on) {
+    if (on) {
+      if (mediaGate) return;
+      const hosts = [];
+      if (typeof window !== 'undefined') hosts.push(window);
+      if (typeof globalThis !== 'undefined' && hosts.indexOf(globalThis) < 0)
+        hosts.push(globalThis);
+      const fetchWas = hosts.map(h => h.fetch);
+      const XHR = typeof XMLHttpRequest !== 'undefined' ? XMLHttpRequest : null;
+      const HME = typeof HTMLMediaElement !== 'undefined' ? HTMLMediaElement : null;
+      const xhrOpen = XHR && XHR.prototype.open;
+      const xhrSend = XHR && XHR.prototype.send;
+      const playWas = HME && HME.prototype.play;
+      mediaGate = { hosts, fetchWas, xhrOpen, xhrSend, playWas, XHR, HME };
+
+      const blocked = () => Promise.reject(new Error('cb-agent: cdn media blocked'));
+      hosts.forEach((h, i) => {
+        if (typeof fetchWas[i] !== 'function') return;
+        h.fetch = function (input, init) {
+          if (isCdnMedia(input)) return blocked();
+          return fetchWas[i].apply(this, arguments);
+        };
+      });
+      if (xhrOpen && xhrSend) {
+        XHR.prototype.open = function (method, url) {
+          this.__cbAgentUrl = url;
+          return xhrOpen.apply(this, arguments);
+        };
+        XHR.prototype.send = function () {
+          if (isCdnMedia(this.__cbAgentUrl)) {
+            try { this.abort(); } catch (e) {}
+            return;
+          }
+          return xhrSend.apply(this, arguments);
+        };
+      }
+      if (playWas) {
+        HME.prototype.play = function () {
+          const mine = this.id === 'chat-player' ||
+                       (this.dataset && this.dataset.testid === 'video');
+          if (mine) { pauseSiteVideo(); return Promise.resolve(); }
+          return playWas.apply(this, arguments);
+        };
+      }
+    } else if (mediaGate) {
+      try {
+        mediaGate.hosts.forEach((h, i) => {
+          if (mediaGate.fetchWas[i]) h.fetch = mediaGate.fetchWas[i];
+        });
+        if (mediaGate.xhrOpen) mediaGate.XHR.prototype.open = mediaGate.xhrOpen;
+        if (mediaGate.xhrSend) mediaGate.XHR.prototype.send = mediaGate.xhrSend;
+        if (mediaGate.playWas) mediaGate.HME.prototype.play = mediaGate.playWas;
+      } catch (e) {}
+      mediaGate = null;
+    }
   }
 
   function tellSitePlayer(status) {
-    const out = { status, conn: false, video: false, vis: visPatched };
+    const out = { status, conn: false, quiet: false, vis: visPatched };
+    /* Сначала глушим CDN, потом меняем статус: иначе их плеер успеет
+       открыть HLS до перехвата. */
+    if (status === SITE_SPYING) {
+      pretendTabVisible(true);
+      gateSiteMedia(true);
+      out.quiet = pauseSiteVideo();
+      out.vis = visPatched;
+    }
     const conn = chatConnFrom(roomLoadedEvent(webpackRequire()));
     if (conn) {
       try {
@@ -418,21 +514,19 @@
         out.error = String((e && e.message) || e);
       }
     }
-    if (status === SITE_SPYING) {
-      pretendTabVisible(true);
-      out.vis = visPatched;
-      out.video = wakeSiteVideo();
-    } else {
+    if (status !== SITE_SPYING) {
+      gateSiteMedia(false);
       pretendTabVisible(false);
       out.vis = visPatched;
     }
+    if (status === SITE_SPYING) out.quiet = pauseSiteVideo() || out.quiet;
     return out;
   }
 
   const siteLine = site => site.conn
     ? `плеер сайта ${site.was || '?'} → ${site.status}` +
       `${site.vis ? ', вкладка как видимая' : ''}` +
-      `${site.video ? ', video.play' : ''}`
+      `${site.quiet ? ', без видео сайта' : ''}`
     : `плеер сайта не найден (${site.error || 'нет roomLoaded'})`;
 
   /* ---- команды ---------------------------------------------------------- */
