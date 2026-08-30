@@ -666,7 +666,8 @@
   }
   .card:not(.offline) .offBox { display: none; }
   .card.offline img { filter: brightness(.62); }
-  .card.offline .cap b { color: #98a1b0; }
+  .card.offline .cap b,
+  .card.offline .cap i { color: #98a1b0; }
   .card:hover { outline: 2px solid #2f6fd0; outline-offset: -2px; }
   .card.current { outline: 2px solid #7ee787; outline-offset: -2px; }
   .card.cb::after {
@@ -680,10 +681,14 @@
   .card .cap { display: flex; gap: 6px; padding: 4px 6px; font-size: 12px; }
   .card .cap b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
                  white-space: nowrap; font-weight: 500; }
-  .card .cap i { flex: 0 0 auto; color: #6b7484; font-style: normal; font-size: 11px; }
-  /* Цена подглядывания — та же оранжевая семья, что метка CB на ячейке:
-     приватная комната опознаётся с одного взгляда и в колонке тоже. */
-  .card .cap .spyTag {
+  /* Зрители белые, как ник: серый #6b7484 на тёмной плашке почти пропадал. */
+  .card .cap i { flex: 0 0 auto; color: #e6e8ec; font-style: normal; font-size: 11px; }
+  .card .capMeta {
+    display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  }
+  /* Цена привата и spy рядом со зрителями — та же оранжевая семья, что метка CB. */
+  .card .cap .spyTag,
+  .card .cap .privTag {
     flex: 0 0 auto; padding: 1px 5px; border-radius: 4px;
     background: rgba(247, 129, 31, .25); color: #ffb877;
     font-size: 10px; font-weight: 700; letter-spacing: .03em;
@@ -6675,7 +6680,7 @@
         const seen = Math.round(data.at || Date.now() / 1000);
         return data.rooms.map(room => [room.user, CHATURBATE_EDGE,
           Number(room.viewers) || 0, seen, room.image || chaturbateThumb(room.user),
-          Number(room.spy_price) || 0]);
+          Number(room.spy_price) || 0, Number(room.private_price) || 0]);
       } catch (err) {
         problem = err.message || String(err);
         if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 700 * (attempt + 1)));
@@ -6908,7 +6913,7 @@
   /* Карточка комнаты. Отдельной функцией, потому что такую же строит поиск для
      ника, которого нет в эфире: раньше он предлагал только строку «Открыть»,
      и было не видно ни последнего кадра, ни того, когда комната пропала. */
-  function buildCard(user, edge, viewers, seen, shot, spy) {
+  function buildCard(user, edge, viewers, seen, shot, spy, priv) {
     const card = document.createElement('div');
     const cbRoom = isChaturbate(edge);
     card.className = 'card' + (cbRoom ? ' cb' : '');
@@ -6917,9 +6922,15 @@
     card.dataset.source = cbRoom ? 'cb' : 'bonga';
     card.dataset.viewers = String(Number(viewers) || 0);
     if (Number(spy) > 0) card.dataset.spy = String(Number(spy));
-    card.title = cbRoom
-      ? `${user} · Chaturbate` + (card.dataset.spy ? ` · ${t('карточка.spy', { цена: card.dataset.spy })}` : '')
-      : `${user} · edge ${edge}`;
+    if (Number(priv) > 0) card.dataset.priv = String(Number(priv));
+    if (cbRoom) {
+      let title = `${user} · Chaturbate`;
+      if (card.dataset.priv) title += ` · ${t('карточка.приват', { цена: card.dataset.priv })}`;
+      if (card.dataset.spy) title += ` · ${t('карточка.spy', { цена: card.dataset.spy })}`;
+      card.title = title;
+    } else {
+      card.title = `${user} · edge ${edge}`;
+    }
 
     // Картинку не подставляем сразу: её загрузит refreshThumbs, и статус
     // комнаты появится тем же запросом, вместе с кадром.
@@ -6937,17 +6948,31 @@
 
     const cap = document.createElement('div');
     cap.className = 'cap';
-    cap.innerHTML = '<b></b><i></i>' + (card.dataset.spy ? '<span class="spyTag"></span>' : '');
-    cap.querySelector('b').textContent = user;
-    cap.querySelector('i').textContent = viewers ? `${viewers}👁` : '';
-    const spyTag = cap.querySelector('.spyTag');
-    if (spyTag) spyTag.textContent = t('карточка.spy.кратко', { цена: card.dataset.spy });
+    const name = document.createElement('b');
+    name.textContent = user;
+    const meta = document.createElement('span');
+    meta.className = 'capMeta';
+    const views = document.createElement('i');
+    views.textContent = viewers ? `${viewers}👁` : '';
+    meta.appendChild(views);
+    if (card.dataset.priv) {
+      const privTag = document.createElement('span');
+      privTag.className = 'privTag';
+      privTag.textContent = t('карточка.приват.кратко', { цена: card.dataset.priv });
+      meta.appendChild(privTag);
+    }
+    if (card.dataset.spy) {
+      const spyTag = document.createElement('span');
+      spyTag.className = 'spyTag';
+      spyTag.textContent = t('карточка.spy.кратко', { цена: card.dataset.spy });
+      meta.appendChild(spyTag);
+    }
 
     const note = document.createElement('span');
     note.className = 'note';
     note.textContent = '✎';
-    note.onclick = e => { e.stopPropagation(); openNote(user, note); };   // карточка кликабельна целиком
-    cap.appendChild(note);
+    note.onclick = e => { e.stopPropagation(); openNote(user, note); };
+    cap.append(name, meta, note);
 
     const offBox = document.createElement('span');
     offBox.className = 'offBox';
@@ -6998,13 +7023,13 @@
       return;
     }
     const batch = document.createDocumentFragment();
-    for (const [user, edgeAtSweep, viewers, seen, shot, spy] of live) {
+    for (const [user, edgeAtSweep, viewers, seen, shot, spy, priv] of live) {
       // Снимку эфира может быть до часа, а база обновляется каждую минуту —
       // поэтому сервер берём из неё, если он там известен. Иначе карточка
       // стучалась бы на старый сервер и считала модель ушедшей.
       batch.appendChild(buildCard(user, isChaturbate(edgeAtSweep) ? CHATURBATE_EDGE
                                   : known.get(user.toLowerCase()) || edgeAtSweep,
-                                  viewers, seen, shot, spy));
+                                  viewers, seen, shot, spy, priv));
     }
     body.appendChild(batch);
     paintNotes();
@@ -7097,7 +7122,7 @@
       const edge = room.source === 'cb' ? CHATURBATE_EDGE : String(room.edge || '');
       const card = buildCard(room.user || query, edge, Number(room.viewers) || 0,
                              Math.round(Date.now() / 1000), room.image || '',
-                             Number(room.spy) || 0);
+                             Number(room.spy) || 0, Number(room.private_price) || 0);
       card.classList.add('found');
       const img = card.querySelector('img');
       img.dataset.visible = '1';

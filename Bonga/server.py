@@ -182,6 +182,15 @@ def chaturbate_request(path, data=None):
     raise RuntimeError(f'Chaturbate не ответил после 3 попыток: {last}')
 
 
+def _cb_token_price(item, key):
+    """Цена в токенах из каталога CB. У сайта −1 значит «приват выключен»."""
+    try:
+        n = int(item.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+    return n if n > 0 else 0
+
+
 def chaturbate_online(force=False):
     now = time.time()
     with CHATURBATE_LOCK:
@@ -221,10 +230,14 @@ def chaturbate_online(force=False):
 
         # Вкладка сайта «Spy on cams»: обычный каталог приватные шоу не
         # возвращает вовсе, они живут отдельным проходом с private=true
-        # (реверс: spy-on-cams отображается в категорию private, поля
-        # spy_show_price/private_price есть только там). Комнат немного —
-        # сотни, поэтому хватает тех же страниц по total_count. Срыв прохода
-        # не портит основной каталог: карточек просто не будет до обновления.
+        # (реверс: spy-on-cams отображается в категорию private).
+        # private_price и spy_show_price есть и в публичном списке — ими
+        # карточка показывает стоимость привата. spy_price в кэш кладём
+        # только у current_show=private, иначе фильтр «Приват» зацепил бы
+        # публичные комнаты, у которых ставка spy уже проставлена.
+        # Комнат немного — сотни, тех же страниц по total_count хватает.
+        # Срыв прохода не портит основной каталог: карточек просто не будет
+        # до обновления.
         try:
             spy_first = chaturbate_request(
                 f'/api/ts/roomlist/room-list/?limit={CHATURBATE_PAGE}&offset=0&private=true')
@@ -261,12 +274,10 @@ def chaturbate_online(force=False):
             except (TypeError, ValueError):
                 viewers = 0
             room = {'user': user, 'viewers': viewers, 'image': image,
-                    'show': str(item.get('current_show') or '')}
+                    'show': str(item.get('current_show') or ''),
+                    'private_price': _cb_token_price(item, 'private_price')}
             if room['show'] == 'private':
-                try:
-                    room['spy_price'] = max(0, int(item.get('spy_show_price') or 0))
-                except (TypeError, ValueError):
-                    room['spy_price'] = 0
+                room['spy_price'] = _cb_token_price(item, 'spy_show_price')
             rooms.append(room)
 
         # Неполный обход не кладём на пять минут в кэш: клиент увидит признак
@@ -1002,6 +1013,7 @@ def exact_rooms(user):
         rooms.append({'user': cb_user, 'source': 'cb', 'edge': 'cb',
                       'viewers': int(cb.get('viewers') or 0) if cb else 0,
                       'spy': int(cb.get('spy_price') or 0) if cb else 0,
+                      'private_price': int(cb.get('private_price') or 0) if cb else 0,
                       'image': (str(cb.get('image') or '') if cb else
                                 f'https://thumb.live.mmcdn.com/riw/{urlquote(cb_user)}.jpg')})
 
