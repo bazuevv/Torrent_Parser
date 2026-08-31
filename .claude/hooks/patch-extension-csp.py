@@ -144,6 +144,7 @@ try {
     var REQ = "restart-exthost-request.json";
     var ACK = "restart-exthost-ack.json";
     var RELOAD = "restart-exthost-reload.json";
+    var RESTART_CMD = "workbench.action.restartExtensionHost";
     var POLL_MS = 1000;
     // Пауза перед рестартом: панель Accs опрашивает ack каждые 400 мс
     // (ACK_POLL_MS в claude-custom.js) — дадим ей увидеть подтверждение
@@ -204,22 +205,43 @@ try {
         } catch (e) {}
 
         var reloadFile = path.join(dir, RELOAD);
-        setTimeout(function () {
-          // Заявку на перезагрузку вкладок оставляем ДО команды: после
-          // неё этот процесс уже не исполнит ничего.
-          try {
-            fs.writeFileSync(reloadFile, JSON.stringify({ ts: Date.now() }));
-          } catch (e2) {}
 
-          Promise.resolve(
-            vscode.commands.executeCommand("workbench.action.restartExtensionHost")
-          ).then(undefined, function () {
-            // Команды нет (сборка VSCode другая) — перезагружаем окно
-            // целиком. Дороже, но смена аккаунта всё-таки применится, и
-            // вкладки перезагрузятся заодно: заявка тут лишняя.
-            try { fs.unlinkSync(reloadFile); } catch (e2) {}
-            try { fs.unlinkSync(ackFile); } catch (e2) {}
-            try { vscode.commands.executeCommand("workbench.action.reloadWindow"); } catch (e2) {}
+        // Запасной путь, когда команды рестарта в сборке нет: окно
+        // целиком. Дороже, но смена аккаунта применится, и вкладки
+        // перезагрузятся заодно — заявка тут лишняя.
+        var fallbackReload = function () {
+          try { fs.unlinkSync(reloadFile); } catch (e2) {}
+          try { fs.unlinkSync(ackFile); } catch (e2) {}
+          try { vscode.commands.executeCommand("workbench.action.reloadWindow"); } catch (e2) {}
+        };
+
+        setTimeout(function () {
+          // Наличие команды выясняем СПИСКОМ, а не по отклонению её
+          // промиса. При удачном рестарте хост умирает, все pending-RPC
+          // отклоняются как «Canceled», и обработчик ошибки успевает
+          // отработать перед смертью процесса — отличить это от
+          // настоящего «команды нет» невозможно. Прежняя версия там и
+          // стирала заявку на перезагрузку вкладок: рестарт проходил,
+          // а новый хост не находил поручения.
+          Promise.resolve(vscode.commands.getCommands(true)).then(function (all) {
+            if (!all || all.indexOf(RESTART_CMD) === -1) {
+              fallbackReload();
+              return;
+            }
+            // Заявку оставляем ДО команды: после неё этот процесс уже
+            // не исполнит ничего.
+            try {
+              fs.writeFileSync(reloadFile, JSON.stringify({ ts: Date.now() }));
+            } catch (e2) {}
+            // Ошибку намеренно глушим пустым обработчиком: реагировать
+            // на неё нельзя (см. выше), а без него это unhandled
+            // rejection в логе расширения.
+            Promise.resolve(
+              vscode.commands.executeCommand(RESTART_CMD)
+            ).then(undefined, function () {});
+          }, function () {
+            // Список команд недоступен — пробуем хотя бы окно.
+            fallbackReload();
           });
         }, RESTART_DELAY_MS);
         return;
