@@ -486,14 +486,14 @@ async def serve_hub(args):
 
     def log(text):
         # journald на этой машине вывод юнитов не собирает (прецедент —
-        # write_log в server.py с тем же выводом), поэтому пишем файл рядом
-        # с записями, как делает плеер. stderr оставляем для ручных запусков.
+        # write_log в server.py с тем же выводом), поэтому пишем в общий
+        # каталог логов на NVMe. stderr оставляем для ручных запусков.
         line = time.strftime('%Y-%m-%d %H:%M:%S ') + text
         print(f'хаб: {text}', file=sys.stderr, flush=True)
-        base = (os.environ.get('BONGA_REC_DIR')
-                or (args.dump_dir and os.path.dirname(os.path.abspath(args.dump_dir)))
-                or os.getcwd())
+        base = (os.environ.get('BONGA_LOG_DIR')
+                or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log'))
         try:
+            os.makedirs(base, exist_ok=True)
             with open(os.path.join(base, 'translate.log'), 'a', encoding='utf-8') as fh:
                 fh.write(line + '\n')
         except OSError:

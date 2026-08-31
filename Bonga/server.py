@@ -39,6 +39,8 @@ PORT = 8777
 
 # Записи кладём на большой диск: час 720p ≈ 1,5 ГБ, час 1080p ≈ 3,8 ГБ.
 REC_DIR = os.environ.get('BONGA_REC_DIR', '/mnt/DATA/Bonga_rec')
+# Короткие периодические записи журнала не должны будить HDD.
+LOG_DIR = os.environ.get('BONGA_LOG_DIR', os.path.join(ROOT, 'log'))
 MAX_RECORDINGS = 3                           # больше трёх ffmpeg разом не держим
 DEFAULT_SEGMENT = int(os.environ.get('BONGA_HLS_TIME', '60'))
 
@@ -1651,8 +1653,8 @@ def rec_stop(rid, _locked=False):
         return do()
 
 
-LOG_PATH = os.path.join(REC_DIR, 'server.log')
-PLAY_LOG_PATH = os.path.join(REC_DIR, 'playback.log')
+LOG_PATH = os.path.join(LOG_DIR, 'server.log')
+PLAY_LOG_PATH = os.path.join(LOG_DIR, 'playback.log')
 LOG_LOCK = threading.Lock()
 PLAY_LOG_LOCK = threading.Lock()
 
@@ -2861,6 +2863,7 @@ def reaper():
 
 if __name__ == '__main__':
     os.makedirs(REC_DIR, exist_ok=True)
+    os.makedirs(LOG_DIR, exist_ok=True)
     threading.Thread(target=reaper, daemon=True).start()
     threading.Thread(target=catalog_worker, daemon=True).start()
     threading.Thread(target=activity_worker, daemon=True).start()
@@ -2869,7 +2872,7 @@ if __name__ == '__main__':
     threading.Thread(target=ladder_worker, daemon=True).start()
     threading.Thread(target=cb_guard, daemon=True).start()
     print(f'Плеер:  http://127.0.0.1:{PORT}/player.html')
-    print(f'Записи: {rec_dir()} (логи всегда в {REC_DIR})')
+    print(f'Записи: {rec_dir()} (логи в {LOG_DIR})')
     try:
         ThreadingHTTPServer(('0.0.0.0', PORT), Handler).serve_forever()
     finally:

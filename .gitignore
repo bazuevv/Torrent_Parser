@@ -23,6 +23,7 @@ ton_payout/logs/
 
 # Логи
 *.log
+*.log.*
 
 # Скачанные медиа (media_downloader.py) — саму папку сохраняем через .gitkeep
 data/*
