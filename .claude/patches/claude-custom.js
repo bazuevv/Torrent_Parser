@@ -7969,6 +7969,14 @@
  * подряд на четыре хода — совершенно разные истории, а по одному
  * счётчику неразличимы.
  *
+ * ВТОРОЙ ФАКТОР — раскрывалось ли контекстное окно. Сессия, где
+ * контекст хотя бы раз поднимался выше `moodContextGoal`, сдвигает
+ * стрелку к зелёному, а та, что так и не дотянула, — к красному.
+ * Это поправка к основной метрике, а не отдельная шкала: сдвиг
+ * фиксированный, порядка половины сектора. Пока ходов меньше
+ * MIN_CHANCES, фактор не применяется вовсе — окно свежей сессии
+ * просто не успело вырасти, и штрафовать за это не за что.
+ *
  * Данные — GET /cache-usage (тот же endpoint, что у кнопки Usage):
  * `early_misses` — ходы, потерявшие живой кэш, `early_chances` — ходы,
  * на которых он вообще мог сработать. Сравнение пауз с TTL делает
@@ -8023,11 +8031,26 @@
   var VALUE_LOSS_TOP = 74;
   var VALUE_LOSS_BOTTOM = 2;
 
+  // Верхний предел с учётом поправки за контекст: у нулевых потерь
+  // база и так почти у края, а прибавка не должна упирать стрелку
+  // в самый конец шкалы.
+  var VALUE_MAX = 98;
+
   // Минимальный знаменатель доли. Без него первая же потеря в начале
   // сессии давала бы «1 из 1» — сто процентов и красную зону, хотя
   // одна точка ещё ничего не говорит о том, как поведёт себя кэш
   // дальше. С ростом сессии ограничение перестаёт действовать само.
+  // Этот же порог решает, созрела ли сессия для поправки за контекст.
   var MIN_CHANCES = 10;
+
+  // Отметка, выше которой контекстное окно считается раскрывшимся.
+  var CONTEXT_GOAL = typeof cfg.moodContextGoal === 'number'
+    && cfg.moodContextGoal > 0 ? cfg.moodContextGoal : 250000;
+
+  // Насколько поправка за контекст двигает стрелку — примерно
+  // полсектора. Больше значило бы, что второй фактор перебивает
+  // главный: потери кэша важнее того, докуда доросло окно.
+  var CONTEXT_SHIFT = 12;
 
   // Геометрия в единицах viewBox. Центр шкалы внизу, дуга — верхняя
   // половина окружности радиуса R: 180° слева (значение 0) до 0°
@@ -8156,8 +8179,10 @@
     }
     if (haveData) root.classList.remove(NODATA_CLASS);
     else root.classList.add(NODATA_CLASS);
+    // Подсказка многострочная: факторов уже два, и в одну строку
+    // они склеивались бы в нечитаемую ленту.
     root.title = haveData
-      ? 'Mood: ' + Math.round(value) + ' / 100 · ' + detail
+      ? 'Mood: ' + Math.round(value) + ' / 100\n' + detail
       : 'Mood: нет данных · ' + detail;
   }
 
@@ -8230,7 +8255,14 @@
       }
       chances = Math.max((num(data.requests) || 1) - 1, 0);
     }
-    return { early: early, chances: chances, ttl: ttl };
+    return {
+      early: early,
+      chances: chances,
+      ttl: ttl,
+      // Пика может не быть у старого сервера — тогда поправку за
+      // контекст просто не применяем (см. valueFor).
+      peak: num(data.context_peak),
+    };
   }
 
   /**
@@ -8246,11 +8278,67 @@
     return Math.min(early / Math.max(chances, MIN_CHANCES), 1);
   }
 
-  function valueFor(early, chances) {
-    if (early <= 0) return VALUE_CLEAN;
-    var share = shareOf(early, chances);
-    return VALUE_LOSS_BOTTOM
-      + (VALUE_LOSS_TOP - VALUE_LOSS_BOTTOM) * (1 - share);
+  function valueFor(st) {
+    var base;
+    if (st.early <= 0) {
+      base = VALUE_CLEAN;
+    } else {
+      var share = shareOf(st.early, st.chances);
+      base = VALUE_LOSS_BOTTOM
+        + (VALUE_LOSS_TOP - VALUE_LOSS_BOTTOM) * (1 - share);
+    }
+    base += contextShift(st);
+    return Math.max(VALUE_LOSS_BOTTOM, Math.min(VALUE_MAX, base));
+  }
+
+  /**
+   * Поправка за контекстное окно: раскрывшееся выше CONTEXT_GOAL
+   * тянет стрелку к зелёному, так и не доросшее — к красному.
+   *
+   * Молодая сессия поправку не получает ни в какую сторону: окно
+   * там маленькое просто потому, что разговор только начался, и
+   * штраф за это говорил бы о темпе работы, а не о кэше. Порог
+   * зрелости — тот же MIN_CHANCES, что и у доли потерь.
+   */
+  function contextShift(st) {
+    if (st.peak === null || st.chances < MIN_CHANCES) return 0;
+    return st.peak >= CONTEXT_GOAL ? CONTEXT_SHIFT : -CONTEXT_SHIFT;
+  }
+
+  /** Токены человеку: 250000 → «250k». */
+  function tokens(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1000) return Math.round(n / 1000) + 'k';
+    return String(Math.round(n));
+  }
+
+  /**
+   * Расшифровка для подсказки — по строке на фактор, чтобы было
+   * видно, откуда взялось положение стрелки.
+   */
+  function describe(st) {
+    // Формулировка про кэш безличная: «N ходов потеряли» ломалось бы
+    // на единице, а «потерян» — на нуле.
+    var lines = [st.early === 0
+      ? 'живой кэш не терялся ни разу · TTL ' + st.ttl + ' мин'
+      : 'живой кэш терялся на ' + st.early + ' из ' + st.chances + ' '
+        + plural(st.chances, 'хода', 'ходов', 'ходов')
+        + ' · ' + Math.round(shareOf(st.early, st.chances) * 100)
+        + '% · TTL ' + st.ttl + ' мин'];
+
+    if (st.peak !== null) {
+      var peak = 'пик контекста ' + tokens(st.peak);
+      if (st.chances < MIN_CHANCES) {
+        lines.push(peak + ' — сессия ещё короткая, в счёт не идёт');
+      } else if (st.peak >= CONTEXT_GOAL) {
+        lines.push(peak + ' — окно раскрывалось выше '
+          + tokens(CONTEXT_GOAL) + ', плюс к оценке');
+      } else {
+        lines.push(peak + ' — окно не дотянуло до '
+          + tokens(CONTEXT_GOAL) + ', минус к оценке');
+      }
+    }
+    return lines.join('\n');
   }
 
   function onFail(reason) {
@@ -8280,15 +8368,8 @@
         var st = earlyStats(d);
         fails = 0;
         haveData = true;
-        value = valueFor(st.early, st.chances);
-        // Формулировка безличная: «N ходов потеряли» ломалось бы
-        // на единице, а «потерян» — на нуле.
-        detail = st.early === 0
-          ? 'живой кэш не терялся ни разу · TTL ' + st.ttl + ' мин'
-          : 'живой кэш терялся на ' + st.early + ' из ' + st.chances + ' '
-            + plural(st.chances, 'хода', 'ходов', 'ходов')
-            + ' · ' + Math.round(shareOf(st.early, st.chances) * 100)
-            + '% · TTL ' + st.ttl + ' мин';
+        value = valueFor(st);
+        detail = describe(st);
         applyAll();
       })
       .catch(function () { onFail('сервер недоступен'); });

@@ -203,6 +203,11 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
         "должен быть положительным целым числом (сек)",
     ),
+    (
+        "moodContextGoal",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
+        "должен быть положительным целым числом (токенов)",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"
