@@ -58,6 +58,194 @@ ACCOUNT_NAME_RE = re.compile(r"^settings(_[A-Za-z0-9_-]+)?\.json$")
 # в settings.json попадёт только то, что процесс сможет прочитать.
 ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# Имя настройки верхнего уровня. Схема Claude Code — camelCase; `$schema`
+# в панель не попадает (см. SETTINGS_HIDDEN), но букву `$` разрешаем,
+# чтобы правило описывало именно синтаксис ключа, а не наш фильтр.
+SETTING_KEY_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_]*$")
+
+# Корневые ключи, которых в редакторе быть не должно.
+#   env         — правится отдельной секцией той же формы;
+#   $schema     — служебная ссылка для редакторов JSON, к поведению
+#                 Claude Code отношения не имеет.
+# Всё остальное фильтруется по типу значения: панель правит скаляры,
+# а `permissions`, `hooks`, `mcpServers` и прочие структуры — нет.
+# Правило по типу, а не по списку: незнакомая настройка-скаляр должна
+# появляться в панели сама, как и незнакомый settings-файл в списке.
+SETTINGS_HIDDEN = {"env", "$schema"}
+
+# Описания переменных окружения. Показываются по значку «?» в строке;
+# незнакомой переменной значка нет — врать про неё нечего.
+ENV_HINTS = {
+    "ANTHROPIC_API_KEY":
+        "Ключ Anthropic API — уходит в заголовок x-api-key. "
+        "У сторонних провайдеров чаще используют ANTHROPIC_AUTH_TOKEN.",
+    "ANTHROPIC_AUTH_TOKEN":
+        "Токен авторизации — заголовок Authorization: Bearer. "
+        "Основной способ входа к стороннему провайдеру.",
+    "ANTHROPIC_BASE_URL":
+        "Адрес API вместо api.anthropic.com. Именно этим и подключают "
+        "сторонних провайдеров.",
+    "ANTHROPIC_MODEL":
+        "Модель сессии. Перебивает выбор, сделанный командой /model.",
+    "ANTHROPIC_SMALL_FAST_MODEL":
+        "Устаревшее имя дешёвой быстрой модели для фоновых задач. "
+        "Сейчас её задаёт ANTHROPIC_DEFAULT_HAIKU_MODEL.",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL":
+        "Чем провайдер подменяет класс Opus.",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL":
+        "Чем провайдер подменяет класс Sonnet.",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL":
+        "Чем провайдер подменяет класс Haiku — дешёвую модель для "
+        "фоновой работы (заголовки чатов, вспомогательные вызовы).",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW":
+        "Размер контекстного окна в токенах, от которого считается "
+        "автокомпактификация.",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE":
+        "Порог автокомпактификации в процентах от окна.",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS":
+        "Потолок токенов в одном ответе модели.",
+    "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS":
+        "Потолок токенов на вывод одного чтения файла.",
+    "MAX_THINKING_TOKENS":
+        "Бюджет размышления модели в токенах.",
+    "CLAUDE_CODE_EFFORT_LEVEL":
+        "Уровень усилий процесса CLI. Перебивает настройку effortLevel.",
+    "API_TIMEOUT_MS":
+        "Таймаут одного запроса к API, миллисекунды.",
+    "BASH_DEFAULT_TIMEOUT_MS":
+        "Таймаут Bash-команды по умолчанию, миллисекунды.",
+    "BASH_MAX_TIMEOUT_MS":
+        "Верхняя граница таймаута Bash-команды, миллисекунды.",
+    "BASH_MAX_OUTPUT_LENGTH":
+        "Сколько символов вывода Bash доходит до модели.",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":
+        "1 — отключить необязательные обращения к серверам Anthropic: "
+        "телеметрию, автообновление, фоновые вызовы моделей.",
+    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY":
+        "1 — не показывать опрос об удовлетворённости.",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":
+        "1 — включить экспериментальные команды агентов.",
+    "DISABLE_TELEMETRY": "1 — не отправлять телеметрию.",
+    "DISABLE_ERROR_REPORTING": "1 — не отправлять отчёты об ошибках.",
+    "DISABLE_AUTOUPDATER": "1 — не обновлять CLI автоматически.",
+    "DISABLE_BUG_COMMAND": "1 — убрать команду /bug.",
+    "DISABLE_COST_WARNINGS": "1 — не предупреждать о расходах.",
+    "DISABLE_NON_ESSENTIAL_MODEL_CALLS":
+        "1 — отключить вспомогательные вызовы моделей "
+        "(заголовки чатов и прочая фоновая работа).",
+    "HTTP_PROXY": "HTTP-прокси для запросов к API.",
+    "HTTPS_PROXY": "HTTPS-прокси для запросов к API.",
+}
+
+# Описания и типы настроек верхнего уровня. `type` определяет, каким
+# полем настройку рисует панель: bool — переключателем, enum — списком,
+# остальное — текстом. Тексты — перевод `.describe()` из zod-схемы
+# внутри extension.js: там же и проверяется значение, так что список
+# вариантов enum обязан ей соответствовать.
+SETTING_HINTS = {
+    "model": {
+        "type": "text",
+        "hint": "Модель по умолчанию: алиас (opus, sonnet, haiku) или "
+                "полный id (claude-opus-5). Суффикс [1m] просит вариант "
+                "с контекстным окном в 1M токенов.",
+    },
+    "language": {
+        "type": "text",
+        "hint": "Язык ответов Claude и голосового ввода.",
+    },
+    "effortLevel": {
+        "type": "enum",
+        "options": ["low", "medium", "high", "xhigh"],
+        "hint": "Глубина рассуждений на поддерживающих её моделях. "
+                "Значения вне списка расширение молча игнорирует — "
+                "настройка остаётся незаданной.",
+    },
+    "preferredNotifChannel": {
+        "type": "enum",
+        "options": ["auto", "iterm2", "terminal_bell", "iterm2_with_bell",
+                    "kitty", "ghostty", "notifications_disabled"],
+        "hint": "Канал системных уведомлений.",
+    },
+    "switchModelsOnFlag": {
+        "type": "bool",
+        "hint": "Если сообщение помечено защитными фильтрами — перейти "
+                "на другую модель и продолжить разговор. Выключено — "
+                "сессия вместо этого встаёт.",
+    },
+    "agentPushNotifEnabled": {
+        "type": "bool",
+        "hint": "Разрешить Claude присылать push-уведомления на телефон "
+                "по своей инициативе.",
+    },
+    "inputNeededNotifEnabled": {
+        "type": "bool",
+        "hint": "Слать push на телефон, когда ждём ответа на запрос "
+                "разрешения или вопрос.",
+    },
+    "verbose": {
+        "type": "bool",
+        "hint": "Показывать вывод инструментов целиком, а не сокращённо.",
+    },
+    "autoCompactEnabled": {
+        "type": "bool",
+        "hint": "Автоматически сжимать переписку, когда контекст "
+                "заполняется.",
+    },
+    "fileCheckpointingEnabled": {
+        "type": "bool",
+        "hint": "Снимать копии файлов перед правкой, чтобы /rewind мог "
+                "их вернуть.",
+    },
+    "todoFeatureEnabled": {
+        "type": "bool",
+        "hint": "Включить панель задач (todo).",
+    },
+    "showTurnDuration": {
+        "type": "bool",
+        "hint": "Показывать длительность каждого хода ассистента.",
+    },
+    "showMessageTimestamps": {
+        "type": "bool",
+        "hint": "Ставить каждому сообщению время получения.",
+    },
+    "showThinkingSummaries": {
+        "type": "bool",
+        "hint": "Запрашивать у API сводки размышления и показывать их "
+                "в переписке.",
+    },
+    "autoMemoryEnabled": {
+        "type": "bool",
+        "hint": "Разрешить авто-память проекта: чтение и запись файлов "
+                "в каталоге памяти.",
+    },
+    "skipDangerousModePermissionPrompt": {
+        "type": "bool",
+        "hint": "Отметка о том, что диалог про bypass-режим разрешений "
+                "уже принят.",
+    },
+    "autoUploadSessions": {
+        "type": "bool",
+        "hint": "Зеркалить сессии на claude.ai только для просмотра.",
+    },
+    "remoteControlAtStartup": {
+        "type": "bool",
+        "hint": "Поднимать мост Remote Control при старте сессии.",
+    },
+    "theme": {
+        "type": "text",
+        "hint": "Цветовая тема интерфейса.",
+    },
+    "editorMode": {
+        "type": "text",
+        "hint": "Режим клавиш в поле ввода (например, vim).",
+    },
+}
+
+
+def hints() -> dict:
+    """Справочник для панели: описания env-переменных и настроек."""
+    return {"env": ENV_HINTS, "settings": SETTING_HINTS}
+
 # Человекочитаемые имена для известных суффиксов. Незнакомый суффикс
 # показывается как есть — список не обязан быть полным.
 DISPLAY_NAMES = {
@@ -161,14 +349,8 @@ def list_accounts() -> list[dict]:
     return accounts
 
 
-def read_account_env(filename: str) -> tuple[bool, str, dict]:
-    """Секция `env` аккаунта: (успех, сообщение, env).
-
-    Возвращается именно `env`, а не весь файл: провайдера задают
-    переменные окружения, а `permissions`, `model` и прочее — это
-    пользовательские настройки, к выбору аккаунта не относящиеся.
-    Трогать их через панель незачем, а испортить можно.
-    """
+def _load_account(filename: str) -> tuple[bool, str, dict]:
+    """Разбор settings-файла аккаунта: (успех, сообщение, данные)."""
     if not ACCOUNT_NAME_RE.match(filename or ""):
         return False, f"Недопустимое имя аккаунта: {filename!r}", {}
     path = source_path(filename)
@@ -183,53 +365,132 @@ def read_account_env(filename: str) -> tuple[bool, str, dict]:
         return False, f"{filename}: {exc}", {}
     if not isinstance(data, dict):
         return False, f"{filename}: ожидался объект JSON", {}
+    return True, "", data
+
+
+def _visible_settings(data: dict) -> dict:
+    """Скалярные настройки верхнего уровня — то, что правит панель.
+
+    Структуры (`permissions`, `hooks`, `mcpServers`) отсеиваются по
+    типу: полем «ключ→значение» их не отредактировать, а показать и
+    сохранить как текст значило бы их испортить.
+    """
+    out = {}
+    for key, value in data.items():
+        if key in SETTINGS_HIDDEN:
+            continue
+        if isinstance(value, (str, bool, int, float)):
+            out[key] = value
+    return out
+
+
+def read_account_config(filename: str) -> tuple[bool, str, dict]:
+    """Правимая часть файла аккаунта: (успех, сообщение, разделы).
+
+    Разделов два. `env` задаёт провайдера — адрес, ключ, подмену
+    моделей. `settings` — скалярные настройки верхнего уровня (`model`,
+    `language`, `effortLevel`, …): у аккаунта Anthropic секции `env` нет
+    вовсе, и без них редактор для него был бы пуст.
+    """
+    ok, message, data = _load_account(filename)
+    if not ok:
+        return False, message, {}
     env = data.get("env")
-    return True, "", env if isinstance(env, dict) else {}
+    return True, "", {
+        "env": env if isinstance(env, dict) else {},
+        "settings": _visible_settings(data),
+    }
 
 
-def write_account_env(filename: str, env: dict) -> tuple[bool, str]:
-    """Заменяет секцию `env` аккаунта, остальной файл не трогая.
+def _coerce_setting(key: str, value, previous):
+    """Значение настройки в том типе, в каком его ждёт Claude Code.
+
+    Форма отдаёт всё строками (кроме переключателей), а в JSON у
+    `switchModelsOnFlag` должен остаться булев тип, у числовых настроек
+    — числовой. Тип берём из справочника, при незнакомом ключе — из
+    прежнего значения, и лишь потом гадаем по самой строке: так правка
+    чужой настройки не превращает её в строку молча.
+    """
+    if isinstance(value, bool):
+        return value
+    kind = SETTING_HINTS.get(key, {}).get("type")
+    text = str("" if value is None else value).strip()
+
+    if kind == "bool" or isinstance(previous, bool):
+        return text.lower() in ("1", "true", "yes", "on", "да")
+    numeric = isinstance(previous, (int, float)) and not isinstance(previous, bool)
+    if kind == "number" or numeric or (kind is None and previous is None
+                                       and re.fullmatch(r"-?\d+(\.\d+)?", text)):
+        try:
+            return int(text) if re.fullmatch(r"-?\d+", text) else float(text)
+        except ValueError:
+            return text
+    if kind is None and previous is None and text.lower() in ("true", "false"):
+        return text.lower() == "true"
+    return text
+
+
+def write_account_config(filename: str, env, settings) -> tuple[bool, str]:
+    """Заменяет секции `env` и/или `settings` аккаунта.
+
+    `None` вместо раздела означает «не трогать»: webview, загруженный
+    до появления второй секции, шлёт только `env`, и его правка не
+    должна стирать настройки верхнего уровня.
 
     Пишет в источник (см. source_path), а если правился активный
     аккаунт — обновляет и активную копию `settings.json`. Без второго
     шага правка не дожила бы до перезапуска: копия осталась бы старой,
-    а `env` читает именно её.
+    а `env` читают именно из неё.
     """
-    if not ACCOUNT_NAME_RE.match(filename or ""):
-        return False, f"Недопустимое имя аккаунта: {filename!r}"
-    if not isinstance(env, dict):
+    if env is None and settings is None:
+        return False, "Нечего сохранять: не передан ни env, ни settings"
+    if env is not None and not isinstance(env, dict):
         return False, "env должен быть объектом"
+    if settings is not None and not isinstance(settings, dict):
+        return False, "settings должен быть объектом"
 
-    clean: dict[str, str] = {}
-    for key, value in env.items():
-        name = str(key).strip()
-        if not name:
-            continue
-        if not ENV_KEY_RE.match(name):
-            return False, f"Недопустимое имя переменной: {name!r}"
-        # Значения в settings.json всегда строки — даже числовые
-        # («API_TIMEOUT_MS»: «3000000»). Приводим сами, чтобы правка
-        # через панель не меняла тип молча.
-        clean[name] = "" if value is None else str(value)
+    clean_env: dict[str, str] = {}
+    if env is not None:
+        for key, value in env.items():
+            name = str(key).strip()
+            if not name:
+                continue
+            if not ENV_KEY_RE.match(name):
+                return False, f"Недопустимое имя переменной: {name!r}"
+            # Значения в env всегда строки — даже числовые
+            # («API_TIMEOUT_MS»: «3000000»). Приводим сами, чтобы правка
+            # через панель не меняла тип молча.
+            clean_env[name] = "" if value is None else str(value)
+
+    ok, message, data = _load_account(filename)
+    if not ok:
+        return False, message
+
+    if env is not None:
+        if clean_env:
+            data["env"] = clean_env
+        else:
+            # Пустую секцию не оставляем: у базового аккаунта `env` нет
+            # вовсе, и пустой объект был бы отличием без разницы.
+            data.pop("env", None)
+
+    if settings is not None:
+        clean_settings = {}
+        for key, value in settings.items():
+            name = str(key).strip()
+            if not name:
+                continue
+            if name in SETTINGS_HIDDEN or not SETTING_KEY_RE.match(name):
+                return False, f"Недопустимое имя настройки: {name!r}"
+            clean_settings[name] = _coerce_setting(name, value, data.get(name))
+        # Удаляем только то, что панель показывала: невидимые ей ключи
+        # (структуры, `$schema`) она удалить не просила и не могла.
+        for name in _visible_settings(data):
+            if name not in clean_settings:
+                data.pop(name, None)
+        data.update(clean_settings)
 
     path = source_path(filename)
-    if not os.path.isfile(path):
-        return False, f"Файл {filename} не найден"
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError) as exc:
-        return False, f"{filename}: {exc}"
-    if not isinstance(data, dict):
-        return False, f"{filename}: ожидался объект JSON"
-
-    if clean:
-        data["env"] = clean
-    else:
-        # Пустую секцию не оставляем: у базового аккаунта `env` нет
-        # вовсе, и пустой объект был бы отличием без разницы.
-        data.pop("env", None)
-
     try:
         _write_json_atomic(path, data)
         if filename == get_current_account() and path != SETTINGS_FILE:
