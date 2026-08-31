@@ -21,8 +21,12 @@ Claude Code читает ровно один файл — `~/.claude/settings.js
 вместо настроек.
 
 ВАЖНО: `env` из settings.json применяется процессом Claude Code при
-старте сессии. После переключения нужен `Developer: Reload Window` —
-текущее окно продолжит работать на старом провайдере.
+старте, а стартует он один раз на активацию extension host. Поэтому
+подмена файла сама по себе ничего не меняет в текущем окне — нужен
+новый процесс CLI. Панель Accs предлагает это сразу после переключения:
+перезапуск extension host (см. `[claude-exthost-restart]` в
+extension.js и endpoint /restart-exthost в http-server.py). Он дешевле
+Reload Window — редакторы, вкладки и терминалы остаются на месте.
 
 `settings.local.json` не трогается: это отдельный пользовательский слой,
 не относящийся к выбору провайдера.
@@ -194,7 +198,7 @@ def switch_account(target: str) -> tuple[bool, str]:
         return False, f"Ошибка переключения: {exc}"
 
     return True, (f"Активен {_display_name(target)}. "
-                  "Нужен Developer: Reload Window")
+                  "Применится после перезапуска расширения")
 
 
 if __name__ == "__main__":
