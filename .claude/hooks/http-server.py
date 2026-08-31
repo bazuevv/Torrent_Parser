@@ -513,13 +513,21 @@ class Handler(BaseHTTPRequestHandler):
             "accounts": account_switcher.list_accounts(),
         })
 
-    # --- правка переменных окружения аккаунта ----------------------------
+    # --- правка настроек аккаунта ----------------------------------------
     #
     # Панель Accs умеет не только выбирать аккаунт, но и править его
-    # `env` — по шестерёнке в строке. Значения ходят как есть, включая
-    # токены: сервер слушает только localhost, а webview, который их
-    # запрашивает, живёт на той же машине. В журнал они не попадают —
-    # там только имена переменных.
+    # файл — по шестерёнке в строке. Разделов два: `env` (провайдер) и
+    # скалярные настройки верхнего уровня (`model`, `language`, …), без
+    # которых у аккаунта Anthropic редактор был бы пуст.
+    #
+    # Значения ходят как есть, включая токены: сервер слушает только
+    # localhost, а webview, который их запрашивает, живёт на той же
+    # машине. В журнал они не попадают — там только имена.
+    #
+    # Имя endpoint'а осталось прежним (`/account-env`), хотя разделов
+    # теперь два: его знает webview, загруженный до этой правки, а
+    # bootstrap перечитывается только при Reload Window. Переименование
+    # оставило бы такие окна с мёртвой шестерёнкой.
 
     def _handle_account_env_get(self) -> None:
         filename = ""
@@ -528,14 +536,22 @@ class Handler(BaseHTTPRequestHandler):
                 if part.startswith("file="):
                     filename = unquote(part[len("file="):])
         try:
-            ok, message, env = account_switcher.read_account_env(filename)
+            ok, message, config = account_switcher.read_account_config(filename)
         except Exception as exc:  # noqa: BLE001 — endpoint не роняет сервер
             self._json_response(500, {"ok": False, "error": str(exc)})
             return
         if not ok:
             self._json_response(400, {"ok": False, "error": message})
             return
-        self._json_response(200, {"ok": True, "file": filename, "env": env})
+        # `env` отдаётся тем же ключом, что и раньше: старый webview
+        # читает только его и продолжает работать.
+        self._json_response(200, {
+            "ok": True,
+            "file": filename,
+            "env": config["env"],
+            "settings": config["settings"],
+            "hints": account_switcher.hints(),
+        })
 
     def _handle_account_env_post(self) -> None:
         body = self._read_body()
@@ -551,15 +567,23 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         filename = str(payload.get("file") or "")
+        # Отсутствующий раздел — это «не трогать», а не «очистить»:
+        # старый webview шлёт одно `env`, и его правка не должна
+        # стирать настройки верхнего уровня.
         env = payload.get("env")
+        settings = payload.get("settings")
         try:
-            ok, message = account_switcher.write_account_env(filename, env)
+            ok, message = account_switcher.write_account_config(
+                filename, env, settings)
         except Exception as exc:  # noqa: BLE001
             self._json_response(500, {"ok": False, "error": str(exc)})
             return
 
-        names = ", ".join(sorted(env)) if isinstance(env, dict) else "—"
-        _log(f"правка env {filename!r}: {message} [{names}]")
+        names = ", ".join(sorted(
+            list(env if isinstance(env, dict) else [])
+            + list(settings if isinstance(settings, dict) else [])
+        )) or "—"
+        _log(f"правка настроек {filename!r}: {message} [{names}]")
         self._json_response(200 if ok else 400, {
             "ok": ok,
             "message": message,
