@@ -7957,11 +7957,24 @@
  * жёлтый, зелёный — и стрелка поверх неё: 0 указывает в начало
  * красного (влево), 100 — в конец зелёного (вправо).
  *
- * Источник данных ещё не выбран, поэтому модуль сознательно ничего
- * не опрашивает: ни сервера, ни DOM. Значение ставится снаружи —
- * `window.__claudeMood.set(0..100)`, читается `.get()`. Когда метрика
- * появится, её достаточно будет отдавать этим же set — рисование
- * менять не придётся.
+ * ЧТО ИЗМЕРЯЕТ. Ранние потери prompt-кэша, то есть перезаписи
+ * контекста, случившиеся раньше, чем кэш истёк бы сам. Промах после
+ * долгой паузы неизбежен — TTL кончился, платить за перезапись
+ * пришлось бы в любом случае. А промах, когда с прошлого хода прошло
+ * меньше TTL, означает потерю на ровном месте: кэш должен был быть
+ * жив. Пока таких перезаписей в сессии нет, стрелка стоит в зелёной
+ * зоне; каждая следующая сдвигает её на сектор влево.
+ *
+ * Данные — GET /cache-usage (тот же endpoint, что у кнопки Usage):
+ * `miss_log[].gap` — пауза перед промахом в минутах, `ttl_minutes` —
+ * время жизни кэша, которое сервер читает из
+ * `cacheKeepaliveTtlMinutes`. Сравнение живёт здесь, а не на сервере:
+ * ответ endpoint'а общий для всех потребителей, и добавлять в него
+ * поле под один индикатор незачем.
+ *
+ * Значение можно поставить и вручную — `window.__claudeMood.set(0..100)`,
+ * читается `.get()`; следующий опрос (`moodPollSec`) его перебьёт.
+ * Это отладочный вход, а не способ показать что-то своё.
  *
  * Не кнопка: кликов не принимает и курсор не меняет. Поэтому класс
  * штатной footerButton_ не заимствуется (в отличие от Accs и Usage) —
@@ -7983,7 +7996,25 @@
 
   var ROOT_CLASS = 'claude-mood';
   var NEEDLE_CLASS = 'claude-mood-needle';
+  var NODATA_CLASS = 'claude-mood-nodata';
   var SCAN_INTERVAL_MS = 3000;
+
+  var USAGE_URL = 'http://localhost:18923/cache-usage';
+  var POLL_MS = (typeof cfg.moodPollSec === 'number' && cfg.moodPollSec > 0
+    ? cfg.moodPollSec : 20) * 1000;
+
+  // Сколько неудачных опросов подряд терпим, прежде чем признать, что
+  // данных нет. Одиночный сбой (сервер перезапускается хуком, вкладка
+  // только что открылась) не должен гасить шкалу: мигание серым
+  // читалось бы как поломка индикатора.
+  var FAIL_TOLERANCE = 3;
+
+  // Куда ставить стрелку при 0, 1, 2, 3+ ранних перезаписях. Это
+  // середины секторов, а не их границы: метрика дискретная, и стрелка
+  // на стыке двух цветов не позволяла бы понять, какой из них имеется
+  // в виду. Крайние точки шкалы (0 и 100) тоже не берём — стрелка,
+  // упёршаяся в край, выглядит сломанной.
+  var LEVELS = [94, 62, 38, 12];
 
   // Геометрия в единицах viewBox. Центр шкалы внизу, дуга — верхняя
   // половина окружности радиуса R: 180° слева (значение 0) до 0°
@@ -8004,7 +8035,14 @@
   // Значение общее для всех экземпляров: футеров в DOM столько,
   // сколько открытых полей ввода, и показывать в них разное было бы
   // враньём — метрика одна на окно.
-  var value = 0;
+  var value = LEVELS[0];
+
+  // До первого удачного опроса шкала показана серой: цветная шкала
+  // с зелёной стрелкой утверждала бы «всё хорошо», хотя на деле мы
+  // ещё ничего не знаем.
+  var haveData = false;
+  var fails = 0;
+  var detail = 'данных ещё нет';
 
   function logInfo() {
     if (!cfg.logs) return;
@@ -8103,7 +8141,11 @@
       // по нему работает transition (см. .claude-mood-needle в CSS).
       needle.style.transform = 'rotate(' + round3(value * 180 / 100) + 'deg)';
     }
-    root.title = 'Mood: ' + Math.round(value) + ' / 100';
+    if (haveData) root.classList.remove(NODATA_CLASS);
+    else root.classList.add(NODATA_CLASS);
+    root.title = haveData
+      ? 'Mood: ' + Math.round(value) + ' / 100 · ' + detail
+      : 'Mood: нет данных · ' + detail;
   }
 
   function applyAll() {
@@ -8112,17 +8154,105 @@
   }
 
   window.__claudeMood = {
-    /** Ставит значение 0..100; выходящее за границы прижимается. */
+    /**
+     * Ставит значение 0..100 вручную; выходящее за границы прижимается.
+     * Отладочный вход: ближайший опрос перезапишет значение своим.
+     */
     set: function (v) {
       var num = Number(v);
       if (!isFinite(num)) return value;
       value = Math.max(0, Math.min(100, num));
+      haveData = true;
+      detail = 'значение поставлено вручную';
       applyAll();
       logInfo('значение', value);
       return value;
     },
     get: function () { return value; },
+    /** Внеочередной опрос — например после правки TTL в конфиге. */
+    refresh: function () { tick(); },
   };
+
+  /* ---------- метрика: ранние потери кэша ---------- */
+
+  function sessionId() {
+    // Резолвер регистрирует CACHE USAGE BUTTON — он же общая
+    // зависимость кнопок Cache и ByPass. Без id сервер отдал бы самый
+    // свежий транскрипт проекта, то есть чужую вкладку.
+    var fn = window.__claudeSessionId;
+    return typeof fn === 'function' ? fn() : null;
+  }
+
+  function plural(n, one, few, many) {
+    var mod10 = n % 10;
+    var mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return one;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+    return many;
+  }
+
+  /**
+   * Сколько промахов кэша случилось раньше, чем он истёк бы сам.
+   *
+   * `gap` — пауза перед промахом в минутах. Промах после паузы длиннее
+   * TTL неизбежен и в счёт не идёт: кэш к тому моменту уже вытеснен,
+   * перезапись оплатили бы при любом раскладе. Промах при паузе
+   * короче TTL — потеря на ровном месте, вот его и считаем.
+   *
+   * Промахи без `gap` (не разобралась метка времени) пропускаем:
+   * записать их в потери — значит наказать за то, чего не измерили.
+   */
+  function countEarly(data) {
+    var ttl = typeof data.ttl_minutes === 'number' && data.ttl_minutes > 0
+      ? data.ttl_minutes : 60;
+    var log = data.miss_log || [];
+    var n = 0;
+    for (var i = 0; i < log.length; i++) {
+      var gap = log[i].gap;
+      if (typeof gap === 'number' && gap < ttl) n++;
+    }
+    return { count: n, ttl: ttl };
+  }
+
+  function onFail(reason) {
+    fails++;
+    if (fails < FAIL_TOLERANCE) return;
+    if (haveData || detail !== reason) {
+      haveData = false;
+      detail = reason;
+      applyAll();
+      logInfo('данных нет:', reason);
+    }
+  }
+
+  function tick() {
+    var sid = sessionId();
+    if (!sid) {
+      onFail('сессия ещё не определилась');
+      return;
+    }
+    fetch(USAGE_URL + '?session=' + encodeURIComponent(sid), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          onFail((d && d.error) || 'сервер не отдал статистику');
+          return;
+        }
+        var early = countEarly(d);
+        fails = 0;
+        haveData = true;
+        // Дальше третьей перезаписи шкала не двигается: стрелка уже
+        // в красном, а различать «плохо» и «ещё хуже» ей нечем.
+        value = LEVELS[Math.min(early.count, LEVELS.length - 1)];
+        detail = early.count === 0
+          ? 'перезаписей раньше TTL ' + early.ttl + ' мин нет'
+          : early.count + ' ' + plural(early.count,
+            'перезапись', 'перезаписи', 'перезаписей')
+            + ' раньше TTL ' + early.ttl + ' мин';
+        applyAll();
+      })
+      .catch(function () { onFail('сервер недоступен'); });
+  }
 
   /* ---------- монтирование ---------- */
 
@@ -8198,7 +8328,11 @@
       });
     } catch (e) {}
     setInterval(scan, SCAN_INTERVAL_MS);
-    logInfo('installed');
+    // Первый опрос сразу: до него шкала серая, и задержка на целый
+    // период читалась бы как «индикатор не работает».
+    tick();
+    setInterval(tick, POLL_MS);
+    logInfo('installed, опрос раз в', POLL_MS / 1000, 'с');
   }
 
   if (document.readyState === 'loading') {

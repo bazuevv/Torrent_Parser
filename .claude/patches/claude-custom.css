@@ -1304,6 +1304,17 @@
   fill: currentColor;
 }
 
+/* Данных ещё нет (сессия не определилась, сервер молчит): шкала
+ * обесцвечивается. Цветные сектора с зелёной стрелкой утверждали бы
+ * «всё хорошо» — а мы в этот момент просто не знаем. */
+.claude-mood-nodata {
+  opacity: 0.5;
+}
+.claude-mood-nodata .claude-mood-arc {
+  stroke: currentColor;
+  opacity: 0.3;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .claude-mood-needle {
     transition: none;
