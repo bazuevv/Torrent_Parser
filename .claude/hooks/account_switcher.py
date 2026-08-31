@@ -109,7 +109,10 @@ ENV_HINTS = {
     "MAX_THINKING_TOKENS":
         "Бюджет размышления модели в токенах.",
     "CLAUDE_CODE_EFFORT_LEVEL":
-        "Уровень усилий процесса CLI. Перебивает настройку effortLevel.",
+        "Уровень усилий процесса CLI: low, medium, high, xhigh или max "
+        "(так max и сохраняют — ключ effortLevel его не принимает). "
+        "Псевдонимы: med=medium, unset/auto — снять. Перебивает всё "
+        "на сессию, включая effortLevel и ultracode.",
     "API_TIMEOUT_MS":
         "Таймаут одного запроса к API, миллисекунды.",
     "BASH_DEFAULT_TIMEOUT_MS":
@@ -157,8 +160,29 @@ SETTING_HINTS = {
         "type": "enum",
         "options": ["low", "medium", "high", "xhigh"],
         "hint": "Глубина рассуждений на поддерживающих её моделях. "
-                "Значения вне списка расширение молча игнорирует — "
-                "настройка остаётся незаданной.",
+                "max здесь не принимается — оно сессионное и в файле "
+                "молча отбрасывается; постоянный max задаёт только "
+                "переменная CLAUDE_CODE_EFFORT_LEVEL=max.",
+    },
+    "ultracode": {
+        "type": "bool",
+        "hint": "Ультракод: усилие xhigh плюс постоянная оркестрация "
+                "динамическими workflow на всю сессию. Требует "
+                "включённых workflow и xhigh-способной модели. "
+                "Интерактивный /effort ultracode не сохраняется — "
+                "только этот ключ в файле.",
+    },
+    "workflowKeywordTriggerEnabled": {
+        "type": "bool",
+        "hint": "Триггер по слову «ultracode» в промпте: такой ход "
+                "уходит в Workflow-инструмент. По умолчанию включён; "
+                "false — отключить триггер.",
+    },
+    "alwaysThinkingEnabled": {
+        "type": "bool",
+        "hint": "Размышления модели: true или отсутствие ключа — "
+                "включены автоматически на поддерживающих моделях, "
+                "false — выключены.",
     },
     "preferredNotifChannel": {
         "type": "enum",
