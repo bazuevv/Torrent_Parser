@@ -726,21 +726,23 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
 
+        # TTL нужен уже при разборе: по нему промахи делятся на
+        # неизбежные («отошёл надолго») и ранние, где кэш обязан был
+        # выжить. Он же уезжает в ответ — панель Usage показывает его
+        # рядом с вердиктом хода, второй запрос ей не нужен.
+        ttl = _config_value("cacheKeepaliveTtlMinutes", 60)
+        if not (isinstance(ttl, int) and not isinstance(ttl, bool) and ttl > 0):
+            ttl = 60
+
         state_dir = LOGS_DIR or os.path.join(PROJECT_DIR, ".claude", "hooks-runtime")
         try:
             with _CACHE_LOCK:
-                stats = cache_usage.collect(transcript, state_dir=state_dir)
+                stats = cache_usage.collect(
+                    transcript, state_dir=state_dir, ttl_minutes=ttl,
+                )
         except Exception as exc:
             self._json_response(500, {"ok": False, "error": str(exc)})
             return
-
-        # TTL кладём сюда же, чтобы панель не делала второй запрос:
-        # по нему она отличает обычный промах «отошёл надолго» от
-        # аномального, где кэш обязан был выжить.
-        if stats.get("ok"):
-            ttl = _config_value("cacheKeepaliveTtlMinutes", 60)
-            if isinstance(ttl, int) and not isinstance(ttl, bool) and ttl > 0:
-                stats["ttl_minutes"] = ttl
 
         self._json_response(200 if stats.get("ok") else 404, stats)
 

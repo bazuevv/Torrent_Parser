@@ -64,11 +64,17 @@ CACHE_READ_MULT = 0.1
 
 MAX_TRACKED_MISSES = 20  # хвост промахов, который отдаём в UI
 
+# Паузы перед промахами храним отдельно и дольше: по ним считается
+# доля ранних потерь кэша (индикатор Mood). Двадцати записей miss_log
+# для этого мало — в длинной сессии доля вышла бы заниженной, а по
+# одному числу на промах хвост в полтысячи записей ничего не весит.
+MAX_TRACKED_GAPS = 500
+
 # Версия схемы файла состояния. Инкрементировать при любом изменении
 # набора полей: старое состояние тогда отбрасывается и транскрипт
 # перечитывается целиком. Без этого добавленное поле молча остаётся
 # пустым на всех сессиях, у которых состояние уже накоплено.
-STATE_VERSION = 2
+STATE_VERSION = 3
 
 
 def rate_for(model: str):
@@ -103,6 +109,7 @@ def blank_state() -> dict:
         "misses": 0,
         "rewritten": 0,  # токены, переписанные после промахов
         "miss_log": [],  # хвост последних промахов для панели
+        "miss_gaps": [],  # паузы перед промахами, мин (для доли ранних)
         "model": "",
         "started": "",
         "prev": None,  # {"ts": iso, "rd": int, "wr": int, "sig": [...]}
@@ -199,6 +206,12 @@ def consume(state: dict, path: str) -> None:
                     "verdict": verdict,
                 })
                 del state["miss_log"][:-MAX_TRACKED_MISSES]
+                if gap_min is not None:
+                    # Промахи без разобранной метки времени пропускаем:
+                    # неизвестную паузу нельзя сравнить с TTL, а
+                    # записать её в ранние — значит соврать.
+                    state["miss_gaps"].append(round(gap_min, 2))
+                    del state["miss_gaps"][:-MAX_TRACKED_GAPS]
 
         if not state["started"] and ts_raw:
             state["started"] = ts_raw
@@ -250,12 +263,18 @@ def _save_state(state_path: str, state: dict) -> None:
 
 
 def collect(transcript_path: str, state_dir: str = STATE_DIR,
-            use_state: bool = True) -> dict:
+            use_state: bool = True, ttl_minutes: float = 60.0) -> dict:
     """Считает статистику кэша по транскрипту и возвращает плоский dict.
 
     `use_state=False` отключает инкрементальный кэш — файл читается
     целиком. Нужно для одноразовых прогонов, где не хочется мусорить
     в hooks-runtime.
+
+    `ttl_minutes` — время жизни кэша. По нему промахи делятся на
+    неизбежные (пауза длиннее TTL: кэш истёк бы сам) и ранние (пауза
+    короче: кэш был жив, но не сработал). Сравнение делается здесь,
+    а не в state, чтобы правка cacheKeepaliveTtlMinutes применялась
+    к уже накопленной сессии, а не только к будущим промахам.
     """
     if not transcript_path or not os.path.isfile(transcript_path):
         return {"ok": False, "error": "transcript not found"}
@@ -289,6 +308,13 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
         + state["output"] / 1e6 * out_rate
     )
 
+    gaps = state["miss_gaps"]
+    early = sum(1 for g in gaps if isinstance(g, (int, float)) and g < ttl_minutes)
+    # Знаменатель — ходы, на которых кэш вообще мог сработать. Первый
+    # запрос сессии не в счёт: читать ему ещё нечего, и промахом он
+    # не считается (verdict «старт»).
+    chances = max(state["requests"] - 1, 0)
+
     last = state["last"]
     return {
         "ok": True,
@@ -298,6 +324,12 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
         "requests": state["requests"],
         "context": last["read"] + last["write"],
         "last": last,
+        # Промахи, которых не должно было быть: кэш ещё жил, но ход
+        # его не застал. Отдаём и знаменатель — по ним индикатор Mood
+        # считает, насколько часто кэш теряется впустую.
+        "early_misses": early,
+        "early_chances": chances,
+        "ttl_minutes": ttl_minutes,
         "read": state["read"],
         "write": state["write"],
         "fresh": state["fresh"],
@@ -344,6 +376,8 @@ def format_report(st: dict) -> str:
         f"output          : {st['output']:,}",
         f"промахов        : {st['misses']} (перезаписано {st['rewritten']:,} "
         f"= ${st['wasted']})",
+        f"из них ранних   : {st['early_misses']} из {st['early_chances']} ходов "
+        f"(пауза короче TTL {st['ttl_minutes']:g} мин)",
         "",
         f"с кэшем         : ${st['cost']}",
         f"без кэша было бы: ${st['cost_naive']}",
