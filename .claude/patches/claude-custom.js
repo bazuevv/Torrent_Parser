@@ -7320,6 +7320,9 @@
   var BARE_CLASS = 'claude-accs-btn-bare';
   var PANEL_ID = 'claude-accs-panel';
   var MODAL_ID = 'claude-accs-modal';
+  // Список известных имён настроек для автодополнения в форме.
+  // Панель открыта одна на окно, поэтому id фиксированный.
+  var SET_LIST_ID = 'claude-accs-setting-names';
   var SCAN_INTERVAL_MS = 3000;
   var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
 
@@ -7464,13 +7467,41 @@
     return svg;
   }
 
-  /** Секрет ли это. Точного признака нет, поэтому судим по имени —
-   * ошибиться в сторону маскировки безопаснее, чем показать ключ. */
-  function isSecretKey(name) {
-    return /TOKEN|KEY|SECRET|PASSWORD/i.test(name || '');
+  /** Значок «?» с описанием ключа, стоящий перед крестиком удаления.
+   *
+   * Показывается только у знакомых ключей: у незнакомого он обещал бы
+   * объяснение, которого у нас нет. Место под него держим всегда —
+   * иначе крестики в соседних строках встали бы в разные колонки.
+   * Текст берётся с сервера (`hints` в ответе /account-env), а не из
+   * этого файла: правка описания там применяется перезапуском сервера,
+   * а здесь потребовала бы Reload Window. */
+  function hintMark(text) {
+    var mark = document.createElement('span');
+    mark.className = 'claude-accs-env-hint';
+    mark.textContent = '?';
+    setHint(mark, text);
+    return mark;
   }
 
-  function envRow(list, key, value) {
+  function setHint(mark, text) {
+    mark.title = text || '';
+    mark.style.visibility = text ? 'visible' : 'hidden';
+  }
+
+  function delButton(row, title) {
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'claude-accs-env-del';
+    del.textContent = '✕';
+    del.title = title;
+    del.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    del.addEventListener('click', function () {
+      if (row.parentNode) row.parentNode.removeChild(row);
+    });
+    return del;
+  }
+
+  function envRow(list, key, value, hints) {
     var row = document.createElement('div');
     row.className = 'claude-accs-env-row';
 
@@ -7483,66 +7514,124 @@
     row.appendChild(keyInput);
 
     var valInput = document.createElement('input');
+    valInput.type = 'text';
     valInput.className = 'claude-accs-env-val';
     valInput.value = value == null ? '' : String(value);
     valInput.placeholder = 'значение';
     valInput.spellcheck = false;
-    // Токены прячем сразу: панель раскрывается поверх переписки, и
-    // ключ провайдера не должен светиться при каждом заходе в список.
-    valInput.type = isSecretKey(key) ? 'password' : 'text';
     row.appendChild(valInput);
 
-    var eye = document.createElement('button');
-    eye.type = 'button';
-    eye.className = 'claude-accs-env-eye';
-    eye.textContent = '👁';
-    eye.title = 'Показать значение';
-    eye.addEventListener('mousedown', function (e) { e.preventDefault(); });
-    eye.addEventListener('click', function () {
-      valInput.type = valInput.type === 'password' ? 'text' : 'password';
-    });
-    row.appendChild(eye);
-    // Кнопка глаза нужна только скрытым значениям, но место под неё
-    // держим всегда — иначе поля в соседних строках были бы разной
-    // ширины и колонка «поехала» бы.
-    eye.style.visibility = valInput.type === 'password' ? 'visible' : 'hidden';
+    var mark = hintMark(hints && hints[key]);
     keyInput.addEventListener('input', function () {
-      var secret = isSecretKey(keyInput.value);
-      eye.style.visibility = secret ? 'visible' : 'hidden';
-      if (!secret) valInput.type = 'text';
+      setHint(mark, hints && hints[keyInput.value.trim()]);
     });
-
-    var del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'claude-accs-env-del';
-    del.textContent = '✕';
-    del.title = 'Удалить переменную';
-    del.addEventListener('mousedown', function (e) { e.preventDefault(); });
-    del.addEventListener('click', function () {
-      if (row.parentNode) row.parentNode.removeChild(row);
-    });
-    row.appendChild(del);
+    row.appendChild(mark);
+    row.appendChild(delButton(row, 'Удалить переменную'));
 
     list.appendChild(row);
     return row;
   }
 
-  /** Собирает env из полей формы. Пустые имена пропускаем: строка,
-   * добавленная кнопкой «+» и оставленная незаполненной, — это не
-   * переменная с пустым именем, а просто передумали. */
-  function collectEnv(list) {
-    var env = {};
+  /** Поле значения настройки — по типу из справочника.
+   *
+   * Переключатель и список вместо текстового поля не украшательство:
+   * `switchModelsOnFlag` должен остаться булевым, а значение вне
+   * enum'а расширение молча игнорирует, и настройка выглядит заданной,
+   * не действуя. Текущее значение добавляется в список, даже если его
+   * там нет: показать «max» как «low» значило бы соврать про файл. */
+  function settingField(spec, value) {
+    var kind = (spec && spec.type) || 'text';
+    if (kind !== 'bool' && kind !== 'enum') {
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'claude-accs-env-val';
+      input.value = value == null ? '' : String(value);
+      input.placeholder = 'значение';
+      input.spellcheck = false;
+      return input;
+    }
+
+    var sel = document.createElement('select');
+    sel.className = 'claude-accs-env-val claude-accs-env-sel';
+    var options = kind === 'bool'
+      ? [['true', 'да'], ['false', 'нет']]
+      : (spec.options || []).map(function (o) { return [o, o]; });
+    var current = kind === 'bool'
+      ? (value === true || value === 'true' ? 'true' : 'false')
+      : (value == null ? '' : String(value));
+    var known = options.some(function (o) { return o[0] === current; });
+    if (!known) options.unshift([current, current || '(не задано)']);
+    for (var i = 0; i < options.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = options[i][0];
+      opt.textContent = options[i][1];
+      sel.appendChild(opt);
+    }
+    sel.value = current;
+    sel.dataset.kind = kind;
+    return sel;
+  }
+
+  function settingRow(list, key, value, specs) {
+    var row = document.createElement('div');
+    row.className = 'claude-accs-env-row';
+
+    var keyInput = document.createElement('input');
+    keyInput.type = 'text';
+    keyInput.className = 'claude-accs-env-key';
+    keyInput.value = key || '';
+    keyInput.placeholder = 'настройка';
+    keyInput.spellcheck = false;
+    keyInput.setAttribute('list', SET_LIST_ID);
+    row.appendChild(keyInput);
+
+    var wrap = document.createElement('span');
+    wrap.className = 'claude-accs-env-field';
+    wrap.appendChild(settingField(specs && specs[key], value));
+    row.appendChild(wrap);
+
+    var mark = hintMark(specs && specs[key] && specs[key].hint);
+    keyInput.addEventListener('input', function () {
+      var spec = specs && specs[keyInput.value.trim()];
+      setHint(mark, spec && spec.hint);
+      // Тип поля зависит от имени настройки, а его правят прямо здесь:
+      // переименовали `model` в `verbose` — поле обязано стать
+      // переключателем, иначе в файл уйдёт строка вместо булева.
+      var kind = (spec && spec.type) || 'text';
+      if (wrap.firstChild && (wrap.firstChild.dataset.kind || 'text') === kind) return;
+      var old = wrap.firstChild ? wrap.firstChild.value : '';
+      wrap.textContent = '';
+      wrap.appendChild(settingField(spec, old));
+    });
+    row.appendChild(mark);
+    row.appendChild(delButton(row, 'Удалить настройку'));
+
+    list.appendChild(row);
+    return row;
+  }
+
+  /** Собирает раздел из полей формы. Пустые имена пропускаем: строка,
+   * добавленная кнопкой «+» и оставленная незаполненной, — это не ключ
+   * с пустым именем, а просто передумали. */
+  function collectRows(list, typed) {
+    var out = {};
     var rows = list.querySelectorAll('.claude-accs-env-row');
     for (var i = 0; i < rows.length; i++) {
       var key = rows[i].querySelector('.claude-accs-env-key').value.trim();
       if (!key) continue;
-      env[key] = rows[i].querySelector('.claude-accs-env-val').value;
+      var field = rows[i].querySelector('.claude-accs-env-val');
+      // Булево отправляем булевым, а не строкой «true»: сервер по
+      // справочнику привёл бы и строку, но в файле аккаунта с чужой
+      // настройкой гадать о типе было бы не по чему.
+      out[key] = (typed && field.dataset.kind === 'bool')
+        ? field.value === 'true'
+        : field.value;
     }
-    return env;
+    return out;
   }
 
-  /** Форма правки env под строкой аккаунта. */
-  function openEnvEditor(item, acc, btn, body) {
+  /** Форма правки настроек аккаунта под его строкой. */
+  function openConfigEditor(item, acc, btn, body) {
     var open = item.querySelector('.claude-accs-env');
     if (open) {
       // Повторный клик по шестерёнке — закрыть. Правки при этом
@@ -7568,7 +7657,7 @@
         if (!panel || !form.parentNode) return;
         if (!d || !d.ok) throw new Error((d && d.error) || 'нет данных');
         form.textContent = '';
-        renderEnvForm(form, item, acc, d.env || {}, btn, body);
+        renderConfigForm(form, acc, d, btn, body);
         positionPanel(btn);
       })
       .catch(function (err) {
@@ -7582,19 +7671,66 @@
       });
   }
 
-  function renderEnvForm(form, item, acc, env, btn, body) {
+  /** Заголовок раздела формы. */
+  function sectionHead(form, text) {
+    var head = document.createElement('div');
+    head.className = 'claude-accs-env-sec';
+    head.textContent = text;
+    form.appendChild(head);
+  }
+
+  function renderConfigForm(form, acc, data, btn, body) {
+    var hints = data.hints || {};
+    var envHints = hints.env || {};
+    var setHints = hints.settings || {};
+    var env = data.env || {};
+    // Раздел настроек рисуем, только если сервер его прислал: webview
+    // может работать с сервером, поднятым до этой правки, и пустая
+    // секция означала бы «настроек нет», а не «сервер о них не знает».
+    var settings = data.settings && typeof data.settings === 'object'
+      ? data.settings : null;
+
     var head = document.createElement('div');
     head.className = 'claude-accs-env-head';
-    head.textContent = 'env · ' + acc.file;
+    head.textContent = acc.file;
     form.appendChild(head);
 
+    var names, i;
+    var setList = null;
+
+    if (settings) {
+      var datalist = document.createElement('datalist');
+      datalist.id = SET_LIST_ID;
+      names = Object.keys(setHints);
+      for (i = 0; i < names.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = names[i];
+        datalist.appendChild(opt);
+      }
+      form.appendChild(datalist);
+
+      sectionHead(form, 'настройки');
+      setList = document.createElement('div');
+      setList.className = 'claude-accs-env-list';
+      form.appendChild(setList);
+
+      names = Object.keys(settings);
+      for (i = 0; i < names.length; i++) {
+        settingRow(setList, names[i], settings[names[i]], setHints);
+      }
+      if (!names.length) settingRow(setList, '', '', setHints);
+    }
+
+    sectionHead(form, 'env · переменные окружения');
     var list = document.createElement('div');
     list.className = 'claude-accs-env-list';
     form.appendChild(list);
 
-    var names = Object.keys(env);
-    for (var i = 0; i < names.length; i++) envRow(list, names[i], env[names[i]]);
-    if (!names.length) envRow(list, '', '');
+    names = Object.keys(env);
+    for (i = 0; i < names.length; i++) {
+      envRow(list, names[i], env[names[i]], envHints);
+    }
+    if (!names.length) envRow(list, '', '', envHints);
 
     var status = document.createElement('div');
     status.className = 'claude-accs-env-note';
@@ -7604,13 +7740,28 @@
     foot.className = 'claude-accs-env-foot';
     form.appendChild(foot);
 
+    var addSet = null;
+    if (setList) {
+      addSet = document.createElement('button');
+      addSet.type = 'button';
+      addSet.className = 'claude-accs-env-btn';
+      addSet.textContent = '+ настройка';
+      addSet.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      addSet.addEventListener('click', function () {
+        var row = settingRow(setList, '', '', setHints);
+        positionPanel(btn);
+        try { row.querySelector('.claude-accs-env-key').focus(); } catch (e) {}
+      });
+      foot.appendChild(addSet);
+    }
+
     var add = document.createElement('button');
     add.type = 'button';
     add.className = 'claude-accs-env-btn';
     add.textContent = '+ переменная';
     add.addEventListener('mousedown', function (e) { e.preventDefault(); });
     add.addEventListener('click', function () {
-      var row = envRow(list, '', '');
+      var row = envRow(list, '', '', envHints);
       positionPanel(btn);
       try { row.querySelector('.claude-accs-env-key').focus(); } catch (e) {}
     });
@@ -7624,23 +7775,30 @@
     save.addEventListener('click', function () {
       save.disabled = true;
       add.disabled = true;
+      if (addSet) addSet.disabled = true;
       status.className = 'claude-accs-env-note';
       status.textContent = 'сохранение…';
+
+      var payload = { file: acc.file, env: collectRows(list, false) };
+      // Раздела нет — не отправляем его вовсе: пустой объект сервер
+      // понял бы как «удалить все настройки».
+      if (setList) payload.settings = collectRows(setList, true);
 
       fetch(ENV_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file: acc.file, env: collectEnv(list) }),
+        body: JSON.stringify(payload),
       })
         .then(function (res) { return res.json(); })
         .then(function (d) {
           if (!panel || !form.parentNode) return;
           save.disabled = false;
           add.disabled = false;
+          if (addSet) addSet.disabled = false;
           if (!d || !d.ok) {
             throw new Error((d && (d.message || d.error)) || 'сервер отказал');
           }
-          logInfo('env сохранён:', acc.file);
+          logInfo('настройки сохранены:', acc.file);
           // Перерисовываем весь список: подпись строки (endpoint и
           // модель) только что изменилась, и оставлять старую нельзя.
           // Форма при этом закрывается вместе со старой разметкой,
@@ -7656,6 +7814,7 @@
           if (!panel || !form.parentNode) return;
           save.disabled = false;
           add.disabled = false;
+          if (addSet) addSet.disabled = false;
           status.className = 'claude-accs-env-note claude-accs-env-err';
           status.textContent = 'Не сохранено: ' + ((err && err.message) || err);
           positionPanel(btn);
@@ -7712,7 +7871,7 @@
     var gear = document.createElement('button');
     gear.type = 'button';
     gear.className = 'claude-accs-gear';
-    gear.title = 'Переменные окружения этого аккаунта';
+    gear.title = 'Настройки и переменные окружения этого аккаунта';
     gear.appendChild(gearIcon());
     gear.addEventListener('mousedown', function (e) { e.preventDefault(); });
     gear.addEventListener('click', function (e) {
@@ -7720,7 +7879,7 @@
       // а шестерёнка обещает совсем другое.
       e.preventDefault();
       e.stopPropagation();
-      openEnvEditor(item, acc, btn, body);
+      openConfigEditor(item, acc, btn, body);
     });
     line.appendChild(gear);
 
