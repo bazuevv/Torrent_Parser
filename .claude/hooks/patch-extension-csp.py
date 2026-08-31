@@ -9,11 +9,15 @@ CSP.
 
 1. CSP — добавляет connect-src в CSP-meta тег (см. ниже).
 2. Перезапуск extension host — дописывает в конец файла блок, который
-   следит за заявкой от панели Accs и вызывает
+   следит за заявкой от панели Accs, перезагружает webview-вкладки
+   (`workbench.action.webview.reloadWebviewAction`) и вызывает
    `workbench.action.restartExtensionHost`. Нужен потому, что смена
    аккаунта провайдера подменяет ~/.claude/settings.json, а `env` оттуда
    читает CLI-процесс при старте — и стартует он один раз на активацию
-   хоста. Подробности — в комментарии к RESTART_BLOCK.
+   хоста. Перезагрузка webview нужна потому, что контент вкладок —
+   iframe в окне VSCode — переживает смерть extension host: рестарт
+   хоста сам по себе обновляет только tree view. Подробности — в
+   комментарии к RESTART_BLOCK.
 
 Патч 1: добавляет connect-src в CSP-meta тег extension.js Claude Code,
 чтобы webview JS (наш claude-custom.js) мог делать fetch на:
@@ -110,6 +114,14 @@ RESTART_BLOCK = RESTART_BEGIN + """
 // один раз на активацию extension host. Значит применить смену без
 // полной перезагрузки окна можно только перезапуском хоста.
 //
+// Рестарт хоста обновляет только tree view (сессии слева, агенты
+// справа): контент webview-вкладок — диалогов Claude Code — это iframe
+// в окне VSCode, он переживает смерть extension host и остаётся со
+// старым JS. Поэтому перед рестартом перезагружаем webview штатной
+// командой «Developer: Reload Webviews». Порядок обязан быть именно
+// таким: наш код живёт в умирающем процессе, «сначала рестарт, потом
+// перезагрузка вкладок» исполнить некому.
+//
 // Webview командой VSCode не располагает, поэтому связь через файл:
 // http-server.py кладёт <workspace>/.claude/hooks-runtime/
 // restart-exthost-request.json, а этот блок его читает.
@@ -172,17 +184,43 @@ try {
           }));
         } catch (e) {}
 
-        try {
+        var doRestart = function () {
           Promise.resolve(
             vscode.commands.executeCommand("workbench.action.restartExtensionHost")
           ).then(undefined, function () {
             // Команды нет (сборка VSCode другая) — перезагружаем окно
-            // целиком. Дороже, но смена аккаунта всё-таки применится.
+            // целиком. Дороже, но смена аккаунта всё-таки применится
+            // (reloadWindow перезагружает и webview-вкладки).
             try { fs.unlinkSync(ackFile); } catch (e2) {}
             try { vscode.commands.executeCommand("workbench.action.reloadWindow"); } catch (e2) {}
           });
+        };
+
+        var reloadWebviews = function () {
+          try {
+            // «Developer: Reload Webviews»: контент всех webview окна
+            // грузится заново. Точечно только вкладки Claude Code нельзя
+            // — API расширения не перебирает чужие webview-панели.
+            vscode.commands.executeCommand(
+              "workbench.action.webview.reloadWebviewAction");
+          } catch (e2) {}
+          // Чуть ждём, чтобы iframe начали загрузку до смерти хоста:
+          // рестарт сразу следом обрывал бы её на полпути.
+          setTimeout(doRestart, 500);
+        };
+
+        // Пауза перед перезагрузкой webview: панель Accs опрашивает ack
+        // каждые 400 мс (ACK_POLL_MS в claude-custom.js) — дадим ей
+        // увидеть подтверждение и отрисовать «Расширение принимает
+        // перезапуск…», сразу после reload её DOM исчезнет вместе
+        // со вкладкой.
+        try {
+          setTimeout(reloadWebviews, 1600);
         } catch (e) {
+          // Синхронно упасть тут нечему, но если вдруг — перезапуск
+          // без перезагрузки webview лучше, чем ничего.
           try { fs.unlinkSync(ackFile); } catch (e2) {}
+          doRestart();
         }
         return;
       }
