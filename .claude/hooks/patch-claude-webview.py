@@ -188,6 +188,11 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, bool),
         "должен быть true или false",
     ),
+    (
+        "accountsRestartPrompt",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"

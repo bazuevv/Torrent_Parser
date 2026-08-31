@@ -17,6 +17,13 @@ Endpoints:
                         аккаунтов провайдеров (кнопка Accs в футере)
   POST /accounts      — тело = JSON {file: "settings_glm.json"}, делает этот
                         файл активным ~/.claude/settings.json
+  POST /restart-exthost — кладёт заявку на перезапуск extension host
+                        (.claude/hooks-runtime/restart-exthost-request.json);
+                        сам перезапуск делает блок, инжектированный
+                        patch-extension-csp.py в extension.js
+  GET  /restart-exthost — приняло ли расширение последнюю заявку
+                        ({token, acked}); ложь означает, что инжекция
+                        не работает и смена аккаунта не применится
   GET  /list-projects — возвращает список папок проектов в ~/.claude/projects/ с числом сессий
                         и декодированным путём
   POST /move-session  — тело = JSON {session_id, source_project, target_project},
@@ -136,6 +143,33 @@ LOCALE_DRIFT_FILE = (
 )
 MODELS_LIST_FILE = (
     os.path.join(LOGS_DIR, "models-list.json") if LOGS_DIR else ""
+)
+
+# Заявка на перезапуск extension host и подтверждение её приёма.
+#
+# Смена аккаунта провайдера подменяет ~/.claude/settings.json, но `env`
+# оттуда применяет к себе CLI-процесс `claude` при старте, а стартует он
+# один раз на активацию extension host (в логе расширения за 11 дней
+# ровно 5 строк «Spawn-env probe captured» — по числу активаций, не по
+# числу диалогов). Значит, чтобы смена подействовала, нужен новый
+# процесс CLI, то есть перезапуск хоста.
+#
+# Webview вызвать команду VSCode не может, поэтому связь идёт через файл:
+# сюда пишет заявку этот сервер, а читает её блок, который
+# patch-extension-csp.py инжектит в extension.js. Он же на активации
+# запоминает токен как базовый — новый токен означает «перезапустись»,
+# а тот же самый (после перезапуска) — «уже сделано», иначе получился бы
+# бесконечный цикл.
+#
+# Путь заявки привязан к проекту (LOGS_DIR), и инжектированный блок
+# выводит его из корня воркспейса своего окна. Поэтому область действия
+# сама собой оказывается правильной: чужие проекты заявку не видят,
+# а окна с этим же проектом перезапустятся каждое по одному разу.
+RESTART_REQUEST_FILE = (
+    os.path.join(LOGS_DIR, "restart-exthost-request.json") if LOGS_DIR else ""
+)
+RESTART_ACK_FILE = (
+    os.path.join(LOGS_DIR, "restart-exthost-ack.json") if LOGS_DIR else ""
 )
 
 # UUID4-формат для имени файла сессии — защита от directory traversal
@@ -385,6 +419,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_accounts_get()
             return
 
+        if self.path.split("?", 1)[0] == "/restart-exthost":
+            self._handle_restart_exthost_get()
+            return
+
         self.send_response(404)
         self.end_headers()
 
@@ -468,6 +506,73 @@ class Handler(BaseHTTPRequestHandler):
             "ok": ok,
             "message": message,
             "accounts": account_switcher.list_accounts(),
+        })
+
+    # --- перезапуск extension host ---------------------------------------
+    #
+    # Транспорт для модального окна, которое панель Accs показывает после
+    # смены аккаунта. Сам перезапуск делает не сервер: он лишь кладёт
+    # заявку, а команду `workbench.action.restartExtensionHost` вызывает
+    # блок, инжектированный в extension.js (см. RESTART_REQUEST_FILE).
+
+    @staticmethod
+    def _read_restart_token(path: str) -> str:
+        """Токен из файла заявки/подтверждения ('' при любой проблеме).
+
+        Оба файла пишем мы сами, но читать их приходится вперемешку с
+        записью из другого процесса, поэтому битый или наполовину
+        записанный JSON здесь — штатная ситуация, а не ошибка.
+        """
+        if not path:
+            return ""
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            return ""
+        token = data.get("token") if isinstance(data, dict) else None
+        return token if isinstance(token, str) else ""
+
+    def _handle_restart_exthost_post(self) -> None:
+        """Кладёт заявку на перезапуск extension host."""
+        if not LOGS_DIR:
+            self._json_response(500, {
+                "ok": False, "error": "CLAUDE_PROJECT_DIR не задан",
+            })
+            return
+
+        token = uuid.uuid4().hex
+        try:
+            os.makedirs(LOGS_DIR, exist_ok=True)
+            # Через временный файл: наблюдатель в extension.js читает
+            # заявку по таймеру и может попасть ровно в момент записи.
+            tmp = RESTART_REQUEST_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump({"token": token, "ts": time.time(),
+                           "project": PROJECT_DIR}, fh)
+            os.replace(tmp, RESTART_REQUEST_FILE)
+        except OSError as exc:
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+
+        _log(f"заявка на перезапуск extension host: token={token}")
+        self._json_response(200, {"ok": True, "token": token})
+
+    def _handle_restart_exthost_get(self) -> None:
+        """Приняло ли расширение последнюю заявку.
+
+        Нужен для честного сообщения об отказе: если инжекция в
+        extension.js не применилась (например, после обновления
+        расширения), заявка так и останется без подтверждения — и
+        модальное окно скажет об этом вместо того, чтобы висеть
+        в ожидании перезапуска, которого не будет.
+        """
+        requested = self._read_restart_token(RESTART_REQUEST_FILE)
+        acked = self._read_restart_token(RESTART_ACK_FILE)
+        self._json_response(200, {
+            "ok": True,
+            "token": requested,
+            "acked": bool(requested) and requested == acked,
         })
 
     # --- bypass-режим ---------------------------------------------------
@@ -734,6 +839,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/accounts":
             self._handle_accounts_post()
+            return
+
+        if self.path == "/restart-exthost":
+            self._handle_restart_exthost_post()
             return
 
         if self.path == "/save-log":
