@@ -32,24 +32,17 @@ Reload Window — редакторы, вкладки и терминалы ос�
 не относящийся к выбору провайдера.
 """
 
-import datetime
 import glob
 import json
 import os
 import re
 import shutil
 import tempfile
-import time
 
 CLAUDE_DIR = os.path.expanduser("~/.claude")
 SETTINGS_FILE = os.path.join(CLAUDE_DIR, "settings.json")
 BACKUP_FILE = SETTINGS_FILE + ".bak"
 ACTIVE_MARKER = os.path.join(CLAUDE_DIR, ".active-account")
-
-# Глобальное состояние самого Claude Code — не настройки, а его рабочий
-# файл. Нам оттуда нужен только кэш лимитов подписки claude.ai
-# (`cachedUsageUtilization`), см. anthropic_usage().
-CONFIG_JSON = os.path.expanduser("~/.claude.json")
 
 # Имя базового файла — он же аккаунт по умолчанию.
 BASE_NAME = "settings.json"
@@ -309,124 +302,14 @@ def _read_env(path: str) -> dict:
     return env if isinstance(env, dict) else {}
 
 
-# Ключи env, по которым видно, что аккаунт ходит не в claude.ai, а к
-# стороннему провайдеру. Аккаунт без единого из них работает на OAuth-
-# логине Claude Code — значит, к нему относятся лимиты подписки.
-# Правило по наличию ключей, а не по имени файла: `settings_mac.json`
-# в этом же каталоге тоже смотрит на east-api, хотя по имени не скажешь.
-THIRD_PARTY_ENV_KEYS = (
-    "ANTHROPIC_BASE_URL",
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_AUTH_TOKEN",
-)
-
-
 def _describe(path: str) -> dict:
-    """Короткая сводка о провайдере: endpoint, модель и тип логина."""
+    """Короткая сводка о провайдере: endpoint и модель."""
     env = _read_env(path)
     base_url = env.get("ANTHROPIC_BASE_URL") or "api.anthropic.com (по умолчанию)"
     model = (env.get("ANTHROPIC_MODEL")
              or env.get("ANTHROPIC_DEFAULT_OPUS_MODEL")
              or "")
-    oauth = not any(env.get(key) for key in THIRD_PARTY_ENV_KEYS)
-    return {"baseUrl": base_url, "model": model, "oauth": oauth}
-
-
-# --- лимиты подписки claude.ai ---------------------------------------
-#
-# Окна лимитов в порядке показа: ключ в кэше CLI, подпись у полоски,
-# полное название для подсказки. Список явный, а не «все непустые окна»:
-# рядом с five_hour в том же объекте лежат окна под кодовыми именами
-# (nimbus_quill, cinder_cove, ...) — что они означают, мы не знаем,
-# и рисовать их полоской значило бы выдумывать смысл.
-USAGE_WINDOWS = (
-    ("five_hour", "5 ч", "Сессия (5 часов)"),
-    ("seven_day", "7 дн", "Неделя (7 дней)"),
-    ("seven_day_opus", "Opus", "Неделя, Opus"),
-    ("seven_day_sonnet", "Sonnet", "Неделя, Sonnet"),
-)
-
-
-def _resets_in_sec(value) -> int | None:
-    """Сколько секунд осталось до сброса окна (None — время не разобрать)."""
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        moment = datetime.datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=datetime.timezone.utc)
-    left = (moment - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
-    return max(0, int(left))
-
-
-def anthropic_usage() -> dict | None:
-    """Загрузка лимитов подписки claude.ai (пятичасовое окно и недельное).
-
-    Данные берутся из кэша, который ведёт сам Claude Code: он ходит
-    в `api.anthropic.com/api/oauth/usage` и кладёт ответ в
-    `~/.claude.json` под ключом `cachedUsageUtilization`. Свой запрос
-    к API мы не делаем сознательно: для него нужен OAuth-токен из
-    `~/.claude/.credentials.json`, а он живёт часами и требует
-    обновления — заниматься этим параллельно с CLI значит соперничать
-    с ним за один и тот же файл ради чисел, которые он и так сохранил.
-
-    Обратная сторона — данные ровно настолько свежие, насколько давно
-    CLI их обновлял. Поэтому наружу уходит и возраст записи: показать
-    вчерашние проценты как сегодняшние нельзя.
-
-    None означает «показывать нечего» (нет файла, нет кэша, чужой
-    аккаунт) — панель в этом случае просто не рисует полоски.
-    """
-    try:
-        with open(CONFIG_JSON, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(data, dict):
-        return None
-
-    cached = data.get("cachedUsageUtilization")
-    if not isinstance(cached, dict):
-        return None
-    util = cached.get("utilization")
-    if not isinstance(util, dict):
-        return None
-
-    # Кэш подписан аккаунтом. После смены логина в нём какое-то время
-    # лежат проценты прежнего — показать их как свои значило бы соврать.
-    account = data.get("oauthAccount")
-    expected = account.get("accountUuid") if isinstance(account, dict) else None
-    got = cached.get("accountUuid")
-    if expected and got and expected != got:
-        return None
-
-    windows = []
-    for key, label, title in USAGE_WINDOWS:
-        window = util.get(key)
-        if not isinstance(window, dict):
-            continue
-        percent = window.get("utilization")
-        # bool — тоже int, а полоска на True шириной 100% была бы
-        # красивой неправдой.
-        if isinstance(percent, bool) or not isinstance(percent, (int, float)):
-            continue
-        windows.append({
-            "key": key,
-            "label": label,
-            "title": title,
-            "percent": percent,
-            "resetsInSec": _resets_in_sec(window.get("resets_at")),
-        })
-    if not windows:
-        return None
-
-    fetched = cached.get("fetchedAtMs")
-    age = None
-    if isinstance(fetched, (int, float)) and not isinstance(fetched, bool):
-        age = max(0, int(time.time() - fetched / 1000))
-    return {"windows": windows, "ageSec": age}
+    return {"baseUrl": base_url, "model": model}
 
 
 def get_current_account() -> str:
@@ -471,29 +354,19 @@ def list_accounts() -> list[dict]:
     `settings_foo.json` появляется в панели сам.
     """
     current = get_current_account()
-    # Лимиты читаются один раз на список: файл общий, а аккаунтов
-    # на OAuth-логине может оказаться больше одного.
-    usage = anthropic_usage()
     accounts = []
     for path in sorted(glob.glob(os.path.join(CLAUDE_DIR, "settings*.json"))):
         filename = os.path.basename(path)
         if filename in EXCLUDED or not ACCOUNT_NAME_RE.match(filename):
             continue
         info = _describe(source_path(filename))
-        entry = {
+        accounts.append({
             "file": filename,
             "name": _display_name(filename),
             "isActive": filename == current,
             "baseUrl": info["baseUrl"],
             "model": info["model"],
-            "oauth": info["oauth"],
-        }
-        # Лимиты принадлежат логину claude.ai, а не активному аккаунту:
-        # пока сессия идёт через стороннего провайдера, они не тратятся,
-        # но остаются тем, что ждёт при возврате на Anthropic.
-        if info["oauth"] and usage:
-            entry["usage"] = usage
-        accounts.append(entry)
+        })
 
     # Базовый аккаунт первым, остальные по алфавиту.
     accounts.sort(key=lambda a: (a["file"] != BASE_NAME, a["file"]))
