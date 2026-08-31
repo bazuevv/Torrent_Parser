@@ -9,15 +9,14 @@ CSP.
 
 1. CSP — добавляет connect-src в CSP-meta тег (см. ниже).
 2. Перезапуск extension host — дописывает в конец файла блок, который
-   следит за заявкой от панели Accs, перезагружает webview-вкладки
-   (`workbench.action.webview.reloadWebviewAction`) и вызывает
-   `workbench.action.restartExtensionHost`. Нужен потому, что смена
+   следит за заявкой от панели Accs, вызывает
+   `workbench.action.restartExtensionHost`, а после рестарта открывает
+   заново вкладку, из которой заявку прислали. Нужен потому, что смена
    аккаунта провайдера подменяет ~/.claude/settings.json, а `env` оттуда
    читает CLI-процесс при старте — и стартует он один раз на активацию
-   хоста. Перезагрузка webview нужна потому, что контент вкладок —
-   iframe в окне VSCode — переживает смерть extension host: рестарт
-   хоста сам по себе обновляет только tree view. Подробности — в
-   комментарии к RESTART_BLOCK.
+   хоста. Переоткрытие вкладки нужно потому, что панель, созданную
+   умершим хостом, VSCode уже не оживляет: рестарт сам по себе обновляет
+   только tree view. Подробности — в комментарии к RESTART_BLOCK.
 
 Патч 1: добавляет connect-src в CSP-meta тег extension.js Claude Code,
 чтобы webview JS (наш claude-custom.js) мог делать fetch на:
@@ -117,17 +116,13 @@ RESTART_BLOCK = RESTART_BEGIN + """
 // Рестарт хоста обновляет только tree view (сессии слева, агенты
 // справа): контент webview-вкладок — диалогов Claude Code — это iframe
 // в окне VSCode, он переживает смерть extension host и остаётся со
-// старым JS. Поэтому дополнительно зовём «Developer: Reload Webviews»
-// (workbench.action.webview.reloadWebviewAction).
+// старым JS, но уже без владельца. Поэтому активную вкладку после
+// рестарта закрываем и открываем заново по sessionId (подробности —
+// у reviveActiveTab).
 //
-// Зовём его ПОСЛЕ рестарта, из уже нового хоста, а не перед ним.
-// Перезагруженный iframe первым делом просит у extension host свой
-// контент — и если хост в этот момент умирает, отвечать становится
-// некому: активная вкладка остаётся пустой (заголовок на месте,
-// содержимого нет), пока её не переоткроют из списка сессий. Скрытые
-// вкладки этого не замечают — их контент создаётся при показе, уже
-// живым хостом. Отсюда связь через файл RELOAD: перед рестартом
-// оставляем себе заявку, а новая жизнь хоста её исполняет.
+// Делает это уже НОВАЯ жизнь хоста: код блока живёт в умирающем
+// процессе и «после рестарта» исполнить ничего не может. Отсюда файл
+// RELOAD — поручение, которое текущий процесс оставляет преемнику.
 //
 // Webview командой VSCode не располагает, поэтому связь через файл:
 // http-server.py кладёт <workspace>/.claude/hooks-runtime/
@@ -216,33 +211,6 @@ try {
       } catch (e) {}
     }
 
-    /** Снимок вкладок окна: что открыто, какого типа, что активно.
-     *
-     * Единственный доступный расширению взгляд на webview-вкладки
-     * целиком — свои панели видит только их создатель.
-     */
-    function snapshotTabs(tag) {
-      try {
-        var groups = (vscode.window.tabGroups && vscode.window.tabGroups.all) || [];
-        var items = [];
-        for (var g = 0; g < groups.length; g++) {
-          var tabs = groups[g].tabs || [];
-          for (var t = 0; t < tabs.length; t++) {
-            var tab = tabs[t];
-            var input = tab.input;
-            var kind = input && input.constructor && input.constructor.name
-              ? input.constructor.name : typeof input;
-            var viewType = input && input.viewType ? ":" + input.viewType : "";
-            items.push((tab.isActive ? "*" : "") + JSON.stringify(tab.label)
-              + " <" + kind + viewType + ">");
-          }
-        }
-        log(tag + " вкладок " + items.length + ": " + items.join(" | "));
-      } catch (e) {
-        log(tag + " снимок вкладок не удался: " + e);
-      }
-    }
-
     /** Перехват webview-API расширения — только для журнала.
      *
      * Наш блок исполняется при загрузке модуля, то есть ДО вызова
@@ -319,7 +287,6 @@ try {
         } catch (e) {
           log("ack записать не удалось: " + e);
         }
-        snapshotTabs("до рестарта");
 
         var reloadFile = path.join(dir, RELOAD);
         // Кого переоткрывать после рестарта. sessionId кладёт в заявку
@@ -459,7 +426,6 @@ try {
             OPEN_CMD, handoff.sessionId, undefined, vscode.ViewColumn.Active);
         }).then(function () {
           log("переоткрытие выполнено");
-          setTimeout(function () { snapshotTabs("через 3 с после переоткрытия"); }, 3000);
         });
       }).then(undefined, function (err) {
         log("оживление вкладки отказало: " + err);
@@ -505,7 +471,6 @@ try {
     rotateLog();
     log("=== блок активирован ===");
     instrumentWebviewApi();
-    snapshotTabs("на старте хоста");
     consumeReloadRequest();
     scan();
     var timer = setInterval(scan, POLL_MS);
