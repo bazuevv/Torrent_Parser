@@ -43,6 +43,7 @@ import time
 import uuid
 import threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.parse import unquote
 
 # Разбор транскрипта — единственная тяжёлая операция сервера (первый
 # проход по файлу в десятки мегабайт занимает около секунды). Лочим её,
@@ -419,6 +420,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_accounts_get()
             return
 
+        if self.path.split("?", 1)[0] == "/account-env":
+            self._handle_account_env_get()
+            return
+
         if self.path.split("?", 1)[0] == "/restart-exthost":
             self._handle_restart_exthost_get()
             return
@@ -502,6 +507,59 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         _log(f"переключение аккаунта на {target!r}: {message}")
+        self._json_response(200 if ok else 400, {
+            "ok": ok,
+            "message": message,
+            "accounts": account_switcher.list_accounts(),
+        })
+
+    # --- правка переменных окружения аккаунта ----------------------------
+    #
+    # Панель Accs умеет не только выбирать аккаунт, но и править его
+    # `env` — по шестерёнке в строке. Значения ходят как есть, включая
+    # токены: сервер слушает только localhost, а webview, который их
+    # запрашивает, живёт на той же машине. В журнал они не попадают —
+    # там только имена переменных.
+
+    def _handle_account_env_get(self) -> None:
+        filename = ""
+        if "?" in self.path:
+            for part in self.path.split("?", 1)[1].split("&"):
+                if part.startswith("file="):
+                    filename = unquote(part[len("file="):])
+        try:
+            ok, message, env = account_switcher.read_account_env(filename)
+        except Exception as exc:  # noqa: BLE001 — endpoint не роняет сервер
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+        if not ok:
+            self._json_response(400, {"ok": False, "error": message})
+            return
+        self._json_response(200, {"ok": True, "file": filename, "env": env})
+
+    def _handle_account_env_post(self) -> None:
+        body = self._read_body()
+        if body is None:
+            return
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except Exception:
+            self._json_response(400, {"ok": False, "error": "тело не JSON"})
+            return
+        if not isinstance(payload, dict):
+            self._json_response(400, {"ok": False, "error": "ожидался объект"})
+            return
+
+        filename = str(payload.get("file") or "")
+        env = payload.get("env")
+        try:
+            ok, message = account_switcher.write_account_env(filename, env)
+        except Exception as exc:  # noqa: BLE001
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+
+        names = ", ".join(sorted(env)) if isinstance(env, dict) else "—"
+        _log(f"правка env {filename!r}: {message} [{names}]")
         self._json_response(200 if ok else 400, {
             "ok": ok,
             "message": message,
@@ -865,6 +923,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/accounts":
             self._handle_accounts_post()
+            return
+
+        if self.path == "/account-env":
+            self._handle_account_env_post()
             return
 
         if self.path == "/restart-exthost":

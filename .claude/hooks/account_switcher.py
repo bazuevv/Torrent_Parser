@@ -54,6 +54,10 @@ EXCLUDED = {"settings.local.json"}
 # имя приходит из webview и подставляется в путь.
 ACCOUNT_NAME_RE = re.compile(r"^settings(_[A-Za-z0-9_-]+)?\.json$")
 
+# Имя переменной окружения. Ограничение то же, что у самого shell:
+# в settings.json попадёт только то, что процесс сможет прочитать.
+ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 # Человекочитаемые имена для известных суффиксов. Незнакомый суффикс
 # показывается как есть — список не обязан быть полным.
 DISPLAY_NAMES = {
@@ -114,6 +118,23 @@ def get_current_account() -> str:
     return BASE_NAME
 
 
+def source_path(filename: str) -> str:
+    """Файл, в котором лежат НАСТОЯЩИЕ настройки аккаунта.
+
+    Для аккаунтов провайдеров это сам `settings_x.json`. С базовым
+    сложнее: `settings.json` — это активная копия, и пока активен чужой
+    аккаунт, оригинал Anthropic лежит в `settings.json.bak`. Читать и
+    править базовый аккаунт в такой момент нужно именно там, иначе
+    в панели он показывал бы чужой endpoint, а правки затёрлись бы
+    при ближайшем возврате на него.
+    """
+    if filename != BASE_NAME:
+        return os.path.join(CLAUDE_DIR, filename)
+    if get_current_account() != BASE_NAME and os.path.isfile(BACKUP_FILE):
+        return BACKUP_FILE
+    return SETTINGS_FILE
+
+
 def list_accounts() -> list[dict]:
     """Все settings-файлы в ~/.claude/ как список аккаунтов.
 
@@ -126,7 +147,7 @@ def list_accounts() -> list[dict]:
         filename = os.path.basename(path)
         if filename in EXCLUDED or not ACCOUNT_NAME_RE.match(filename):
             continue
-        info = _describe(path)
+        info = _describe(source_path(filename))
         accounts.append({
             "file": filename,
             "name": _display_name(filename),
@@ -138,6 +159,108 @@ def list_accounts() -> list[dict]:
     # Базовый аккаунт первым, остальные по алфавиту.
     accounts.sort(key=lambda a: (a["file"] != BASE_NAME, a["file"]))
     return accounts
+
+
+def read_account_env(filename: str) -> tuple[bool, str, dict]:
+    """Секция `env` аккаунта: (успех, сообщение, env).
+
+    Возвращается именно `env`, а не весь файл: провайдера задают
+    переменные окружения, а `permissions`, `model` и прочее — это
+    пользовательские настройки, к выбору аккаунта не относящиеся.
+    Трогать их через панель незачем, а испортить можно.
+    """
+    if not ACCOUNT_NAME_RE.match(filename or ""):
+        return False, f"Недопустимое имя аккаунта: {filename!r}", {}
+    path = source_path(filename)
+    if not os.path.isfile(path):
+        return False, f"Файл {filename} не найден", {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        # Битый JSON правкой через панель не починить: неизвестно, что
+        # в нём было. Честнее сказать и отправить в редактор руками.
+        return False, f"{filename}: {exc}", {}
+    if not isinstance(data, dict):
+        return False, f"{filename}: ожидался объект JSON", {}
+    env = data.get("env")
+    return True, "", env if isinstance(env, dict) else {}
+
+
+def write_account_env(filename: str, env: dict) -> tuple[bool, str]:
+    """Заменяет секцию `env` аккаунта, остальной файл не трогая.
+
+    Пишет в источник (см. source_path), а если правился активный
+    аккаунт — обновляет и активную копию `settings.json`. Без второго
+    шага правка не дожила бы до перезапуска: копия осталась бы старой,
+    а `env` читает именно её.
+    """
+    if not ACCOUNT_NAME_RE.match(filename or ""):
+        return False, f"Недопустимое имя аккаунта: {filename!r}"
+    if not isinstance(env, dict):
+        return False, "env должен быть объектом"
+
+    clean: dict[str, str] = {}
+    for key, value in env.items():
+        name = str(key).strip()
+        if not name:
+            continue
+        if not ENV_KEY_RE.match(name):
+            return False, f"Недопустимое имя переменной: {name!r}"
+        # Значения в settings.json всегда строки — даже числовые
+        # («API_TIMEOUT_MS»: «3000000»). Приводим сами, чтобы правка
+        # через панель не меняла тип молча.
+        clean[name] = "" if value is None else str(value)
+
+    path = source_path(filename)
+    if not os.path.isfile(path):
+        return False, f"Файл {filename} не найден"
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return False, f"{filename}: {exc}"
+    if not isinstance(data, dict):
+        return False, f"{filename}: ожидался объект JSON"
+
+    if clean:
+        data["env"] = clean
+    else:
+        # Пустую секцию не оставляем: у базового аккаунта `env` нет
+        # вовсе, и пустой объект был бы отличием без разницы.
+        data.pop("env", None)
+
+    try:
+        _write_json_atomic(path, data)
+        if filename == get_current_account() and path != SETTINGS_FILE:
+            _write_json_atomic(SETTINGS_FILE, data)
+    except OSError as exc:
+        return False, f"Ошибка записи: {exc}"
+
+    suffix = (" Применится после перезапуска расширения."
+              if filename == get_current_account() else "")
+    return True, f"Настройки {_display_name(filename)} сохранены.{suffix}"
+
+
+def _write_json_atomic(path: str, data: dict) -> None:
+    """Запись через временный файл в той же директории + replace.
+
+    Тот же довод, что и у _copy_atomic: settings.json читается
+    процессом Claude Code в произвольный момент, и прямая запись
+    оставила бы окно, в котором файл наполовину пуст.
+    """
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".env-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        if os.path.exists(path):
+            shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except OSError:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
 
 
 def _copy_atomic(src: str, dst: str) -> None:
