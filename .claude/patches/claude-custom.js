@@ -7315,6 +7315,7 @@
 
   var API_URL = 'http://localhost:18923/accounts';
   var RESTART_URL = 'http://localhost:18923/restart-exthost';
+  var ENV_URL = 'http://localhost:18923/account-env';
   var BTN_CLASS = 'claude-accs-btn';
   var BARE_CLASS = 'claude-accs-btn-bare';
   var PANEL_ID = 'claude-accs-panel';
@@ -7412,10 +7413,17 @@
   }
 
   function onKeydown(e) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      closePanel();
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    // Escape при открытой форме env закрывает сначала её: набирая
+    // значение, промахнуться мимо клавиши легко, а закрытая панель
+    // унесла бы с собой всю правку.
+    var form = panel && panel.querySelector('.claude-accs-env');
+    if (form && form.contains(document.activeElement)) {
+      form.parentNode.removeChild(form);
+      return;
     }
+    closePanel();
   }
 
   function positionPanel(btn) {
@@ -7434,7 +7442,236 @@
   }
 
   /** Строка аккаунта: имя + endpoint, активный помечен галкой. */
+  function gearIcon() {
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('fill', 'none');
+    var p = document.createElementNS(NS, 'path');
+    // Зубцы (восемь выступов по кругу) и ось отверстия — вторым
+    // контуром: fill-rule="evenodd" делает его дыркой, а не накладкой.
+    p.setAttribute('d',
+      'M9.1 1.5l.3 1.7c.4.14.78.34 1.12.58l1.6-.62 1.4 2.42-1.3 1.13c.03.2.05.4.05.61'
+      + 's-.02.41-.05.61l1.3 1.13-1.4 2.42-1.6-.62c-.34.24-.72.44-1.12.58l-.3 1.7h-2.8'
+      + 'l-.3-1.7a4.6 4.6 0 01-1.12-.58l-1.6.62-1.4-2.42 1.3-1.13a4.7 4.7 0 010-1.22'
+      + 'L1.88 5.58l1.4-2.42 1.6.62c.34-.24.72-.44 1.12-.58l.3-1.7h2.8zM8 5.9'
+      + 'a2.1 2.1 0 100 4.2 2.1 2.1 0 000-4.2z');
+    p.setAttribute('fill', 'currentColor');
+    p.setAttribute('fill-rule', 'evenodd');
+    svg.appendChild(p);
+    return svg;
+  }
+
+  /** Секрет ли это. Точного признака нет, поэтому судим по имени —
+   * ошибиться в сторону маскировки безопаснее, чем показать ключ. */
+  function isSecretKey(name) {
+    return /TOKEN|KEY|SECRET|PASSWORD/i.test(name || '');
+  }
+
+  function envRow(list, key, value) {
+    var row = document.createElement('div');
+    row.className = 'claude-accs-env-row';
+
+    var keyInput = document.createElement('input');
+    keyInput.type = 'text';
+    keyInput.className = 'claude-accs-env-key';
+    keyInput.value = key || '';
+    keyInput.placeholder = 'ПЕРЕМЕННАЯ';
+    keyInput.spellcheck = false;
+    row.appendChild(keyInput);
+
+    var valInput = document.createElement('input');
+    valInput.className = 'claude-accs-env-val';
+    valInput.value = value == null ? '' : String(value);
+    valInput.placeholder = 'значение';
+    valInput.spellcheck = false;
+    // Токены прячем сразу: панель раскрывается поверх переписки, и
+    // ключ провайдера не должен светиться при каждом заходе в список.
+    valInput.type = isSecretKey(key) ? 'password' : 'text';
+    row.appendChild(valInput);
+
+    var eye = document.createElement('button');
+    eye.type = 'button';
+    eye.className = 'claude-accs-env-eye';
+    eye.textContent = '👁';
+    eye.title = 'Показать значение';
+    eye.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    eye.addEventListener('click', function () {
+      valInput.type = valInput.type === 'password' ? 'text' : 'password';
+    });
+    row.appendChild(eye);
+    // Кнопка глаза нужна только скрытым значениям, но место под неё
+    // держим всегда — иначе поля в соседних строках были бы разной
+    // ширины и колонка «поехала» бы.
+    eye.style.visibility = valInput.type === 'password' ? 'visible' : 'hidden';
+    keyInput.addEventListener('input', function () {
+      var secret = isSecretKey(keyInput.value);
+      eye.style.visibility = secret ? 'visible' : 'hidden';
+      if (!secret) valInput.type = 'text';
+    });
+
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'claude-accs-env-del';
+    del.textContent = '✕';
+    del.title = 'Удалить переменную';
+    del.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    del.addEventListener('click', function () {
+      if (row.parentNode) row.parentNode.removeChild(row);
+    });
+    row.appendChild(del);
+
+    list.appendChild(row);
+    return row;
+  }
+
+  /** Собирает env из полей формы. Пустые имена пропускаем: строка,
+   * добавленная кнопкой «+» и оставленная незаполненной, — это не
+   * переменная с пустым именем, а просто передумали. */
+  function collectEnv(list) {
+    var env = {};
+    var rows = list.querySelectorAll('.claude-accs-env-row');
+    for (var i = 0; i < rows.length; i++) {
+      var key = rows[i].querySelector('.claude-accs-env-key').value.trim();
+      if (!key) continue;
+      env[key] = rows[i].querySelector('.claude-accs-env-val').value;
+    }
+    return env;
+  }
+
+  /** Форма правки env под строкой аккаунта. */
+  function openEnvEditor(item, acc, btn, body) {
+    var open = item.querySelector('.claude-accs-env');
+    if (open) {
+      // Повторный клик по шестерёнке — закрыть. Правки при этом
+      // теряются: они не сохранены, и делать вид, что сохранены, хуже.
+      item.removeChild(open);
+      positionPanel(btn);
+      return;
+    }
+
+    var form = document.createElement('div');
+    form.className = 'claude-accs-env';
+    item.appendChild(form);
+
+    var loading = document.createElement('div');
+    loading.className = 'claude-accs-env-note';
+    loading.textContent = 'загрузка…';
+    form.appendChild(loading);
+    positionPanel(btn);
+
+    fetch(ENV_URL + '?file=' + encodeURIComponent(acc.file), { cache: 'no-store' })
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        if (!panel || !form.parentNode) return;
+        if (!d || !d.ok) throw new Error((d && d.error) || 'нет данных');
+        form.textContent = '';
+        renderEnvForm(form, item, acc, d.env || {}, btn, body);
+        positionPanel(btn);
+      })
+      .catch(function (err) {
+        if (!panel || !form.parentNode) return;
+        form.textContent = '';
+        var e = document.createElement('div');
+        e.className = 'claude-accs-env-note claude-accs-env-err';
+        e.textContent = 'Не удалось прочитать файл: ' + ((err && err.message) || err);
+        form.appendChild(e);
+        positionPanel(btn);
+      });
+  }
+
+  function renderEnvForm(form, item, acc, env, btn, body) {
+    var head = document.createElement('div');
+    head.className = 'claude-accs-env-head';
+    head.textContent = 'env · ' + acc.file;
+    form.appendChild(head);
+
+    var list = document.createElement('div');
+    list.className = 'claude-accs-env-list';
+    form.appendChild(list);
+
+    var names = Object.keys(env);
+    for (var i = 0; i < names.length; i++) envRow(list, names[i], env[names[i]]);
+    if (!names.length) envRow(list, '', '');
+
+    var status = document.createElement('div');
+    status.className = 'claude-accs-env-note';
+    form.appendChild(status);
+
+    var foot = document.createElement('div');
+    foot.className = 'claude-accs-env-foot';
+    form.appendChild(foot);
+
+    var add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'claude-accs-env-btn';
+    add.textContent = '+ переменная';
+    add.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    add.addEventListener('click', function () {
+      var row = envRow(list, '', '');
+      positionPanel(btn);
+      try { row.querySelector('.claude-accs-env-key').focus(); } catch (e) {}
+    });
+    foot.appendChild(add);
+
+    var save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'claude-accs-env-btn claude-accs-env-save';
+    save.textContent = 'Сохранить';
+    save.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    save.addEventListener('click', function () {
+      save.disabled = true;
+      add.disabled = true;
+      status.className = 'claude-accs-env-note';
+      status.textContent = 'сохранение…';
+
+      fetch(ENV_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: acc.file, env: collectEnv(list) }),
+      })
+        .then(function (res) { return res.json(); })
+        .then(function (d) {
+          if (!panel || !form.parentNode) return;
+          save.disabled = false;
+          add.disabled = false;
+          if (!d || !d.ok) {
+            throw new Error((d && (d.message || d.error)) || 'сервер отказал');
+          }
+          logInfo('env сохранён:', acc.file);
+          // Перерисовываем весь список: подпись строки (endpoint и
+          // модель) только что изменилась, и оставлять старую нельзя.
+          // Форма при этом закрывается вместе со старой разметкой,
+          // поэтому итог показываем в подвале панели.
+          renderAccounts(body, d.accounts, btn);
+          var note = document.createElement('div');
+          note.className = 'claude-accs-env-note';
+          note.textContent = '✓ ' + (d.message || 'сохранено');
+          body.appendChild(note);
+          positionPanel(btn);
+        })
+        .catch(function (err) {
+          if (!panel || !form.parentNode) return;
+          save.disabled = false;
+          add.disabled = false;
+          status.className = 'claude-accs-env-note claude-accs-env-err';
+          status.textContent = 'Не сохранено: ' + ((err && err.message) || err);
+          positionPanel(btn);
+        });
+    });
+    foot.appendChild(save);
+  }
+
   function accountRow(acc, btn, body) {
+    var item = document.createElement('div');
+    item.className = 'claude-accs-item';
+
+    var line = document.createElement('div');
+    line.className = 'claude-accs-line';
+    item.appendChild(line);
+
     var row = document.createElement('button');
     row.type = 'button';
     row.className = 'claude-accs-row'
@@ -7470,7 +7707,24 @@
       if (acc.isActive || switching) return;
       switchTo(acc.file, btn, body);
     });
-    return row;
+    line.appendChild(row);
+
+    var gear = document.createElement('button');
+    gear.type = 'button';
+    gear.className = 'claude-accs-gear';
+    gear.title = 'Переменные окружения этого аккаунта';
+    gear.appendChild(gearIcon());
+    gear.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    gear.addEventListener('click', function (e) {
+      // Без остановки клик дошёл бы до строки и переключил аккаунт —
+      // а шестерёнка обещает совсем другое.
+      e.preventDefault();
+      e.stopPropagation();
+      openEnvEditor(item, acc, btn, body);
+    });
+    line.appendChild(gear);
+
+    return item;
   }
 
   function renderAccounts(body, accounts, btn) {

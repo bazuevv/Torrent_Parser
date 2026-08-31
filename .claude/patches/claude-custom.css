@@ -1078,6 +1078,160 @@
   opacity: 0.65;
 }
 
+/* --- редактор env ------------------------------------------------------
+ *
+ * Строка аккаунта — кнопка, поэтому шестерёнку кладём рядом с ней, а не
+ * внутрь: вложенная кнопка невалидна и ломает клики. Обёртка держит обе
+ * в строку, а форму — под ними. */
+.claude-accs-line {
+  display: flex;
+  align-items: flex-start;
+}
+
+.claude-accs-line .claude-accs-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.claude-accs-gear {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  opacity: 0.45;
+  cursor: pointer;
+}
+
+.claude-accs-gear:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
+}
+
+.claude-accs-env {
+  margin: 2px 0 6px 18px;
+  padding: 8px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  background: var(--vscode-editor-background, rgba(0, 0, 0, 0.25));
+}
+
+.claude-accs-env-head {
+  margin-bottom: 6px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* Переменных бывает и два десятка — список скроллится сам, чтобы
+ * панель не выросла выше экрана. */
+.claude-accs-env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.claude-accs-env-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.claude-accs-env-key,
+.claude-accs-env-val {
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.14));
+  border-radius: 4px;
+  background: var(--vscode-input-background, rgba(255, 255, 255, 0.05));
+  color: var(--vscode-input-foreground, inherit);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+
+.claude-accs-env-key:focus,
+.claude-accs-env-val:focus {
+  outline: 1px solid var(--vscode-focusBorder, #0078d4);
+}
+
+/* Имя переменной длиннее значения не бывает по смыслу, но короче —
+ * сплошь и рядом («1»), поэтому ширины фиксируем в долях. */
+.claude-accs-env-key {
+  flex: 4 1 0;
+}
+
+.claude-accs-env-val {
+  flex: 5 1 0;
+}
+
+.claude-accs-env-eye,
+.claude-accs-env-del {
+  flex: 0 0 auto;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.claude-accs-env-eye:hover,
+.claude-accs-env-del:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
+}
+
+.claude-accs-env-note {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.claude-accs-env-note:empty {
+  display: none;
+}
+
+.claude-accs-env-err {
+  color: var(--vscode-errorForeground, #f48771);
+  opacity: 1;
+}
+
+.claude-accs-env-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.claude-accs-env-btn {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground, #3a3d41);
+  color: var(--vscode-button-secondaryForeground, #fff);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.claude-accs-env-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.claude-accs-env-save {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+}
+
 /* Результат переключения — заметнее подписи внизу: пользователю нужно
  * увидеть, что действие произошло и что требуется перезагрузка окна. */
 .claude-accs-note {
