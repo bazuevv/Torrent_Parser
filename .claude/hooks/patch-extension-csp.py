@@ -179,6 +179,114 @@ try {
       return out;
     }
 
+    // --- журнал -------------------------------------------------------
+    //
+    // Пишем в файл, а не в console: вывод extension host уходит в
+    // логи VSCode, где его не разобрать, а этот файл лежит рядом
+    // с заявками и читается одной командой. Смотреть:
+    // `tail -50 .claude/hooks-runtime/exthost-restart.log`.
+    var LOG_FILE_NAME = "exthost-restart.log";
+    var LOG_MAX_BYTES = 262144;
+
+    function logPath() {
+      var dirs = runtimeDirs();
+      return dirs.length ? path.join(dirs[0], LOG_FILE_NAME) : "";
+    }
+
+    function log(msg) {
+      var f = logPath();
+      if (!f) return;
+      try {
+        fs.appendFileSync(
+          f,
+          new Date().toISOString() + " [pid:" + process.pid + "] " + msg + "\\n");
+      } catch (e) {}
+    }
+
+    function rotateLog() {
+      var f = logPath();
+      if (!f) return;
+      try {
+        if (fs.statSync(f).size > LOG_MAX_BYTES) fs.writeFileSync(f, "");
+      } catch (e) {}
+    }
+
+    /** Снимок вкладок окна: что открыто, какого типа, что активно.
+     *
+     * Единственный доступный расширению взгляд на webview-вкладки
+     * целиком — свои панели видит только их создатель.
+     */
+    function snapshotTabs(tag) {
+      try {
+        var groups = (vscode.window.tabGroups && vscode.window.tabGroups.all) || [];
+        var items = [];
+        for (var g = 0; g < groups.length; g++) {
+          var tabs = groups[g].tabs || [];
+          for (var t = 0; t < tabs.length; t++) {
+            var tab = tabs[t];
+            var input = tab.input;
+            var kind = input && input.constructor && input.constructor.name
+              ? input.constructor.name : typeof input;
+            var viewType = input && input.viewType ? ":" + input.viewType : "";
+            items.push((tab.isActive ? "*" : "") + JSON.stringify(tab.label)
+              + " <" + kind + viewType + ">");
+          }
+        }
+        log(tag + " вкладок " + items.length + ": " + items.join(" | "));
+      } catch (e) {
+        log(tag + " снимок вкладок не удался: " + e);
+      }
+    }
+
+    /** Перехват webview-API расширения — только для журнала.
+     *
+     * Наш блок исполняется при загрузке модуля, то есть ДО вызова
+     * activate(), поэтому подмена методов `vscode.window` успевает
+     * встать раньше, чем расширение ими воспользуется. Так видно,
+     * восстанавливает ли оно панели после рестарта хоста
+     * (deserializeWebviewPanel) или создаёт их заново.
+     */
+    function instrumentWebviewApi() {
+      try {
+        var origCreate = vscode.window.createWebviewPanel;
+        if (typeof origCreate === "function" && !origCreate.__claudeWrapped) {
+          var wrappedCreate = function (viewType, title, showOptions, options) {
+            log("createWebviewPanel viewType=" + viewType
+              + " title=" + JSON.stringify(String(title))
+              + " retainContextWhenHidden="
+              + !!(options && options.retainContextWhenHidden));
+            return origCreate.apply(vscode.window, arguments);
+          };
+          wrappedCreate.__claudeWrapped = true;
+          vscode.window.createWebviewPanel = wrappedCreate;
+        }
+      } catch (e) {
+        log("не удалось обернуть createWebviewPanel: " + e);
+      }
+
+      try {
+        var origReg = vscode.window.registerWebviewPanelSerializer;
+        if (typeof origReg === "function" && !origReg.__claudeWrapped) {
+          var wrappedReg = function (viewType, serializer) {
+            log("registerWebviewPanelSerializer viewType=" + viewType);
+            var proxy = {
+              deserializeWebviewPanel: function (panel, state) {
+                log("deserializeWebviewPanel viewType=" + viewType
+                  + " title=" + JSON.stringify(String(panel && panel.title))
+                  + " state=" + (state ? "есть" : "нет"));
+                return serializer.deserializeWebviewPanel(panel, state);
+              },
+            };
+            return origReg.call(vscode.window, viewType, proxy);
+          };
+          wrappedReg.__claudeWrapped = true;
+          vscode.window.registerWebviewPanelSerializer = wrappedReg;
+        }
+      } catch (e) {
+        log("не удалось обернуть registerWebviewPanelSerializer: " + e);
+      }
+    }
+
     // dir -> токен, известный на момент последней проверки. Базовый
     // снимок берётся при первом же взгляде на папку, поэтому заявка,
     // которая только что вызвала перезапуск, после реактивации уже не
@@ -198,11 +306,15 @@ try {
         // неё записать уже не успеем. Если команда не найдётся —
         // подтверждение снимаем, чтобы панель не считала заявку принятой.
         var ackFile = path.join(dir, ACK);
+        log("новая заявка token=" + tok + " dir=" + dir);
         try {
           fs.writeFileSync(ackFile, JSON.stringify({
             token: tok, pid: process.pid, ts: Date.now(),
           }));
-        } catch (e) {}
+        } catch (e) {
+          log("ack записать не удалось: " + e);
+        }
+        snapshotTabs("до рестарта");
 
         var reloadFile = path.join(dir, RELOAD);
 
@@ -225,6 +337,7 @@ try {
           // а новый хост не находил поручения.
           Promise.resolve(vscode.commands.getCommands(true)).then(function (all) {
             if (!all || all.indexOf(RESTART_CMD) === -1) {
+              log("команды " + RESTART_CMD + " нет — перезагружаю окно");
               fallbackReload();
               return;
             }
@@ -232,15 +345,20 @@ try {
             // не исполнит ничего.
             try {
               fs.writeFileSync(reloadFile, JSON.stringify({ ts: Date.now() }));
-            } catch (e2) {}
+              log("заявка на перезагрузку вкладок оставлена: " + reloadFile);
+            } catch (e2) {
+              log("заявку на перезагрузку записать не удалось: " + e2);
+            }
+            log("вызываю " + RESTART_CMD);
             // Ошибку намеренно глушим пустым обработчиком: реагировать
             // на неё нельзя (см. выше), а без него это unhandled
             // rejection в логе расширения.
             Promise.resolve(
               vscode.commands.executeCommand(RESTART_CMD)
             ).then(undefined, function () {});
-          }, function () {
+          }, function (err) {
             // Список команд недоступен — пробуем хотя бы окно.
+            log("getCommands не ответил (" + err + ") — перезагружаю окно");
             fallbackReload();
           });
         }, RESTART_DELAY_MS);
@@ -259,30 +377,51 @@ try {
     function consumeReloadRequest() {
       var dirs = runtimeDirs();
       for (var i = 0; i < dirs.length; i++) {
+        var file = path.join(dirs[i], RELOAD);
         var data = null;
         try {
-          data = JSON.parse(fs.readFileSync(path.join(dirs[i], RELOAD), "utf8"));
+          data = JSON.parse(fs.readFileSync(file, "utf8"));
         } catch (e) {
+          log("заявки на перезагрузку нет в " + dirs[i]);
           continue;
         }
-        if (!data || typeof data.ts !== "number") continue;
-        if (Date.now() - data.ts > RELOAD_TTL_MS) {
-          try { fs.unlinkSync(path.join(dirs[i], RELOAD)); } catch (e) {}
+        if (!data || typeof data.ts !== "number") {
+          log("заявка на перезагрузку без ts: " + file);
           continue;
         }
+        var age = Date.now() - data.ts;
+        if (age > RELOAD_TTL_MS) {
+          log("заявка протухла (" + Math.round(age / 1000) + " с) — удаляю");
+          try { fs.unlinkSync(file); } catch (e) {}
+          continue;
+        }
+        log("заявка на перезагрузку вкладок свежая (" + age
+          + " мс), жду " + RELOAD_DELAY_MS + " мс");
+        snapshotTabs("до перезагрузки вкладок");
         setTimeout(function () {
-          try {
-            // «Developer: Reload Webviews»: контент всех webview окна
-            // грузится заново. Точечно только вкладки Claude Code
-            // нельзя — API расширения не перебирает чужие панели.
+          // «Developer: Reload Webviews»: контент всех webview окна
+          // грузится заново. Точечно только вкладки Claude Code
+          // нельзя — API расширения не перебирает чужие панели.
+          log("вызываю reloadWebviewAction");
+          Promise.resolve(
             vscode.commands.executeCommand(
-              "workbench.action.webview.reloadWebviewAction");
-          } catch (e) {}
+              "workbench.action.webview.reloadWebviewAction")
+          ).then(function () {
+            log("reloadWebviewAction выполнена");
+            snapshotTabs("сразу после перезагрузки");
+            setTimeout(function () { snapshotTabs("через 3 с после перезагрузки"); }, 3000);
+          }, function (err) {
+            log("reloadWebviewAction отказала: " + err);
+          });
         }, RELOAD_DELAY_MS);
         return;
       }
     }
 
+    rotateLog();
+    log("=== блок активирован ===");
+    instrumentWebviewApi();
+    snapshotTabs("на старте хоста");
     consumeReloadRequest();
     scan();
     var timer = setInterval(scan, POLL_MS);
