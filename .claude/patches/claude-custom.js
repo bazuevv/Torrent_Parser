@@ -7327,10 +7327,6 @@
   // покрывает и медленный диск, и попадание в середину его цикла.
   var ACK_TIMEOUT_MS = 4000;
   var ACK_POLL_MS = 400;
-  // Сколько ждать переоткрытия вкладки, прежде чем убрать модалку самим.
-  // Рестарт хоста занимает ~3 с, оживление вкладки — ещё ~1.5 с; запас
-  // взят на медленный старт расширения.
-  var ACK_CLOSE_MS = 20000;
 
   // Отсутствие ключа трактуем как «включено»: bootstrap webview
   // перечитывается только при Reload Window, и на устаревшем bootstrap
@@ -7729,23 +7725,10 @@
     restarting = true;
     setStatus(status, 'Заявка отправлена, ждём расширение…', 'wait');
 
-    // Своё имя знает только сам webview: панель, созданную умершим
-    // хостом, оживить нельзя, и новый хост о ней уже ничего не помнит.
-    // Без sessionId он сможет вкладку только закрыть, а открыть заново
-    // ту же переписку — нет.
-    var sessionId = null;
-    try {
-      var resolve = window.__claudeSessionId;
-      if (typeof resolve === 'function') sessionId = resolve();
-    } catch (e) {
-      logInfo('session id получить не удалось', e);
-    }
-    if (!sessionId) logInfo('session id неизвестен — вкладку переоткрыть будет нечем');
-
     fetch(RESTART_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: sessionId || '' }),
+      body: JSON.stringify({}),
     })
       .then(function (res) { return res.json(); })
       .then(function (d) {
@@ -7786,18 +7769,6 @@
         if (!modal) return;
         if (d && d.acked) {
           setStatus(status, 'Расширение принимает перезапуск…', 'ok');
-          // Штатно эту модалку убирает не таймер, а сама вкладка: после
-          // рестарта хоста расширение переоткрывает её, и DOM создаётся
-          // с нуля. Таймер — на случай, когда переоткрытия не случилось:
-          // модалка перекрывает окно и ввод, и висеть до конца сессии
-          // она не должна. Откат отсюда уже запрещён (restarting), так
-          // что закрытие безопасно — на диске нужный аккаунт.
-          setTimeout(function () {
-            if (modal) {
-              logInfo('модалка закрыта по таймауту — вкладка не переоткрылась');
-              closeModal();
-            }
-          }, ACK_CLOSE_MS);
           return;
         }
         setTimeout(function () {
