@@ -117,10 +117,17 @@ RESTART_BLOCK = RESTART_BEGIN + """
 // Рестарт хоста обновляет только tree view (сессии слева, агенты
 // справа): контент webview-вкладок — диалогов Claude Code — это iframe
 // в окне VSCode, он переживает смерть extension host и остаётся со
-// старым JS. Поэтому перед рестартом перезагружаем webview штатной
-// командой «Developer: Reload Webviews». Порядок обязан быть именно
-// таким: наш код живёт в умирающем процессе, «сначала рестарт, потом
-// перезагрузка вкладок» исполнить некому.
+// старым JS. Поэтому дополнительно зовём «Developer: Reload Webviews»
+// (workbench.action.webview.reloadWebviewAction).
+//
+// Зовём его ПОСЛЕ рестарта, из уже нового хоста, а не перед ним.
+// Перезагруженный iframe первым делом просит у extension host свой
+// контент — и если хост в этот момент умирает, отвечать становится
+// некому: активная вкладка остаётся пустой (заголовок на месте,
+// содержимого нет), пока её не переоткроют из списка сессий. Скрытые
+// вкладки этого не замечают — их контент создаётся при показе, уже
+// живым хостом. Отсюда связь через файл RELOAD: перед рестартом
+// оставляем себе заявку, а новая жизнь хоста её исполняет.
 //
 // Webview командой VSCode не располагает, поэтому связь через файл:
 // http-server.py кладёт <workspace>/.claude/hooks-runtime/
@@ -136,7 +143,19 @@ try {
     var path = require("path");
     var REQ = "restart-exthost-request.json";
     var ACK = "restart-exthost-ack.json";
+    var RELOAD = "restart-exthost-reload.json";
     var POLL_MS = 1000;
+    // Пауза перед рестартом: панель Accs опрашивает ack каждые 400 мс
+    // (ACK_POLL_MS в claude-custom.js) — дадим ей увидеть подтверждение
+    // и отрисовать статус до того, как хост умрёт.
+    var RESTART_DELAY_MS = 1600;
+    // Пауза перед перезагрузкой вкладок в новом хосте: расширение
+    // должно успеть активироваться и восстановить панели, иначе
+    // перезагружать будет нечего.
+    var RELOAD_DELAY_MS = 1500;
+    // Заявка старше этого срока — не наша: рестарта не случилось,
+    // а вкладки давно живут своей жизнью.
+    var RELOAD_TTL_MS = 60000;
 
     function tokenOf(file) {
       try {
@@ -184,48 +203,65 @@ try {
           }));
         } catch (e) {}
 
-        var doRestart = function () {
+        var reloadFile = path.join(dir, RELOAD);
+        setTimeout(function () {
+          // Заявку на перезагрузку вкладок оставляем ДО команды: после
+          // неё этот процесс уже не исполнит ничего.
+          try {
+            fs.writeFileSync(reloadFile, JSON.stringify({ ts: Date.now() }));
+          } catch (e2) {}
+
           Promise.resolve(
             vscode.commands.executeCommand("workbench.action.restartExtensionHost")
           ).then(undefined, function () {
             // Команды нет (сборка VSCode другая) — перезагружаем окно
-            // целиком. Дороже, но смена аккаунта всё-таки применится
-            // (reloadWindow перезагружает и webview-вкладки).
+            // целиком. Дороже, но смена аккаунта всё-таки применится, и
+            // вкладки перезагрузятся заодно: заявка тут лишняя.
+            try { fs.unlinkSync(reloadFile); } catch (e2) {}
             try { fs.unlinkSync(ackFile); } catch (e2) {}
             try { vscode.commands.executeCommand("workbench.action.reloadWindow"); } catch (e2) {}
           });
-        };
-
-        var reloadWebviews = function () {
-          try {
-            // «Developer: Reload Webviews»: контент всех webview окна
-            // грузится заново. Точечно только вкладки Claude Code нельзя
-            // — API расширения не перебирает чужие webview-панели.
-            vscode.commands.executeCommand(
-              "workbench.action.webview.reloadWebviewAction");
-          } catch (e2) {}
-          // Чуть ждём, чтобы iframe начали загрузку до смерти хоста:
-          // рестарт сразу следом обрывал бы её на полпути.
-          setTimeout(doRestart, 500);
-        };
-
-        // Пауза перед перезагрузкой webview: панель Accs опрашивает ack
-        // каждые 400 мс (ACK_POLL_MS в claude-custom.js) — дадим ей
-        // увидеть подтверждение и отрисовать «Расширение принимает
-        // перезапуск…», сразу после reload её DOM исчезнет вместе
-        // со вкладкой.
-        try {
-          setTimeout(reloadWebviews, 1600);
-        } catch (e) {
-          // Синхронно упасть тут нечему, но если вдруг — перезапуск
-          // без перезагрузки webview лучше, чем ничего.
-          try { fs.unlinkSync(ackFile); } catch (e2) {}
-          doRestart();
-        }
+        }, RESTART_DELAY_MS);
         return;
       }
     }
 
+    /** Исполнение заявки, оставленной прошлой жизнью хоста.
+     *
+     * Файл намеренно НЕ удаляется: окна с тем же воркспейсом
+     * перезапускаются каждое по своему расписанию, и первое же
+     * удаление лишило бы остальные перезагрузки вкладок. От вечного
+     * действия защищает TTL, от повторов внутри процесса — то, что
+     * заявка читается один раз при старте, а не в scan().
+     */
+    function consumeReloadRequest() {
+      var dirs = runtimeDirs();
+      for (var i = 0; i < dirs.length; i++) {
+        var data = null;
+        try {
+          data = JSON.parse(fs.readFileSync(path.join(dirs[i], RELOAD), "utf8"));
+        } catch (e) {
+          continue;
+        }
+        if (!data || typeof data.ts !== "number") continue;
+        if (Date.now() - data.ts > RELOAD_TTL_MS) {
+          try { fs.unlinkSync(path.join(dirs[i], RELOAD)); } catch (e) {}
+          continue;
+        }
+        setTimeout(function () {
+          try {
+            // «Developer: Reload Webviews»: контент всех webview окна
+            // грузится заново. Точечно только вкладки Claude Code
+            // нельзя — API расширения не перебирает чужие панели.
+            vscode.commands.executeCommand(
+              "workbench.action.webview.reloadWebviewAction");
+          } catch (e) {}
+        }, RELOAD_DELAY_MS);
+        return;
+      }
+    }
+
+    consumeReloadRequest();
     scan();
     var timer = setInterval(scan, POLL_MS);
     // Таймер не должен сам по себе держать процесс живым.
