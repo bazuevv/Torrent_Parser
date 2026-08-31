@@ -1126,14 +1126,27 @@
   opacity: 0.6;
 }
 
-/* Переменных бывает и два десятка — список скроллится сам, чтобы
- * панель не выросла выше экрана. */
+/* Заголовок раздела формы: настройки и env стоят в одном окне, и без
+ * разделителя строка `model` выглядела бы переменной окружения. */
+.claude-accs-env-sec {
+  margin: 8px 0 4px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.45;
+}
+
+.claude-accs-env-sec:first-of-type {
+  margin-top: 2px;
+}
+
+/* Собственной прокрутки у списка нет: разделов в форме два, и два
+ * вложенных скролла внутри уже скроллящейся панели ловили бы колесо
+ * мыши по очереди. Высоту держит сама панель (max-height + overflow). */
 .claude-accs-env-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 230px;
-  overflow-y: auto;
 }
 
 .claude-accs-env-row {
@@ -1169,7 +1182,41 @@
   flex: 5 1 0;
 }
 
-.claude-accs-env-eye,
+/* Обёртка поля значения настройки. Тип поля меняется вместе с именем
+ * настройки (текст ↔ список), и без обёртки с той же долей ширины
+ * колонка прыгала бы при каждой такой замене. */
+.claude-accs-env-field {
+  display: flex;
+  flex: 5 1 0;
+  min-width: 0;
+}
+
+.claude-accs-env-field > .claude-accs-env-val {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.claude-accs-env-sel {
+  padding: 3px 4px;
+  cursor: pointer;
+}
+
+/* Значок описания ключа. Не кнопка: он ничего не делает, весь смысл —
+ * во всплывающей подсказке, а курсор-рука обещал бы действие. */
+.claude-accs-env-hint {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.45;
+  cursor: help;
+}
+
+.claude-accs-env-hint:hover {
+  opacity: 1;
+}
+
 .claude-accs-env-del {
   flex: 0 0 auto;
   padding: 2px 4px;
@@ -1183,7 +1230,6 @@
   cursor: pointer;
 }
 
-.claude-accs-env-eye:hover,
 .claude-accs-env-del:hover {
   opacity: 1;
   background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
