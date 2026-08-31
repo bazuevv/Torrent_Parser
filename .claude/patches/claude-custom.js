@@ -7337,6 +7337,18 @@
   var panel = null;
   var modal = null;
   var switching = false;   // защита от двойного клика по пункту
+  var restarting = false;  // заявка на перезапуск отправлена, ждём хост
+
+  // Аккаунт, который был активен на момент отрисовки списка, — то есть
+  // тот, на котором реально работает текущий процесс Claude Code.
+  // Нужен для отката: отказ от перезапуска возвращает settings.json
+  // к нему, иначе на диске остался бы один провайдер, а в работающей
+  // сессии — другой.
+  var activeFile = null;
+
+  // Замыкание «отказаться», выставляемое openModal. Обработчик Escape
+  // живёт на уровне модуля и о содержимом модалки не знает.
+  var modalDecline = null;
 
   function logInfo() {
     if (!cfg.logs) return;
@@ -7469,7 +7481,9 @@
       renderError(body, 'В ~/.claude/ нет файлов settings*.json');
       return;
     }
+    activeFile = null;
     for (var i = 0; i < accounts.length; i++) {
+      if (accounts[i] && accounts[i].isActive) activeFile = accounts[i].file;
       body.appendChild(accountRow(accounts[i], btn, body));
     }
 
@@ -7491,6 +7505,9 @@
 
   function switchTo(file, btn, body) {
     switching = true;
+    // Запоминаем ДО запроса: после успешной подмены сервер вернёт уже
+    // новый список, и узнать, откуда мы ушли, будет не по чему.
+    var prevFile = activeFile;
     fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -7508,7 +7525,7 @@
             // показывает состояние, которое ещё не применилось.
             var acc = findAccount(d.accounts, file);
             closePanel();
-            openModal(acc, file);
+            openModal(acc, file, prevFile, findAccount(d.accounts, prevFile));
             return;
           }
           renderAccounts(body, d.accounts, btn);
@@ -7542,12 +7559,19 @@
    * POST /restart-exthost и следит за подтверждением — если его нет,
    * значит инжекция не активна, и об этом надо сказать прямо, а не
    * висеть в ожидании перезапуска, которого не будет.
+   *
+   * Отказ («Позже», Escape, клик мимо) НЕ просто закрывает окно:
+   * он возвращает settings.json прежнему аккаунту. Иначе на диске
+   * остался бы один провайдер, а в работающей сессии — другой, и
+   * ближайшая посторонняя перезагрузка окна молча сменила бы модель.
+   * Список после отказа снова показывает реально активный аккаунт.
    */
 
   function closeModal() {
     if (!modal) return;
     if (modal.parentNode) modal.parentNode.removeChild(modal);
     modal = null;
+    modalDecline = null;
     document.removeEventListener('keydown', onModalKeydown, true);
   }
 
@@ -7555,7 +7579,7 @@
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
-      closeModal();
+      if (modalDecline) modalDecline();
     }
   }
 
@@ -7567,7 +7591,7 @@
     return el;
   }
 
-  function openModal(acc, file) {
+  function openModal(acc, file, prevFile, prevAcc) {
     closeModal();
 
     modal = document.createElement('div');
@@ -7612,17 +7636,69 @@
     later.type = 'button';
     later.className = 'claude-accs-modal-btn claude-accs-modal-ghost';
     later.textContent = 'Позже';
-    later.addEventListener('click', closeModal);
     footer.appendChild(later);
 
     var go = document.createElement('button');
     go.type = 'button';
     go.className = 'claude-accs-modal-btn claude-accs-modal-primary';
     go.textContent = '⟳ Перезапустить расширение';
+    footer.appendChild(go);
+
+    /** Отказ: возвращаем прежний аккаунт и закрываем окно. */
+    function decline() {
+      // Заявка уже отправлена — откатывать поздно: хост вот-вот
+      // перезапустится и подхватит новый settings.json.
+      if (restarting) return;
+      if (!prevFile || prevFile === file) {
+        closeModal();
+        return;
+      }
+      later.disabled = true;
+      go.disabled = true;
+      setStatus(status,
+        'Возврат на ' + ((prevAcc && prevAcc.name) || prevFile) + '…', 'wait');
+
+      fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: prevFile }),
+      })
+        .then(function (res) { return res.json(); })
+        .then(function (d) {
+          if (!modal) return;
+          if (d && d.ok) {
+            logInfo('откат на', prevFile);
+            closeModal();
+            return;
+          }
+          throw new Error((d && (d.message || d.error)) || 'сервер отказал');
+        })
+        .catch(function (err) {
+          if (!modal) return;
+          // Молча закрыться нельзя: на диске остался новый аккаунт,
+          // и пользователь должен знать, что откат не удался.
+          later.disabled = false;
+          go.disabled = false;
+          later.textContent = 'Закрыть';
+          setStatus(status,
+            'Не удалось вернуть прежний аккаунт: '
+            + ((err && err.message) || err)
+            + '. На диске остался новый — выберите нужный в панели Accs.',
+            'err');
+          logInfo('revert failed', err);
+        });
+    }
+
+    modalDecline = decline;
+    later.addEventListener('click', function () {
+      // После неудачного отката кнопка становится «Закрыть»: повторять
+      // запрос, который только что провалился, смысла нет.
+      if (later.textContent === 'Закрыть') closeModal();
+      else decline();
+    });
     go.addEventListener('click', function () {
       requestRestart(go, later, status);
     });
-    footer.appendChild(go);
 
     document.body.appendChild(modal);
     document.addEventListener('keydown', onModalKeydown, true);
@@ -7631,7 +7707,7 @@
     // Клик мимо модалки = «Позже». Перезапуск — действие с потерями,
     // случайно запустить его мимо кнопки нельзя, а отложить — можно.
     modal.addEventListener('mousedown', function (e) {
-      if (e.target === modal) closeModal();
+      if (e.target === modal) decline();
     });
   }
 
@@ -7644,6 +7720,9 @@
   function requestRestart(go, later, status) {
     go.disabled = true;
     later.disabled = true;
+    // С этого момента отказ запрещён: откатывать подмену бессмысленно,
+    // хост вот-вот перезапустится и прочитает новый settings.json.
+    restarting = true;
     setStatus(status, 'Заявка отправлена, ждём расширение…', 'wait');
 
     fetch(RESTART_URL, {
@@ -7658,6 +7737,7 @@
         waitForAck(go, later, status, Date.now());
       })
       .catch(function (err) {
+        restarting = false;
         go.disabled = false;
         later.disabled = false;
         setStatus(status, 'http-server.py недоступен (порт 18923): '
@@ -7673,6 +7753,8 @@
   function waitForAck(go, later, status, startedAt) {
     if (!modal) return;
     if (Date.now() - startedAt > ACK_TIMEOUT_MS) {
+      // Перезапуска не будет — значит откат снова имеет смысл.
+      restarting = false;
       go.disabled = false;
       later.disabled = false;
       setStatus(status,
