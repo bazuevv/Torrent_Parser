@@ -145,6 +145,7 @@ try {
     var ACK = "restart-exthost-ack.json";
     var RELOAD = "restart-exthost-reload.json";
     var RESTART_CMD = "workbench.action.restartExtensionHost";
+    var REOPEN_CMD = "claude-vscode.reopenClosedSession";
     var POLL_MS = 1000;
     // Пауза перед рестартом: панель Accs опрашивает ack каждые 400 мс
     // (ACK_POLL_MS в claude-custom.js) — дадим ей увидеть подтверждение
@@ -154,10 +155,6 @@ try {
     // успеть активироваться и зарегистрировать сериализатор, иначе
     // восстанавливать панель будет некому.
     var RELOAD_DELAY_MS = 1500;
-    // Сколько держать соседнюю вкладку показанной. Возврат — это и есть
-    // событие показа, которого ждёт VSCode; слишком быстрый разворот
-    // рискует слиться с уходом в одно изменение состояния.
-    var SWITCH_PAUSE_MS = 350;
     // Заявка старше этого срока — не наша: рестарта не случилось,
     // а вкладки давно живут своей жизнью.
     var RELOAD_TTL_MS = 60000;
@@ -388,33 +385,46 @@ try {
 
     /** Оживление активной вкладки после рестарта хоста.
      *
-     * Панель, созданная умершим хостом, остаётся в окне без владельца.
-     * VSCode просит расширение восстановить её (deserializeWebviewPanel)
-     * в момент, когда она СТАНОВИТСЯ видимой — скрытые вкладки поэтому
-     * оживают сами при первом показе. Активная уже видима, показа для
-     * неё не случится, и она остаётся мёртвой: заголовок есть, внутри
-     * пусто.
+     * Панель, созданная умершим хостом, остаётся в окне без владельца:
+     * заголовок и содержимое на месте, но отвечать на её сообщения
+     * некому. Сама собой она не оживёт. VSCode просит расширение
+     * восстановить панель (deserializeWebviewPanel) только когда та
+     * СТАНОВИТСЯ видимой, а видимую он не трогает — её содержимое цело,
+     * повода вмешиваться нет. Скрытые вкладки поэтому оживают при
+     * первом показе, активная — никогда.
      *
-     * Перезагрузка webview («Developer: Reload Webviews») тут не
-     * помогает, а вредит: она обнуляет содержимое панели, отвечать на
-     * запрос контента некому, и вкладка становится пустой немедленно.
-     * Поэтому устраиваем показ руками — уходим на соседнюю вкладку и
-     * возвращаемся; возврат и есть то событие, которого ждёт VSCode.
+     * Отсюда единственный способ: уничтожить панель и дать расширению
+     * создать её заново — `claude-vscode.reopenClosedSession` зовёт
+     * createPanel() для последней закрытой сессии в той же колонке.
+     * Мягче не выходит:
+     *   - «Developer: Reload Webviews» обнуляет содержимое панели, а
+     *     отвечать на запрос контента после смерти владельца некому —
+     *     вкладка становится пустой при живом заголовке;
+     *   - показ заново (уйти на соседнюю вкладку и вернуться) VSCode
+     *     не считает поводом для восстановления: DOM остаётся прежним
+     *     со всем, что на нём было.
      */
     function reviveActiveTab() {
-      if (!activeClaudeTab()) return;
-      log("оживляю активную вкладку переключением редакторов");
-      Promise.resolve(
-        vscode.commands.executeCommand("workbench.action.previousEditorInGroup")
-      ).then(function () {
-        return new Promise(function (done) { setTimeout(done, SWITCH_PAUSE_MS); });
-      }).then(function () {
-        return vscode.commands.executeCommand("workbench.action.nextEditorInGroup");
-      }).then(function () {
-        log("переключение выполнено");
-        setTimeout(function () { snapshotTabs("через 3 с после оживления"); }, 3000);
-      }, function (err) {
-        log("переключение редакторов отказало: " + err);
+      var tab = activeClaudeTab();
+      if (!tab) return;
+      var label = JSON.stringify(String(tab.label));
+
+      Promise.resolve(vscode.commands.getCommands(true)).then(function (all) {
+        if (!all || all.indexOf(REOPEN_CMD) === -1) {
+          // Закрыть, не умея переоткрыть, — потерять вкладку из виду.
+          log("команды " + REOPEN_CMD + " нет — вкладку не трогаю");
+          return null;
+        }
+        log("закрываю активную вкладку " + label);
+        return Promise.resolve(vscode.window.tabGroups.close(tab)).then(function () {
+          log("вкладка закрыта, зову " + REOPEN_CMD);
+          return vscode.commands.executeCommand(REOPEN_CMD);
+        }).then(function () {
+          log("переоткрытие выполнено");
+          setTimeout(function () { snapshotTabs("через 3 с после переоткрытия"); }, 3000);
+        });
+      }).then(undefined, function (err) {
+        log("оживление вкладки отказало: " + err);
       });
     }
 
