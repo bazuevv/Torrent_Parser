@@ -1093,3 +1093,136 @@
   padding: 6px 0;
   opacity: 0.7;
 }
+
+/* --- Модалка «перезапустить расширение?» ---
+ *
+ * Открывается сразу после успешной смены аккаунта: файл настроек уже
+ * подменён, но применится он только в новом процессе Claude Code.
+ * Свой namespace, а не классы .claude-move-*: там другой IIFE, и общие
+ * стили связали бы два независимых модуля.
+ */
+.claude-accs-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-accs-modal {
+  background: var(--app-primary-background, #1f1f1f);
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  padding: 16px 18px;
+  width: min(460px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.claude-accs-modal-head {
+  font-size: 15px;
+  font-weight: 600;
+  color: #51e00e;
+}
+
+.claude-accs-modal-card {
+  background: var(--app-hover-background, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.claude-accs-modal-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--app-tertiary-foreground, #888);
+}
+.claude-accs-modal-value {
+  font-size: 14px;
+  font-weight: 500;
+  word-break: break-word;
+}
+.claude-accs-modal-sub {
+  font-size: 11px;
+  color: var(--app-secondary-foreground, #888);
+  font-family: var(--vscode-editor-font-family, monospace);
+  word-break: break-all;
+}
+
+.claude-accs-modal-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-secondary-foreground, #aaa);
+}
+
+/* Предупреждение о потере текущего диалога — единственное место, где
+ * пользователь платит за перезапуск, поэтому оно выделено фоном. */
+.claude-accs-modal-warn {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--vscode-inputValidation-warningBackground, rgba(210, 153, 34, 0.15));
+  border: 1px solid var(--vscode-inputValidation-warningBorder, rgba(210, 153, 34, 0.4));
+}
+
+/* Пустой до первого действия — не резервируем под него место, иначе
+ * в модалке висела бы дыра. */
+.claude-accs-modal-status {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.claude-accs-modal-status:empty {
+  display: none;
+}
+.claude-accs-modal-status-wait { color: var(--app-secondary-foreground, #aaa); }
+.claude-accs-modal-status-ok   { color: #51e00e; }
+.claude-accs-modal-status-err  { color: #ff7373; }
+
+.claude-accs-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.claude-accs-modal-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.15));
+  background: var(--app-button-background, rgba(255, 255, 255, 0.06));
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.claude-accs-modal-btn:hover:not(:disabled) {
+  background: var(--app-button-hover-background, rgba(255, 255, 255, 0.1));
+}
+.claude-accs-modal-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.claude-accs-modal-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--app-secondary-foreground, #aaa);
+}
+.claude-accs-modal-primary {
+  background: #2d8a3e;
+  border-color: #2d8a3e;
+  color: #fff;
+}
+.claude-accs-modal-primary:hover:not(:disabled) {
+  background: #36a44a;
+  border-color: #36a44a;
+}

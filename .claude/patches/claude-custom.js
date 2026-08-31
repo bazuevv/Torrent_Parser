@@ -7292,14 +7292,19 @@
  * Вся работа с файлами — на стороне сервера (account_switcher.py),
  * здесь только список и клик: webview не имеет доступа к ФС.
  *
- * ВАЖНО про перезагрузку. `env` из settings.json процесс Claude Code
- * читает при старте сессии, поэтому смена провайдера НЕ применяется
- * к текущему окну — нужен Developer: Reload Window. Панель говорит
- * об этом прямым текстом и не притворяется, что переключение уже
- * подействовало: молчаливая подмена под работающей сессией — худший
- * из вариантов, пользователь считал бы, что говорит с другой моделью.
+ * ВАЖНО про применение. `env` из settings.json процесс Claude Code
+ * читает при старте, а стартует он один раз на активацию extension
+ * host — поэтому смена провайдера НЕ действует на текущее окно сама
+ * по себе. Панель не притворяется, что переключение уже подействовало:
+ * молчаливая подмена под работающей сессией — худший из вариантов,
+ * пользователь считал бы, что говорит с другой моделью.
  *
- * Управление: `accountsButton` в claude-custom-config.toml.
+ * Вместо этого сразу после успешного переключения открывается модалка
+ * с предложением перезапустить extension host (см. openModal). Это
+ * дешевле Reload Window: окно, редакторы и терминалы остаются на месте.
+ *
+ * Управление: `accountsButton` и `accountsRestartPrompt`
+ * в claude-custom-config.toml.
  * ============================================================ */
 (function () {
   if (window.__claudeAccountsButtonInstalled) return;
@@ -7309,13 +7314,28 @@
   if (cfg.accountsButton !== true) return;
 
   var API_URL = 'http://localhost:18923/accounts';
+  var RESTART_URL = 'http://localhost:18923/restart-exthost';
   var BTN_CLASS = 'claude-accs-btn';
   var BARE_CLASS = 'claude-accs-btn-bare';
   var PANEL_ID = 'claude-accs-panel';
+  var MODAL_ID = 'claude-accs-modal';
   var SCAN_INTERVAL_MS = 3000;
   var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
 
+  // Сколько ждём подтверждения от расширения. Наблюдатель в extension.js
+  // опрашивает заявку раз в секунду, поэтому запас в четыре секунды
+  // покрывает и медленный диск, и попадание в середину его цикла.
+  var ACK_TIMEOUT_MS = 4000;
+  var ACK_POLL_MS = 400;
+
+  // Отсутствие ключа трактуем как «включено»: bootstrap webview
+  // перечитывается только при Reload Window, и на устаревшем bootstrap
+  // предложение о перезапуске молча пропало бы — ровно та функция,
+  // ради которой всё и делается.
+  var restartPrompt = cfg.accountsRestartPrompt !== false;
+
   var panel = null;
+  var modal = null;
   var switching = false;   // защита от двойного клика по пункту
 
   function logInfo() {
@@ -7455,8 +7475,18 @@
 
     var foot = document.createElement('div');
     foot.className = 'claude-accs-foot';
-    foot.textContent = 'Смена применится после Developer: Reload Window';
+    foot.textContent = restartPrompt
+      ? 'Смена требует перезапуска расширения — предложим сразу после выбора'
+      : 'Смена применится после Developer: Reload Window';
     body.appendChild(foot);
+  }
+
+  /** Аккаунт из списка по имени файла (для заголовка модалки). */
+  function findAccount(accounts, file) {
+    for (var i = 0; accounts && i < accounts.length; i++) {
+      if (accounts[i] && accounts[i].file === file) return accounts[i];
+    }
+    return null;
   }
 
   function switchTo(file, btn, body) {
@@ -7471,12 +7501,21 @@
         switching = false;
         if (!panel) return;
         if (d && d.ok) {
+          logInfo('переключено на', file);
+          if (restartPrompt) {
+            // Панель закрываем: дальше разговор идёт в модалке, и
+            // оставленный позади список только мешал бы — он всё равно
+            // показывает состояние, которое ещё не применилось.
+            var acc = findAccount(d.accounts, file);
+            closePanel();
+            openModal(acc, file);
+            return;
+          }
           renderAccounts(body, d.accounts, btn);
           var note = document.createElement('div');
           note.className = 'claude-accs-note';
           note.textContent = d.message;
           body.appendChild(note);
-          logInfo('переключено на', file);
         } else {
           renderError(body, (d && (d.message || d.error)) || 'не удалось переключить');
         }
@@ -7487,6 +7526,178 @@
         if (!panel) return;
         renderError(body, 'http-server.py недоступен (порт 18923)');
         logInfo('switch failed', err);
+      });
+  }
+
+  /* ---------- модалка «перезапустить расширение?» ----------
+   *
+   * Аккаунт уже переключён — ~/.claude/settings.json подменён на диске.
+   * Осталось применить: `env` оттуда читает процесс `claude` при старте,
+   * а стартует он один раз на активацию extension host. Поэтому здесь
+   * предлагается перезапуск хоста, а не Reload Window: окно, редакторы
+   * и терминалы при этом остаются на месте.
+   *
+   * Сам перезапуск делает блок, инжектированный в extension.js
+   * (patch-extension-csp.py). Webview лишь кладёт заявку через
+   * POST /restart-exthost и следит за подтверждением — если его нет,
+   * значит инжекция не активна, и об этом надо сказать прямо, а не
+   * висеть в ожидании перезапуска, которого не будет.
+   */
+
+  function closeModal() {
+    if (!modal) return;
+    if (modal.parentNode) modal.parentNode.removeChild(modal);
+    modal = null;
+    document.removeEventListener('keydown', onModalKeydown, true);
+  }
+
+  function onModalKeydown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeModal();
+    }
+  }
+
+  function modalRow(parent, className, text) {
+    var el = document.createElement('div');
+    el.className = className;
+    el.textContent = text;
+    parent.appendChild(el);
+    return el;
+  }
+
+  function openModal(acc, file) {
+    closeModal();
+
+    modal = document.createElement('div');
+    modal.id = MODAL_ID;
+    modal.className = 'claude-accs-overlay';
+
+    var box = document.createElement('div');
+    box.className = 'claude-accs-modal';
+    modal.appendChild(box);
+
+    modalRow(box, 'claude-accs-modal-head', '✓ Аккаунт переключён');
+
+    var card = document.createElement('div');
+    card.className = 'claude-accs-modal-card';
+    modalRow(card, 'claude-accs-modal-label', 'Активен');
+    modalRow(card, 'claude-accs-modal-value', (acc && acc.name) || file);
+    if (acc && acc.baseUrl) {
+      modalRow(card, 'claude-accs-modal-sub',
+        acc.model ? acc.baseUrl + '  ·  ' + acc.model : acc.baseUrl);
+    }
+    box.appendChild(card);
+
+    modalRow(box, 'claude-accs-modal-text',
+      'Настройки провайдера читает процесс Claude Code при запуске, '
+      + 'поэтому в текущем окне пока работает прежний аккаунт. '
+      + 'Чтобы применить смену, нужно перезапустить расширение.');
+
+    modalRow(box, 'claude-accs-modal-warn',
+      '⚠ Текущий диалог прервётся. Переписка сохранена на диске и '
+      + 'откроется заново, но идущая задача будет остановлена. '
+      + 'Редакторы, вкладки и терминалы останутся на месте.');
+
+    var status = document.createElement('div');
+    status.className = 'claude-accs-modal-status';
+    box.appendChild(status);
+
+    var footer = document.createElement('div');
+    footer.className = 'claude-accs-modal-foot';
+    box.appendChild(footer);
+
+    var later = document.createElement('button');
+    later.type = 'button';
+    later.className = 'claude-accs-modal-btn claude-accs-modal-ghost';
+    later.textContent = 'Позже';
+    later.addEventListener('click', closeModal);
+    footer.appendChild(later);
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'claude-accs-modal-btn claude-accs-modal-primary';
+    go.textContent = '⟳ Перезапустить расширение';
+    go.addEventListener('click', function () {
+      requestRestart(go, later, status);
+    });
+    footer.appendChild(go);
+
+    document.body.appendChild(modal);
+    document.addEventListener('keydown', onModalKeydown, true);
+    try { go.focus(); } catch (e) {}
+
+    // Клик мимо модалки = «Позже». Перезапуск — действие с потерями,
+    // случайно запустить его мимо кнопки нельзя, а отложить — можно.
+    modal.addEventListener('mousedown', function (e) {
+      if (e.target === modal) closeModal();
+    });
+  }
+
+  function setStatus(status, text, kind) {
+    status.textContent = text;
+    status.className = 'claude-accs-modal-status'
+      + (kind ? ' claude-accs-modal-status-' + kind : '');
+  }
+
+  function requestRestart(go, later, status) {
+    go.disabled = true;
+    later.disabled = true;
+    setStatus(status, 'Заявка отправлена, ждём расширение…', 'wait');
+
+    fetch(RESTART_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) throw new Error((d && d.error) || 'сервер отказал');
+        logInfo('заявка на перезапуск', d.token);
+        waitForAck(go, later, status, Date.now());
+      })
+      .catch(function (err) {
+        go.disabled = false;
+        later.disabled = false;
+        setStatus(status, 'http-server.py недоступен (порт 18923): '
+          + ((err && err.message) || err), 'err');
+        logInfo('restart request failed', err);
+      });
+  }
+
+  /** Опрос подтверждения. Успех обычно не успевает отрисоваться —
+   * расширение перезапускается и webview пересоздаётся. Ценность
+   * опроса в обратном исходе: молчание значит, что блок в extension.js
+   * не активен, и пользователю надо об этом сказать. */
+  function waitForAck(go, later, status, startedAt) {
+    if (!modal) return;
+    if (Date.now() - startedAt > ACK_TIMEOUT_MS) {
+      go.disabled = false;
+      later.disabled = false;
+      setStatus(status,
+        'Расширение не ответило на заявку. Похоже, блок перезапуска '
+        + 'в extension.js не активен — аккаунт переключён, но применить '
+        + 'его придётся вручную: Developer: Reload Window.', 'err');
+      return;
+    }
+    fetch(RESTART_URL, { cache: 'no-store' })
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        if (!modal) return;
+        if (d && d.acked) {
+          setStatus(status, 'Расширение принимает перезапуск…', 'ok');
+          return;
+        }
+        setTimeout(function () {
+          waitForAck(go, later, status, startedAt);
+        }, ACK_POLL_MS);
+      })
+      .catch(function () {
+        if (!modal) return;
+        setTimeout(function () {
+          waitForAck(go, later, status, startedAt);
+        }, ACK_POLL_MS);
       });
   }
 
