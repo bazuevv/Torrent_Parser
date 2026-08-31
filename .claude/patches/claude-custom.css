@@ -1226,3 +1226,84 @@
   background: #36a44a;
   border-color: #36a44a;
 }
+
+/* ============================================================
+ * MOOD GAUGE — модуль MOOD GAUGE в claude-custom.js.
+ * Индикатор-спидометр «Mood» в футере, слева от кнопки Accs:
+ * полукруглая шкала из четырёх секторов и стрелка поверх неё.
+ * Включается параметром moodGauge в claude-custom-config.toml.
+ *
+ * Всё оформление шкалы — здесь, а не в атрибутах SVG: CSS
+ * подхватывается горячо (cache-bust <link> раз в pollIntervalMs),
+ * поэтому цвета и толщину можно подбирать без Reload Window.
+ * ============================================================ */
+
+/* Не кнопка, а индикатор: класс штатной footerButton_ не копируется,
+ * hover-подсветки и указателя мыши нет — кликать тут нечего.
+ * Отступы повторяют .claude-*-btn-bare, чтобы в ряду футера
+ * индикатор стоял на той же сетке, что и соседние кнопки. */
+.claude-mood {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  opacity: 0.85;
+  cursor: default;
+  user-select: none;
+}
+
+/* Подпись жирнее соседних — как у Accs и Usage: в ряду мелких
+ * лейблов футера иначе теряется. */
+.claude-mood-label {
+  font-weight: 600;
+}
+
+.claude-mood-svg {
+  display: block;
+  width: 27px;
+  height: 16px;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+/* Дуга рисуется штрихом по окружности, заливки нет. `butt` —
+ * чтобы соседние сектора стыковались ровно по границе: скруглённый
+ * торец наползал бы на соседний цвет. */
+.claude-mood-arc {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: butt;
+}
+
+/* Слева направо: спокойно → тревожно. Значения из палитры, читаемой
+ * и на тёмной, и на светлой теме VSCode. */
+.claude-mood-arc-1 { stroke: #3fb950; }
+.claude-mood-arc-2 { stroke: #e3b341; }
+.claude-mood-arc-3 { stroke: #f0883e; }
+.claude-mood-arc-4 { stroke: #f85149; }
+
+/* Стрелка нарисована в положении «0» (остриём влево), значение —
+ * это поворот вокруг центра шкалы. transform-box: view-box нужен,
+ * чтобы transform-origin считался в единицах viewBox, а не по
+ * bounding box самой стрелки. */
+.claude-mood-needle {
+  transform-box: view-box;
+  transform-origin: 17px 17px;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Стрелка и её ось — цветом текста футера: шкала и так пёстрая,
+ * пятый цвет поверх неё сделал бы индикатор нечитаемым. */
+.claude-mood-pointer,
+.claude-mood-hub {
+  fill: currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claude-mood-needle {
+    transition: none;
+  }
+}

@@ -7948,3 +7948,262 @@
     init();
   }
 })();
+
+/* ============================================================
+ * MOOD GAUGE
+ *
+ * Индикатор «Mood» в футере поля ввода, слева от кнопки Accs.
+ * Полукруглая шкала из четырёх равных секторов — зелёный, жёлтый,
+ * оранжевый, красный — и стрелка поверх неё: 0 указывает в начало
+ * зелёного (влево), 100 — в конец красного (вправо).
+ *
+ * Источник данных ещё не выбран, поэтому модуль сознательно ничего
+ * не опрашивает: ни сервера, ни DOM. Значение ставится снаружи —
+ * `window.__claudeMood.set(0..100)`, читается `.get()`. Когда метрика
+ * появится, её достаточно будет отдавать этим же set — рисование
+ * менять не придётся.
+ *
+ * Не кнопка: кликов не принимает и курсор не меняет. Поэтому класс
+ * штатной footerButton_ не заимствуется (в отличие от Accs и Usage) —
+ * hover-подсветка на неинтерактивном элементе обещала бы действие,
+ * которого нет.
+ *
+ * Цвета секторов, толщина дуги и размер живут в claude-custom.css
+ * (`.claude-mood-arc-1..4`), а не в атрибутах SVG: CSS перечитывается
+ * горячо, поэтому палитру можно править без Reload Window.
+ *
+ * Управление: `moodGauge` в claude-custom-config.toml.
+ * ============================================================ */
+(function () {
+  if (window.__claudeMoodGaugeInstalled) return;
+  window.__claudeMoodGaugeInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (cfg.moodGauge !== true) return;
+
+  var ROOT_CLASS = 'claude-mood';
+  var NEEDLE_CLASS = 'claude-mood-needle';
+  var SCAN_INTERVAL_MS = 3000;
+
+  // Геометрия в единицах viewBox. Центр шкалы внизу, дуга — верхняя
+  // половина окружности радиуса R: 180° слева (значение 0) до 0°
+  // справа (значение 100). Габариты viewBox с запасом на толщину дуги.
+  var VIEW_W = 34;
+  var VIEW_H = 20;
+  var CX = 17;
+  var CY = 17;
+  var R = 13;
+  var SECTORS = 4;
+
+  // Стрелка не достаёт до дуги: на краях шкалы остриё иначе сливается
+  // с сектором и перестаёт читаться.
+  var NEEDLE_LEN = R - 2.2;
+  var NEEDLE_HALF_W = 1.65;  // полуширина у основания
+  var HUB_R = 2.1;
+
+  // Значение общее для всех экземпляров: футеров в DOM столько,
+  // сколько открытых полей ввода, и показывать в них разное было бы
+  // враньём — метрика одна на окно.
+  var value = 0;
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[mood]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  /* ---------- рисование ---------- */
+
+  function round3(n) { return Math.round(n * 1000) / 1000; }
+
+  /** Точка на дуге по углу в градусах (0° — справа, 180° — слева). */
+  function polar(deg) {
+    var rad = deg * Math.PI / 180;
+    return { x: CX + R * Math.cos(rad), y: CY - R * Math.sin(rad) };
+  }
+
+  /**
+   * Дуга i-го сектора. sweep=1 — по часовой стрелке на экране:
+   * угол убывает, а ось Y в SVG направлена вниз.
+   */
+  function arcPath(i) {
+    var step = 180 / SECTORS;
+    var from = polar(180 - i * step);
+    var to = polar(180 - (i + 1) * step);
+    return 'M ' + round3(from.x) + ' ' + round3(from.y)
+      + ' A ' + R + ' ' + R + ' 0 0 1 ' + round3(to.x) + ' ' + round3(to.y);
+  }
+
+  /**
+   * SVG-шкала. Через createElementNS, а не innerHTML: SVG живёт
+   * в своём namespace, а innerHTML упирается в Trusted Types
+   * (тот же приём, что в accsIcon у ACCOUNT SWITCHER BUTTON).
+   */
+  function createSvg() {
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + VIEW_W + ' ' + VIEW_H);
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('class', 'claude-mood-svg');
+    // Для скринридера шкала — декорация: значение и без неё есть
+    // в title всего индикатора.
+    svg.setAttribute('aria-hidden', 'true');
+
+    for (var i = 0; i < SECTORS; i++) {
+      var arc = document.createElementNS(NS, 'path');
+      arc.setAttribute('d', arcPath(i));
+      arc.setAttribute('class', 'claude-mood-arc claude-mood-arc-' + (i + 1));
+      svg.appendChild(arc);
+    }
+
+    // Стрелка нарисована в положении «0» — остриём влево; значение
+    // задаётся поворотом всей группы вокруг центра (см. applyTo).
+    var needle = document.createElementNS(NS, 'g');
+    needle.setAttribute('class', NEEDLE_CLASS);
+
+    var pointer = document.createElementNS(NS, 'path');
+    pointer.setAttribute('d',
+      'M ' + round3(CX - NEEDLE_LEN) + ' ' + CY
+      + ' L ' + CX + ' ' + round3(CY - NEEDLE_HALF_W)
+      + ' L ' + CX + ' ' + round3(CY + NEEDLE_HALF_W) + ' Z');
+    pointer.setAttribute('class', 'claude-mood-pointer');
+    needle.appendChild(pointer);
+
+    var hub = document.createElementNS(NS, 'circle');
+    hub.setAttribute('cx', CX);
+    hub.setAttribute('cy', CY);
+    hub.setAttribute('r', HUB_R);
+    hub.setAttribute('class', 'claude-mood-hub');
+    needle.appendChild(hub);
+
+    svg.appendChild(needle);
+    return svg;
+  }
+
+  function createGauge() {
+    var root = document.createElement('div');
+    root.className = ROOT_CLASS;
+    root.appendChild(createSvg());
+    var label = document.createElement('span');
+    label.className = 'claude-mood-label';
+    label.textContent = 'Mood';
+    root.appendChild(label);
+    applyTo(root);
+    return root;
+  }
+
+  /* ---------- значение ---------- */
+
+  /** Ставит стрелку и подсказку одному экземпляру индикатора. */
+  function applyTo(root) {
+    var needle = root.querySelector('.' + NEEDLE_CLASS);
+    if (needle) {
+      // CSS-свойство transform, а не одноимённый атрибут SVG: только
+      // по нему работает transition (см. .claude-mood-needle в CSS).
+      needle.style.transform = 'rotate(' + round3(value * 180 / 100) + 'deg)';
+    }
+    root.title = 'Mood: ' + Math.round(value) + ' / 100';
+  }
+
+  function applyAll() {
+    var roots = document.querySelectorAll('.' + ROOT_CLASS);
+    for (var i = 0; i < roots.length; i++) applyTo(roots[i]);
+  }
+
+  window.__claudeMood = {
+    /** Ставит значение 0..100; выходящее за границы прижимается. */
+    set: function (v) {
+      var num = Number(v);
+      if (!isFinite(num)) return value;
+      value = Math.max(0, Math.min(100, num));
+      applyAll();
+      logInfo('значение', value);
+      return value;
+    },
+    get: function () { return value; },
+  };
+
+  /* ---------- монтирование ---------- */
+
+  /** Самый левый из наших контролов футера — перед ним и встаём. */
+  function leftmostNeighbour(footer) {
+    var sel = ['.claude-accs-btn', '.claude-usage-btn',
+      '.claude-cache-btn', '.claude-bypass-btn'];
+    for (var i = 0; i < sel.length; i++) {
+      var el = footer.querySelector(sel[i]);
+      if (el && el.parentNode === footer) return el;
+    }
+    return null;
+  }
+
+  function mount(container) {
+    var footer = container.querySelector('[class*="inputFooter_"]');
+    if (!footer) return false;
+    var gauge = createGauge();
+    // Порядок в футере: Mood · Accs · Usage · Cache · ByPass.
+    // Опираемся на соседа, а не на порядок инициализации модулей:
+    // React пересоздаёт футер, и кто смонтируется первым — не
+    // гарантировано (та же логика, что в ACCOUNT SWITCHER BUTTON).
+    var neighbour = leftmostNeighbour(footer);
+    if (neighbour) {
+      footer.insertBefore(gauge, neighbour);
+    } else {
+      var spacer = footer.querySelector('[class*="spacer_"]');
+      if (spacer && spacer.parentNode === footer) {
+        footer.insertBefore(gauge, spacer.nextSibling);
+      } else {
+        footer.appendChild(gauge);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Держит Mood левее соседей, даже если те смонтировались позже.
+   * Вставка при монтировании этого не гарантирует — см. ensureOrder
+   * в ACCOUNT SWITCHER BUTTON.
+   */
+  function ensureOrder(footer) {
+    var me = footer.querySelector('.' + ROOT_CLASS);
+    if (!me || me.parentNode !== footer) return;
+    var right = leftmostNeighbour(footer);
+    if (!right) return;
+    // DOCUMENT_POSITION_FOLLOWING — сосед идёт ПОСЛЕ нас, всё верно.
+    if (!(me.compareDocumentPosition(right) & 4)) {
+      footer.insertBefore(me, right);
+      logInfo('порядок восстановлен: Mood перед соседями');
+    }
+  }
+
+  function scan() {
+    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+    for (var i = 0; i < containers.length; i++) {
+      var footer = containers[i].querySelector('[class*="inputFooter_"]');
+      if (containers[i].querySelector('.' + ROOT_CLASS)) {
+        if (footer) ensureOrder(footer);
+        continue;
+      }
+      if (!containers[i].querySelector('[role="textbox"][contenteditable]')) continue;
+      mount(containers[i]);
+    }
+  }
+
+  function init() {
+    scan();
+    try {
+      new MutationObserver(function () { scan(); }).observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    } catch (e) {}
+    setInterval(scan, SCAN_INTERVAL_MS);
+    logInfo('installed');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
