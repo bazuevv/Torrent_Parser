@@ -7729,10 +7729,23 @@
     restarting = true;
     setStatus(status, 'Заявка отправлена, ждём расширение…', 'wait');
 
+    // Своё имя знает только сам webview: панель, созданную умершим
+    // хостом, оживить нельзя, и новый хост о ней уже ничего не помнит.
+    // Без sessionId он сможет вкладку только закрыть, а открыть заново
+    // ту же переписку — нет.
+    var sessionId = null;
+    try {
+      var resolve = window.__claudeSessionId;
+      if (typeof resolve === 'function') sessionId = resolve();
+    } catch (e) {
+      logInfo('session id получить не удалось', e);
+    }
+    if (!sessionId) logInfo('session id неизвестен — вкладку переоткрыть будет нечем');
+
     fetch(RESTART_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ sessionId: sessionId || '' }),
     })
       .then(function (res) { return res.json(); })
       .then(function (d) {

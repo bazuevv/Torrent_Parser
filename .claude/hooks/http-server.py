@@ -534,12 +534,34 @@ class Handler(BaseHTTPRequestHandler):
         return token if isinstance(token, str) else ""
 
     def _handle_restart_exthost_post(self) -> None:
-        """Кладёт заявку на перезапуск extension host."""
+        """Кладёт заявку на перезапуск extension host.
+
+        Тело запроса может содержать `sessionId` — идентификатор
+        диалога, из которого нажали «Перезапустить». Он нужен, чтобы
+        после рестарта открыть заново ИМЕННО эту сессию: панель,
+        созданную умершим хостом, оживить нельзя, а новый хост о ней
+        уже ничего не знает. Своё имя знает только сам webview
+        (`window.__claudeSessionId`), поэтому он его и передаёт.
+        """
         if not LOGS_DIR:
             self._json_response(500, {
                 "ok": False, "error": "CLAUDE_PROJECT_DIR не задан",
             })
             return
+
+        session_id = ""
+        body = self._read_body()
+        if body:
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                if isinstance(payload, dict):
+                    value = payload.get("sessionId")
+                    if isinstance(value, str):
+                        session_id = value
+            except Exception:
+                # Тело необязательное: без sessionId заявка остаётся
+                # рабочей, просто вкладку переоткрыть будет нечем.
+                pass
 
         token = uuid.uuid4().hex
         try:
@@ -549,13 +571,15 @@ class Handler(BaseHTTPRequestHandler):
             tmp = RESTART_REQUEST_FILE + ".tmp"
             with open(tmp, "w", encoding="utf-8") as fh:
                 json.dump({"token": token, "ts": time.time(),
-                           "project": PROJECT_DIR}, fh)
+                           "project": PROJECT_DIR,
+                           "sessionId": session_id}, fh)
             os.replace(tmp, RESTART_REQUEST_FILE)
         except OSError as exc:
             self._json_response(500, {"ok": False, "error": str(exc)})
             return
 
-        _log(f"заявка на перезапуск extension host: token={token}")
+        _log(f"заявка на перезапуск extension host: token={token} "
+             f"session={session_id or '—'}")
         self._json_response(200, {"ok": True, "token": token})
 
     def _handle_restart_exthost_get(self) -> None:

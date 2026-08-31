@@ -145,7 +145,7 @@ try {
     var ACK = "restart-exthost-ack.json";
     var RELOAD = "restart-exthost-reload.json";
     var RESTART_CMD = "workbench.action.restartExtensionHost";
-    var REOPEN_CMD = "claude-vscode.reopenClosedSession";
+    var OPEN_CMD = "claude-vscode.editor.open";
     var POLL_MS = 1000;
     // Пауза перед рестартом: панель Accs опрашивает ack каждые 400 мс
     // (ACK_POLL_MS в claude-custom.js) — дадим ей увидеть подтверждение
@@ -159,14 +159,18 @@ try {
     // а вкладки давно живут своей жизнью.
     var RELOAD_TTL_MS = 60000;
 
-    function tokenOf(file) {
+    function readJson(file) {
       try {
-        var d = JSON.parse(fs.readFileSync(file, "utf8"));
-        return d && typeof d.token === "string" ? d.token : "";
+        return JSON.parse(fs.readFileSync(file, "utf8"));
       } catch (e) {
         // Файла нет, или его перезаписывают прямо сейчас — штатно.
-        return "";
+        return null;
       }
+    }
+
+    function tokenOf(file) {
+      var d = readJson(file);
+      return d && typeof d.token === "string" ? d.token : "";
     }
 
     function runtimeDirs() {
@@ -318,6 +322,19 @@ try {
         snapshotTabs("до рестарта");
 
         var reloadFile = path.join(dir, RELOAD);
+        // Кого переоткрывать после рестарта. sessionId кладёт в заявку
+        // сам webview — только он знает своё имя. Заголовок запоминаем
+        // здесь: после рестарта по нему проверим, что активна всё та же
+        // вкладка, а не другая, на которую успели переключиться.
+        var req = readJson(path.join(dir, REQ)) || {};
+        var target = activeClaudeTab();
+        var handoff = {
+          ts: Date.now(),
+          sessionId: typeof req.sessionId === "string" ? req.sessionId : "",
+          label: target ? String(target.label) : "",
+        };
+        log("после рестарта переоткрою session=" + (handoff.sessionId || "—")
+          + " вкладка=" + JSON.stringify(handoff.label));
 
         // Запасной путь, когда команды рестарта в сборке нет: окно
         // целиком. Дороже, но смена аккаунта применится, и вкладки
@@ -345,10 +362,10 @@ try {
             // Заявку оставляем ДО команды: после неё этот процесс уже
             // не исполнит ничего.
             try {
-              fs.writeFileSync(reloadFile, JSON.stringify({ ts: Date.now() }));
-              log("заявка на перезагрузку вкладок оставлена: " + reloadFile);
+              fs.writeFileSync(reloadFile, JSON.stringify(handoff));
+              log("заявка на переоткрытие оставлена: " + reloadFile);
             } catch (e2) {
-              log("заявку на перезагрузку записать не удалось: " + e2);
+              log("заявку на переоткрытие записать не удалось: " + e2);
             }
             log("вызываю " + RESTART_CMD);
             // Ошибку намеренно глушим пустым обработчиком: реагировать
@@ -394,8 +411,8 @@ try {
      * первом показе, активная — никогда.
      *
      * Отсюда единственный способ: уничтожить панель и дать расширению
-     * создать её заново — `claude-vscode.reopenClosedSession` зовёт
-     * createPanel() для последней закрытой сессии в той же колонке.
+     * создать её заново — `claude-vscode.editor.open` зовёт
+     * createPanel(sessionId, …) и открывает ИМЕННО ту переписку.
      * Мягче не выходит:
      *   - «Developer: Reload Webviews» обнуляет содержимое панели, а
      *     отвечать на запрос контента после смерти владельца некому —
@@ -403,22 +420,43 @@ try {
      *   - показ заново (уйти на соседнюю вкладку и вернуться) VSCode
      *     не считает поводом для восстановления: DOM остаётся прежним
      *     со всем, что на нём было.
+     *
+     * `claude-vscode.reopenClosedSession` тоже не годится: он берёт
+     * сессию из списка недавно закрытых, а тот живёт в памяти хоста.
+     * Новый хост про закрытую нами панель ничего не знает, список пуст
+     * — команда молча открывала пустой диалог вместо переписки.
      */
-    function reviveActiveTab() {
+    function reviveActiveTab(handoff) {
       var tab = activeClaudeTab();
       if (!tab) return;
-      var label = JSON.stringify(String(tab.label));
+
+      var label = String(tab.label);
+      if (handoff.label && label !== handoff.label) {
+        // За время рестарта переключились на другую вкладку. Трогать
+        // её нельзя: она живая, а мёртвая оживёт при показе сама.
+        log("активна другая вкладка (" + JSON.stringify(label) + ") — не трогаю");
+        return;
+      }
+      if (!handoff.sessionId) {
+        // Закрыть, не умея открыть ту же переписку, — хуже, чем
+        // оставить мёртвую вкладку: её хотя бы видно в списке.
+        log("session id неизвестен — вкладку не трогаю");
+        return;
+      }
 
       Promise.resolve(vscode.commands.getCommands(true)).then(function (all) {
-        if (!all || all.indexOf(REOPEN_CMD) === -1) {
-          // Закрыть, не умея переоткрыть, — потерять вкладку из виду.
-          log("команды " + REOPEN_CMD + " нет — вкладку не трогаю");
+        if (!all || all.indexOf(OPEN_CMD) === -1) {
+          log("команды " + OPEN_CMD + " нет — вкладку не трогаю");
           return null;
         }
-        log("закрываю активную вкладку " + label);
+        log("закрываю активную вкладку " + JSON.stringify(label));
         return Promise.resolve(vscode.window.tabGroups.close(tab)).then(function () {
-          log("вкладка закрыта, зову " + REOPEN_CMD);
-          return vscode.commands.executeCommand(REOPEN_CMD);
+          log("вкладка закрыта, открываю session=" + handoff.sessionId);
+          // Третий аргумент — колонка. ViewColumn.Active означает «в
+          // той же группе»; конкретный номер расширение трактует иначе
+          // и заодно переставляет себе предпочитаемое место.
+          return vscode.commands.executeCommand(
+            OPEN_CMD, handoff.sessionId, undefined, vscode.ViewColumn.Active);
         }).then(function () {
           log("переоткрытие выполнено");
           setTimeout(function () { snapshotTabs("через 3 с после переоткрытия"); }, 3000);
@@ -457,8 +495,9 @@ try {
           try { fs.unlinkSync(file); } catch (e) {}
           continue;
         }
-        log("заявка свежая (" + age + " мс), жду " + RELOAD_DELAY_MS + " мс");
-        setTimeout(reviveActiveTab, RELOAD_DELAY_MS);
+        log("заявка свежая (" + age + " мс), session="
+          + (data.sessionId || "—") + ", жду " + RELOAD_DELAY_MS + " мс");
+        setTimeout(function () { reviveActiveTab(data); }, RELOAD_DELAY_MS);
         return;
       }
     }
