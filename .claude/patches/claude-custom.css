@@ -938,3 +938,158 @@
   font-size: 11px;
   opacity: 0.55;
 }
+
+/* ============================================================
+ * ACCOUNT SWITCHER BUTTON — модуль ACCOUNT SWITCHER BUTTON
+ * в claude-custom.js. Кнопка «Accs» слева от Usage и панель
+ * со списком settings-файлов ~/.claude/settings*.json.
+ * Включается параметром accountsButton в claude-custom-config.toml.
+ * ============================================================ */
+
+/* Кнопка копирует класс штатной footerButton_ — размеры, шрифт
+ * и hover достаются даром (см. комментарий у .claude-usage-btn). */
+.claude-accs-btn {
+  opacity: 0.75;
+}
+.claude-accs-btn:hover {
+  opacity: 1;
+}
+.claude-accs-btn > span {
+  font-weight: 600;
+}
+
+/* Запасной вид, когда донора стиля не нашлось (см. claude-usage-btn-bare). */
+.claude-accs-btn-bare {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.claude-accs-btn-bare:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+.claude-accs-btn-bare svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.claude-accs-panel {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100vw - 12px));
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-accs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.claude-accs-head {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Пункт списка — <button>, поэтому UA-оформление снимаем явно:
+ * иначе в панели проступит серая плашка с рамкой. */
+.claude-accs-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.claude-accs-row:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
+}
+
+/* Активный аккаунт кликом не переключить (обработчик выходит сразу),
+ * поэтому и курсор обычный — иначе строка обещала бы действие. */
+.claude-accs-row-active {
+  cursor: default;
+}
+.claude-accs-row-active .claude-accs-name {
+  font-weight: 600;
+}
+
+/* Колонка галки фиксированной ширины: без неё названия неактивных
+ * аккаунтов съезжали бы влево относительно активного. */
+.claude-accs-mark {
+  flex: 0 0 12px;
+  color: var(--vscode-charts-green, #89d185);
+  line-height: 1.45;
+}
+
+.claude-accs-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.claude-accs-name {
+  line-height: 1.45;
+}
+
+/* Endpoint и модель — служебная строка: моноширинный, приглушённый,
+ * с обрезкой длинных URL многоточием. */
+.claude-accs-sub {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.claude-accs-foot {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+/* Результат переключения — заметнее подписи внизу: пользователю нужно
+ * увидеть, что действие произошло и что требуется перезагрузка окна. */
+.claude-accs-note {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: var(--vscode-inputValidation-infoBackground, rgba(100, 148, 237, 0.15));
+  color: var(--app-primary-foreground, #ddd);
+  font-size: 11px;
+}
+
+.claude-accs-empty {
+  padding: 6px 0;
+  opacity: 0.7;
+}

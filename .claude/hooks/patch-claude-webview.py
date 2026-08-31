@@ -183,6 +183,11 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, bool),
         "должен быть true или false",
     ),
+    (
+        "accountsButton",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
 ]
 
 MARKER_BEGIN = "/* claude-green-timestamp */"
@@ -501,7 +506,8 @@ def _server_sources_mtime() -> float:
     будет перезапускаться на каждом сообщении (или не будет никогда)."""
     here = os.path.dirname(HTTP_SERVER_SCRIPT)
     newest = 0.0
-    for name in ("http-server.py", "cache_usage.py", "hook_log.py"):
+    for name in ("http-server.py", "cache_usage.py", "hook_log.py",
+                 "account_switcher.py"):
         try:
             newest = max(newest, os.path.getmtime(os.path.join(here, name)))
         except OSError:

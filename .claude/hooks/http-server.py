@@ -13,6 +13,10 @@ Endpoints:
                         перезаписывает .claude/hooks-runtime/models-list.json (каталог моделей
                         из popup селектора, для построения внешнего переключателя моделей)
   GET  /ping          — возвращает {"status": "ok"} (alive-check)
+  GET  /accounts      — список settings-файлов ~/.claude/settings*.json как
+                        аккаунтов провайдеров (кнопка Accs в футере)
+  POST /accounts      — тело = JSON {file: "settings_glm.json"}, делает этот
+                        файл активным ~/.claude/settings.json
   GET  /list-projects — возвращает список папок проектов в ~/.claude/projects/ с числом сессий
                         и декодированным путём
   POST /move-session  — тело = JSON {session_id, source_project, target_project},
@@ -75,6 +79,7 @@ _RESTART_REQUESTED = False
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_usage  # noqa: E402
 import hook_log  # noqa: E402
+import account_switcher  # noqa: E402
 
 
 def _log(message: str) -> None:
@@ -92,7 +97,8 @@ PORT = int(os.environ.get("CLAUDE_HTTP_PORT", "18923"))
 # продублирован в _server_sources_mtime() внутри patch-claude-webview.py;
 # они обязаны совпадать. Конфиг тоже здесь: правка serverLog должна
 # доезжать до сервера без ручного перезапуска.
-SOURCE_FILES = ("http-server.py", "cache_usage.py", "hook_log.py")
+SOURCE_FILES = ("http-server.py", "cache_usage.py", "hook_log.py",
+                "account_switcher.py")
 CONFIG_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "patches", "claude-custom-config.toml",
@@ -375,6 +381,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_custom_config()
             return
 
+        if self.path.split("?", 1)[0] == "/accounts":
+            self._handle_accounts_get()
+            return
+
         self.send_response(404)
         self.end_headers()
 
@@ -419,6 +429,46 @@ class Handler(BaseHTTPRequestHandler):
             data = dict(_CONFIG_CACHE["data"])
 
         self._json_response(200, {"ok": True, "mtime": mtime, "config": data})
+
+    # --- переключение аккаунтов ------------------------------------------
+    #
+    # Логика подмены ~/.claude/settings.json живёт в account_switcher.py;
+    # здесь только транспорт для кнопки Accs в футере.
+
+    def _handle_accounts_get(self) -> None:
+        try:
+            accounts = account_switcher.list_accounts()
+        except Exception as exc:  # noqa: BLE001 — endpoint не роняет сервер
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+        self._json_response(200, {"ok": True, "accounts": accounts})
+
+    def _handle_accounts_post(self) -> None:
+        body = self._read_body()
+        if body is None:
+            return
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except Exception:
+            self._json_response(400, {"ok": False, "error": "тело не JSON"})
+            return
+        if not isinstance(payload, dict):
+            self._json_response(400, {"ok": False, "error": "ожидался объект"})
+            return
+
+        target = str(payload.get("file") or "")
+        try:
+            ok, message = account_switcher.switch_account(target)
+        except Exception as exc:  # noqa: BLE001
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+
+        _log(f"переключение аккаунта на {target!r}: {message}")
+        self._json_response(200 if ok else 400, {
+            "ok": ok,
+            "message": message,
+            "accounts": account_switcher.list_accounts(),
+        })
 
     # --- bypass-режим ---------------------------------------------------
     #
@@ -680,6 +730,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/bypass":
             self._handle_bypass_post()
+            return
+
+        if self.path == "/accounts":
+            self._handle_accounts_post()
             return
 
         if self.path == "/save-log":

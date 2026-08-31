@@ -290,6 +290,30 @@ bypassButton = true
 # true — заменять; false — модуль не активируется.
 emojiAutoReplace = true
 
+# Кнопка «Accs» в футере, слева от Usage (модуль ACCOUNT SWITCHER
+# BUTTON в claude-custom.js). По клику открывается список аккаунтов
+# ИИ-провайдеров — это settings-файлы в ~/.claude/:
+#   settings.json       Anthropic (базовый)
+#   settings_glm.json   Z.AI
+#   settings_api.json   и любые другие settings_*.json
+# Список собирается сканированием по маске, поэтому добавленный руками
+# файл появляется в панели сам, без правки кода.
+#
+# Выбор пункта подменяет активный ~/.claude/settings.json копией
+# выбранного файла. Оригинал сохраняется в settings.json.bak и
+# восстанавливается при возврате на Anthropic; имя активного аккаунта
+# лежит в ~/.claude/.active-account. Файловую часть делает
+# .claude/hooks/account_switcher.py, webview только ходит в
+# GET/POST localhost:18923/accounts.
+#
+# ВАЖНО: `env` из settings.json читается процессом Claude Code при
+# старте сессии, поэтому переключение НЕ действует на текущее окно —
+# нужен Developer: Reload Window. Панель об этом предупреждает.
+#
+# true — кнопка встраивается в .inputFooter_*; false — модуль не
+# активируется (никаких DOM-вставок и запросов к серверу).
+accountsButton = true
+
 # Вставления выделенного текста как цитаты в чат
 # (модуль QUOTE FROM SELECTION в claude-custom.js).
 # По горячей клавише Ctrl+Shift+Q (Win/Linux) или Cmd+Shift+Q (Mac)

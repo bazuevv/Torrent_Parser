@@ -7280,3 +7280,378 @@
     init();
   }
 })();
+
+/* ============================================================
+ * ACCOUNT SWITCHER BUTTON
+ *
+ * Кнопка «Accs» в футере, слева от Usage. По клику открывается панель
+ * со списком settings-файлов из ~/.claude/ — каждый такой файл это
+ * аккаунт своего провайдера (Anthropic, Z.AI, ...). Выбор пункта
+ * подменяет активный ~/.claude/settings.json копией выбранного.
+ *
+ * Вся работа с файлами — на стороне сервера (account_switcher.py),
+ * здесь только список и клик: webview не имеет доступа к ФС.
+ *
+ * ВАЖНО про перезагрузку. `env` из settings.json процесс Claude Code
+ * читает при старте сессии, поэтому смена провайдера НЕ применяется
+ * к текущему окну — нужен Developer: Reload Window. Панель говорит
+ * об этом прямым текстом и не притворяется, что переключение уже
+ * подействовало: молчаливая подмена под работающей сессией — худший
+ * из вариантов, пользователь считал бы, что говорит с другой моделью.
+ *
+ * Управление: `accountsButton` в claude-custom-config.toml.
+ * ============================================================ */
+(function () {
+  if (window.__claudeAccountsButtonInstalled) return;
+  window.__claudeAccountsButtonInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (cfg.accountsButton !== true) return;
+
+  var API_URL = 'http://localhost:18923/accounts';
+  var BTN_CLASS = 'claude-accs-btn';
+  var BARE_CLASS = 'claude-accs-btn-bare';
+  var PANEL_ID = 'claude-accs-panel';
+  var SCAN_INTERVAL_MS = 3000;
+  var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
+
+  var panel = null;
+  var switching = false;   // защита от двойного клика по пункту
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[accs-btn]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  /* ---------- иконка ---------- */
+
+  /**
+   * Две фигурки — «аккаунты». Разметка повторяет штатные кнопки футера:
+   * `<svg 20×20 fill="none">` + голый `<span>`, размер задаёт класс
+   * footerButton_. Через createElementNS, а не innerHTML: SVG живёт
+   * в своём namespace, а innerHTML упирается в Trusted Types.
+   */
+  function accsIcon() {
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '20');
+    svg.setAttribute('height', '20');
+    svg.setAttribute('viewBox', '0 0 20 20');
+    svg.setAttribute('fill', 'none');
+    function path(d) {
+      var p = document.createElementNS(NS, 'path');
+      p.setAttribute('d', d);
+      p.setAttribute('fill', 'currentColor');
+      svg.appendChild(p);
+    }
+    // Передняя фигура (голова + плечи) и приглушённый силуэт за ней.
+    path('M8 10a2.6 2.6 0 100-5.2A2.6 2.6 0 008 10zm0 1.2c-2.4 0-4.4 1.3-4.4 2.9V16h8.8v-1.9c0-1.6-2-2.9-4.4-2.9z');
+    var back = document.createElementNS(NS, 'path');
+    back.setAttribute('d', 'M13.4 9.4a2.2 2.2 0 100-4.4 2.2 2.2 0 000 4.4zm.4 1.3c-.5 0-1 .06-1.45.17 1.1.72 1.8 1.78 1.8 2.99V16h3.05v-1.7c0-1.45-1.6-2.6-3.4-2.6z');
+    back.setAttribute('fill', 'currentColor');
+    back.setAttribute('opacity', '0.55');
+    svg.appendChild(back);
+    return svg;
+  }
+
+  /* ---------- панель ---------- */
+
+  function closePanel() {
+    if (!panel) return;
+    if (panel.parentNode) panel.parentNode.removeChild(panel);
+    panel = null;
+    document.removeEventListener('mousedown', onOutside, true);
+    document.removeEventListener('keydown', onKeydown, true);
+  }
+
+  function onOutside(e) {
+    if (!panel) return;
+    if (panel.contains(e.target)) return;
+    // Клик по самой кнопке обрабатывает её собственный listener —
+    // иначе панель закрылась бы здесь и тут же открылась заново.
+    if (e.target.closest && e.target.closest('.' + BTN_CLASS)) return;
+    closePanel();
+  }
+
+  function onKeydown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closePanel();
+    }
+  }
+
+  function positionPanel(btn) {
+    if (!panel) return;
+    // Футер прижат к низу окна — раскрываемся вверх от кнопки.
+    var r = btn.getBoundingClientRect();
+    panel.style.bottom = Math.max(8, window.innerHeight - r.top + 6) + 'px';
+    panel.style.left = Math.max(8, r.left) + 'px';
+  }
+
+  function renderError(body, text) {
+    var div = document.createElement('div');
+    div.className = 'claude-accs-empty';
+    div.textContent = text;
+    body.appendChild(div);
+  }
+
+  /** Строка аккаунта: имя + endpoint, активный помечен галкой. */
+  function accountRow(acc, btn, body) {
+    var row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'claude-accs-row'
+      + (acc.isActive ? ' claude-accs-row-active' : '');
+
+    var mark = document.createElement('span');
+    mark.className = 'claude-accs-mark';
+    mark.textContent = acc.isActive ? '✓' : '';
+    row.appendChild(mark);
+
+    var text = document.createElement('span');
+    text.className = 'claude-accs-text';
+
+    var name = document.createElement('span');
+    name.className = 'claude-accs-name';
+    name.textContent = acc.name;
+    text.appendChild(name);
+
+    var sub = document.createElement('span');
+    sub.className = 'claude-accs-sub';
+    // Модель показываем только когда она в файле задана явно: у
+    // Anthropic-настроек её нет, и пустой разделитель выглядел бы
+    // как потерянное значение.
+    sub.textContent = acc.model ? acc.baseUrl + '  ·  ' + acc.model : acc.baseUrl;
+    text.appendChild(sub);
+
+    row.appendChild(text);
+
+    row.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    row.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (acc.isActive || switching) return;
+      switchTo(acc.file, btn, body);
+    });
+    return row;
+  }
+
+  function renderAccounts(body, accounts, btn) {
+    body.textContent = '';
+
+    var head = document.createElement('div');
+    head.className = 'claude-accs-head';
+    head.textContent = 'Аккаунт провайдера';
+    body.appendChild(head);
+
+    if (!accounts || !accounts.length) {
+      renderError(body, 'В ~/.claude/ нет файлов settings*.json');
+      return;
+    }
+    for (var i = 0; i < accounts.length; i++) {
+      body.appendChild(accountRow(accounts[i], btn, body));
+    }
+
+    var foot = document.createElement('div');
+    foot.className = 'claude-accs-foot';
+    foot.textContent = 'Смена применится после Developer: Reload Window';
+    body.appendChild(foot);
+  }
+
+  function switchTo(file, btn, body) {
+    switching = true;
+    fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: file }),
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        switching = false;
+        if (!panel) return;
+        if (d && d.ok) {
+          renderAccounts(body, d.accounts, btn);
+          var note = document.createElement('div');
+          note.className = 'claude-accs-note';
+          note.textContent = d.message;
+          body.appendChild(note);
+          logInfo('переключено на', file);
+        } else {
+          renderError(body, (d && (d.message || d.error)) || 'не удалось переключить');
+        }
+        positionPanel(btn);
+      })
+      .catch(function (err) {
+        switching = false;
+        if (!panel) return;
+        renderError(body, 'http-server.py недоступен (порт 18923)');
+        logInfo('switch failed', err);
+      });
+  }
+
+  function openPanel(btn) {
+    closePanel();
+
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.className = 'claude-accs-panel';
+
+    var body = document.createElement('div');
+    body.className = 'claude-accs-body';
+    body.textContent = 'загрузка…';
+    panel.appendChild(body);
+    document.body.appendChild(panel);
+    positionPanel(btn);
+
+    document.addEventListener('mousedown', onOutside, true);
+    document.addEventListener('keydown', onKeydown, true);
+
+    fetch(API_URL, { cache: 'no-store' })
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        if (!panel) return;
+        body.textContent = '';
+        if (d && d.ok) renderAccounts(body, d.accounts, btn);
+        else renderError(body, (d && d.error) || 'нет данных');
+        // Высота стала известна только сейчас — переставляем, иначе
+        // длинный список уедет за верхний край окна.
+        positionPanel(btn);
+      })
+      .catch(function (err) {
+        if (!panel) return;
+        body.textContent = '';
+        renderError(body, 'http-server.py недоступен (порт 18923)');
+        logInfo('fetch failed', err);
+      });
+  }
+
+  /* ---------- встраивание ---------- */
+
+  /** См. одноимённую функцию в CACHE USAGE BUTTON — логика та же. */
+  function findAnchor(footer) {
+    var buttons = footer.querySelectorAll('button');
+    var match = null;
+    for (var i = 0; i < buttons.length; i++) {
+      if (AUTO_EDIT_RE.test(buttons[i].textContent || '')) {
+        match = buttons[i];
+        break;
+      }
+    }
+    if (match) {
+      var node = match;
+      while (node.parentNode && node.parentNode !== footer) node = node.parentNode;
+      return {
+        before: node.parentNode === footer ? node : null,
+        donor: match,
+      };
+    }
+    return {
+      before: null,
+      donor: footer.querySelector('[class*="footerButton_"]')
+        || footer.querySelector('button'),
+    };
+  }
+
+  function createButton(donor) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    var donorClass = donor && typeof donor.className === 'string'
+      ? donor.className : '';
+    if (donorClass) {
+      btn.className = donorClass + ' ' + BTN_CLASS;
+    } else {
+      btn.className = BTN_CLASS + ' ' + BARE_CLASS;
+    }
+    btn.appendChild(accsIcon());
+    var label = document.createElement('span');
+    label.textContent = 'Accs';
+    btn.appendChild(label);
+    btn.title = 'Аккаунты провайдеров: подменить ~/.claude/settings.json';
+    btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (panel) closePanel();
+      else openPanel(btn);
+    });
+    return btn;
+  }
+
+  function mount(container) {
+    var footer = container.querySelector('[class*="inputFooter_"]');
+    if (!footer) return false;
+    var anchor = findAnchor(footer);
+    var btn = createButton(anchor.donor);
+    // Порядок в футере: Accs · Usage · Cache · ByPass · автоправки.
+    // Опираемся на соседа, а не на порядок инициализации модулей:
+    // React пересоздаёт футер, и кто смонтируется первым — не
+    // гарантировано. Встаём перед самым левым из уже существующих.
+    var neighbour = footer.querySelector('.claude-usage-btn')
+      || footer.querySelector('.claude-cache-btn')
+      || footer.querySelector('.claude-bypass-btn');
+    if (neighbour && neighbour.parentNode === footer) {
+      footer.insertBefore(btn, neighbour);
+    } else if (anchor.before) {
+      footer.insertBefore(btn, anchor.before);
+    } else {
+      var spacer = footer.querySelector('[class*="spacer_"]');
+      if (spacer && spacer.parentNode === footer) {
+        footer.insertBefore(btn, spacer.nextSibling);
+      } else {
+        footer.appendChild(btn);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Держит Accs левее соседей, даже если те смонтировались позже.
+   * Вставка при монтировании этого не гарантирует — см. ensureOrder
+   * в CACHE KEEPALIVE.
+   */
+  function ensureOrder(footer) {
+    var me = footer.querySelector('.' + BTN_CLASS);
+    if (!me || me.parentNode !== footer) return;
+    var right = footer.querySelector('.claude-usage-btn')
+      || footer.querySelector('.claude-cache-btn')
+      || footer.querySelector('.claude-bypass-btn');
+    if (!right || right.parentNode !== footer) return;
+    // DOCUMENT_POSITION_FOLLOWING — сосед идёт ПОСЛЕ нас, всё верно.
+    if (!(me.compareDocumentPosition(right) & 4)) {
+      footer.insertBefore(me, right);
+      logInfo('порядок восстановлен: Accs перед соседями');
+    }
+  }
+
+  function scan() {
+    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+    for (var i = 0; i < containers.length; i++) {
+      var footer = containers[i].querySelector('[class*="inputFooter_"]');
+      if (containers[i].querySelector('.' + BTN_CLASS)) {
+        if (footer) ensureOrder(footer);
+        continue;
+      }
+      if (!containers[i].querySelector('[role="textbox"][contenteditable]')) continue;
+      mount(containers[i]);
+    }
+  }
+
+  function init() {
+    scan();
+    try {
+      new MutationObserver(function () { scan(); }).observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    } catch (e) {}
+    setInterval(scan, SCAN_INTERVAL_MS);
+    logInfo('installed');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
