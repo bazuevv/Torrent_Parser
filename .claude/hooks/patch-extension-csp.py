@@ -150,10 +150,14 @@ try {
     // (ACK_POLL_MS в claude-custom.js) — дадим ей увидеть подтверждение
     // и отрисовать статус до того, как хост умрёт.
     var RESTART_DELAY_MS = 1600;
-    // Пауза перед перезагрузкой вкладок в новом хосте: расширение
-    // должно успеть активироваться и восстановить панели, иначе
-    // перезагружать будет нечего.
+    // Пауза перед оживлением вкладки в новом хосте: расширение должно
+    // успеть активироваться и зарегистрировать сериализатор, иначе
+    // восстанавливать панель будет некому.
     var RELOAD_DELAY_MS = 1500;
+    // Сколько держать соседнюю вкладку показанной. Возврат — это и есть
+    // событие показа, которого ждёт VSCode; слишком быстрый разворот
+    // рискует слиться с уходом в одно изменение состояния.
+    var SWITCH_PAUSE_MS = 350;
     // Заявка старше этого срока — не наша: рестарта не случилось,
     // а вкладки давно живут своей жизнью.
     var RELOAD_TTL_MS = 60000;
@@ -366,6 +370,54 @@ try {
       }
     }
 
+    /** Активная вкладка активной группы, если это панель Claude Code. */
+    function activeClaudeTab() {
+      try {
+        var group = vscode.window.tabGroups && vscode.window.tabGroups.activeTabGroup;
+        var tab = group && group.activeTab;
+        var viewType = tab && tab.input && tab.input.viewType;
+        if (typeof viewType === "string" && viewType.indexOf("claude") !== -1) {
+          return tab;
+        }
+        log("активная вкладка не панель Claude Code (viewType=" + viewType + ")");
+      } catch (e) {
+        log("активную вкладку определить не удалось: " + e);
+      }
+      return null;
+    }
+
+    /** Оживление активной вкладки после рестарта хоста.
+     *
+     * Панель, созданная умершим хостом, остаётся в окне без владельца.
+     * VSCode просит расширение восстановить её (deserializeWebviewPanel)
+     * в момент, когда она СТАНОВИТСЯ видимой — скрытые вкладки поэтому
+     * оживают сами при первом показе. Активная уже видима, показа для
+     * неё не случится, и она остаётся мёртвой: заголовок есть, внутри
+     * пусто.
+     *
+     * Перезагрузка webview («Developer: Reload Webviews») тут не
+     * помогает, а вредит: она обнуляет содержимое панели, отвечать на
+     * запрос контента некому, и вкладка становится пустой немедленно.
+     * Поэтому устраиваем показ руками — уходим на соседнюю вкладку и
+     * возвращаемся; возврат и есть то событие, которого ждёт VSCode.
+     */
+    function reviveActiveTab() {
+      if (!activeClaudeTab()) return;
+      log("оживляю активную вкладку переключением редакторов");
+      Promise.resolve(
+        vscode.commands.executeCommand("workbench.action.previousEditorInGroup")
+      ).then(function () {
+        return new Promise(function (done) { setTimeout(done, SWITCH_PAUSE_MS); });
+      }).then(function () {
+        return vscode.commands.executeCommand("workbench.action.nextEditorInGroup");
+      }).then(function () {
+        log("переключение выполнено");
+        setTimeout(function () { snapshotTabs("через 3 с после оживления"); }, 3000);
+      }, function (err) {
+        log("переключение редакторов отказало: " + err);
+      });
+    }
+
     /** Исполнение заявки, оставленной прошлой жизнью хоста.
      *
      * Файл намеренно НЕ удаляется: окна с тем же воркспейсом
@@ -395,25 +447,8 @@ try {
           try { fs.unlinkSync(file); } catch (e) {}
           continue;
         }
-        log("заявка на перезагрузку вкладок свежая (" + age
-          + " мс), жду " + RELOAD_DELAY_MS + " мс");
-        snapshotTabs("до перезагрузки вкладок");
-        setTimeout(function () {
-          // «Developer: Reload Webviews»: контент всех webview окна
-          // грузится заново. Точечно только вкладки Claude Code
-          // нельзя — API расширения не перебирает чужие панели.
-          log("вызываю reloadWebviewAction");
-          Promise.resolve(
-            vscode.commands.executeCommand(
-              "workbench.action.webview.reloadWebviewAction")
-          ).then(function () {
-            log("reloadWebviewAction выполнена");
-            snapshotTabs("сразу после перезагрузки");
-            setTimeout(function () { snapshotTabs("через 3 с после перезагрузки"); }, 3000);
-          }, function (err) {
-            log("reloadWebviewAction отказала: " + err);
-          });
-        }, RELOAD_DELAY_MS);
+        log("заявка свежая (" + age + " мс), жду " + RELOAD_DELAY_MS + " мс");
+        setTimeout(reviveActiveTab, RELOAD_DELAY_MS);
         return;
       }
     }
