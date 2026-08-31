@@ -74,7 +74,7 @@ MAX_TRACKED_GAPS = 500
 # набора полей: старое состояние тогда отбрасывается и транскрипт
 # перечитывается целиком. Без этого добавленное поле молча остаётся
 # пустым на всех сессиях, у которых состояние уже накоплено.
-STATE_VERSION = 3
+STATE_VERSION = 4
 
 
 def rate_for(model: str):
@@ -110,6 +110,7 @@ def blank_state() -> dict:
         "rewritten": 0,  # токены, переписанные после промахов
         "miss_log": [],  # хвост последних промахов для панели
         "miss_gaps": [],  # паузы перед промахами, мин (для доли ранних)
+        "context_peak": 0,  # самый большой контекст хода за сессию
         "model": "",
         "started": "",
         "prev": None,  # {"ts": iso, "rd": int, "wr": int, "sig": [...]}
@@ -215,6 +216,11 @@ def consume(state: dict, path: str) -> None:
 
         if not state["started"] and ts_raw:
             state["started"] = ts_raw
+        # Контекст хода — то, что модель прочитала плюс дописала.
+        # Держим максимум за сессию: «сколько сейчас» видно из last,
+        # а вот докуда окно вообще раскрывалось, по последнему ходу
+        # уже не восстановить — компактификация обнуляет контекст.
+        state["context_peak"] = max(state["context_peak"], rd + wr)
         state["requests"] += 1
         state["read"] += rd
         state["write"] += wr
@@ -323,6 +329,7 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
         "started": state["started"],
         "requests": state["requests"],
         "context": last["read"] + last["write"],
+        "context_peak": state["context_peak"],
         "last": last,
         # Промахи, которых не должно было быть: кэш ещё жил, но ход
         # его не застал. Отдаём и знаменатель — по ним индикатор Mood
@@ -366,6 +373,7 @@ def format_report(st: dict) -> str:
     lines = [
         f"сессия {st['session']}  ·  модель {st['model'] or 'н/д'}",
         f"контекст сейчас : {human(st['context'])}",
+        f"пик за сессию   : {human(st['context_peak'])}",
         f"последний ход   : чтение {human(last['read'])} / "
         f"запись {human(last['write'])} · {last['verdict']}{gap}",
         "",
