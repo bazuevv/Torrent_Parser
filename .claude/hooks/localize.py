@@ -55,6 +55,11 @@ import sys
 import time
 import tomllib
 
+# ext_patch лежит рядом; при запуске скриптом sys.path[0] — эта папка,
+# но вставляем явно, чтобы импорт не зависел от способа запуска.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ext_patch  # noqa: E402
+
 HOME = os.path.expanduser("~")
 EXT_GLOB = os.path.join(HOME, ".vscode/extensions/anthropic.claude-code-*-linux-x64")
 
@@ -375,8 +380,7 @@ def _ensure_original_backup(pkg_path: str, translations: dict) -> str | None:
         if cur_ver and orig_ver and cur_ver != orig_ver:
             if _is_original(cur_content, translations):
                 try:
-                    with open(original_path, "w", encoding="utf-8") as f:
-                        f.write(cur_content)
+                    ext_patch.atomic_write(original_path, cur_content)
                 except OSError:
                     pass
             else:
@@ -390,8 +394,7 @@ def _ensure_original_backup(pkg_path: str, translations: dict) -> str | None:
 
     if _is_original(cur_content, translations):
         try:
-            with open(original_path, "w", encoding="utf-8") as f:
-                f.write(cur_content)
+            ext_patch.atomic_write(original_path, cur_content)
         except OSError:
             return None
         return original_path
@@ -399,8 +402,7 @@ def _ensure_original_backup(pkg_path: str, translations: dict) -> str | None:
     restored = _restore_to_english(cur_content, translations)
     if _is_original(restored, translations):
         try:
-            with open(original_path, "w", encoding="utf-8") as f:
-                f.write(restored)
+            ext_patch.atomic_write(original_path, restored)
         except OSError:
             return None
         return original_path
@@ -419,8 +421,7 @@ def _restore_from_backup(pkg_path: str, original_path: str) -> bool:
     try:
         with open(original_path, "r", encoding="utf-8") as src:
             content = src.read()
-        with open(pkg_path, "w", encoding="utf-8") as dst:
-            dst.write(content)
+        ext_patch.atomic_write(pkg_path, content)
     except OSError:
         return False
     return True
@@ -463,8 +464,7 @@ def _apply_package_json(ext_dir: str, translations: dict) -> bool:
 
     if changed:
         try:
-            with open(pkg_path, "w", encoding="utf-8") as f:
-                f.write(content)
+            ext_patch.atomic_write(pkg_path, content)
         except OSError:
             return False
     return changed
@@ -519,8 +519,7 @@ def _inject_webview_localizer(webview_dir: str, bootstrap: str) -> bool:
     if new_content == content:
         return False
     try:
-        with open(index_js, "w", encoding="utf-8") as f:
-            f.write(new_content)
+        ext_patch.atomic_write(index_js, new_content)
     except OSError:
         return False
     return True
@@ -543,8 +542,7 @@ def _remove_webview_localizer(webview_dir: str) -> bool:
     if new_content == content:
         return False
     try:
-        with open(index_js, "w", encoding="utf-8") as f:
-            f.write(new_content)
+        ext_patch.atomic_write(index_js, new_content)
     except OSError:
         return False
     return True

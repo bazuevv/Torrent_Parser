@@ -32,6 +32,11 @@ import time
 import tomllib
 import urllib.request
 
+# ext_patch лежит рядом; при запуске скриптом sys.path[0] — эта папка,
+# но вставляем явно, чтобы импорт не зависел от способа запуска.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ext_patch  # noqa: E402
+
 HOME = os.path.expanduser("~")
 EXT_GLOB = os.path.join(HOME, ".vscode/extensions/anthropic.claude-code-*-linux-x64")
 
@@ -297,8 +302,9 @@ def _write_if_changed(path: str, new_content: str) -> bool:
     except OSError:
         pass
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(new_content)
+        # Только атомарно: файл правят несколько процессов сразу,
+        # см. ext_patch.py.
+        ext_patch.atomic_write(path, new_content)
         return True
     except OSError:
         return False

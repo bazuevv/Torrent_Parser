@@ -45,6 +45,11 @@ import sys
 import time
 import tomllib
 
+# ext_patch лежит рядом; при запуске скриптом sys.path[0] — эта папка,
+# но вставляем явно, чтобы импорт не зависел от способа запуска.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ext_patch  # noqa: E402
+
 HOME = os.path.expanduser("~")
 EXT_GLOB = os.path.join(HOME, ".vscode/extensions/anthropic.claude-code-*-linux-x64")
 
@@ -198,8 +203,9 @@ def _patch_manifest(pkg_path: str, desired: dict) -> str:
     if raw.endswith("\n"):
         text += "\n"
     try:
-        with open(pkg_path, "w", encoding="utf-8") as f:
-            f.write(text)
+        # Манифест параллельно правит ещё и localize.py — писать можно
+        # только атомарно, см. ext_patch.py.
+        ext_patch.atomic_write(pkg_path, text)
     except OSError:
         return "write_failed"
     return "patched"
