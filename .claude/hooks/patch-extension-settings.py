@@ -337,18 +337,26 @@ def main() -> int:
     marker = _load_marker()
     marker_changed = False
 
-    for ext_dir in glob.glob(EXT_GLOB):
+    # Правка манифеста — под общим локом: тот же файл параллельно правит
+    # localize.py. Лок держим только на время работы с файлами, а разбор
+    # результатов и предупреждения считаем уже без него (см. ext_patch).
+    patched: list[tuple[str, str]] = []
+    with ext_patch.patch_lock():
+        for ext_dir in glob.glob(EXT_GLOB):
+            pkg_path = os.path.join(ext_dir, "package.json")
+            status = _patch_manifest(pkg_path, desired)
+            # Тот же пункт — в бэкап, из которого localize.py восстанавливает
+            # манифест. Без этого всё держалось бы на порядке хуков, а harness
+            # запускает хуки одного события параллельно: localize.py успевает
+            # откатить package.json уже ПОСЛЕ того, как мы его пропатчили,
+            # и пункт пропадает (ровно это и произошло 2026-08-12).
+            # В бэкапе — английский оригинал: localize.py переведёт его сам
+            # по словарю, как и остальные строки настроек.
+            _patch_manifest(pkg_path + ".original", desired_en)
+            patched.append((ext_dir, status))
+
+    for ext_dir, status in patched:
         name = os.path.basename(ext_dir)
-        pkg_path = os.path.join(ext_dir, "package.json")
-        status = _patch_manifest(pkg_path, desired)
-        # Тот же пункт — в бэкап, из которого localize.py восстанавливает
-        # манифест. Без этого всё держалось бы на порядке хуков, а harness
-        # запускает хуки одного события параллельно: localize.py успевает
-        # откатить package.json уже ПОСЛЕ того, как мы его пропатчили,
-        # и пункт пропадает (ровно это и произошло 2026-08-12).
-        # В бэкапе — английский оригинал: localize.py переведёт его сам
-        # по словарю, как и остальные строки настроек.
-        _patch_manifest(pkg_path + ".original", desired_en)
         if status in ("patched", "already"):
             seen = marker.get(name)
             version = _read_ext_version(ext_dir)

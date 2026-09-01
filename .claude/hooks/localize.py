@@ -997,19 +997,24 @@ def main() -> int:
         _build_localizer_bootstrap(locale, translations) if translations else ""
     )
 
-    for ext_dir in glob.glob(EXT_GLOB):
-        if translations:
-            _apply_package_json(ext_dir, translations)
-        else:
-            _restore_package_json_to_original(ext_dir)
+    # Лок на всё время правки: index.js и package.json этот хук делит
+    # с patch-claude-webview.py и patch-extension-settings.py, а harness
+    # запускает хуки одного события параллельно. Атомарная запись спасает
+    # файл от смеси версий, лок — от потери чужого блока (см. ext_patch).
+    with ext_patch.patch_lock():
+        for ext_dir in glob.glob(EXT_GLOB):
+            if translations:
+                _apply_package_json(ext_dir, translations)
+            else:
+                _restore_package_json_to_original(ext_dir)
 
-        webview_dir = os.path.join(ext_dir, "webview")
-        if not os.path.isdir(webview_dir):
-            continue
-        if bootstrap:
-            _inject_webview_localizer(webview_dir, bootstrap)
-        else:
-            _remove_webview_localizer(webview_dir)
+            webview_dir = os.path.join(ext_dir, "webview")
+            if not os.path.isdir(webview_dir):
+                continue
+            if bootstrap:
+                _inject_webview_localizer(webview_dir, bootstrap)
+            else:
+                _remove_webview_localizer(webview_dir)
 
     # Drift-анализатор: читает pending-snapshot меню /, классифицирует
     # пары, СОХРАНЯЕТ ОТЧЁТ в locales-drift-report.json (атомарно), затем

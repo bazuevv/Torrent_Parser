@@ -36,9 +36,28 @@ END»). Синтаксическая ошибка в любом месте уб�
 другого проекта.
 """
 
+import contextlib
+import errno
+import fcntl
 import os
 import shutil
 import tempfile
+import time
+
+# Лок общий для ВСЕЙ машины, а не для проекта. Файлы расширения одни на
+# все окна и все проекты: вчерашняя починка пришла ровно оттуда — хуки
+# соседнего проекта переписали index.js. Проектный лок такого писателя
+# не остановил бы, поэтому файл лежит в пользовательском кэше, а не
+# в .claude/hooks-runtime.
+LOCK_PATH = os.path.join(
+    os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
+    "claude-code-ext-patch.lock",
+)
+
+# Сколько ждём чужую правку. Одна правка — это чтение и запись
+# пятимегабайтного файла, то есть доли секунды; двадцати секунд хватает
+# и на восемь одновременных писателей с запасом.
+LOCK_TIMEOUT_SEC = 20.0
 
 
 def atomic_write(path: str, content: str) -> None:
@@ -69,3 +88,54 @@ def atomic_write(path: str, content: str) -> None:
         except OSError:
             pass
         raise
+
+
+@contextlib.contextmanager
+def patch_lock(timeout: float = LOCK_TIMEOUT_SEC):
+    """Сериализует правку файлов расширения между процессами.
+
+    `atomic_write` защищает от смеси двух версий в одном файле, но не
+    от потери правки: два процесса читают файл ДО чужой записи и каждый
+    строит новое содержимое из устаревшего снимка — чей-то блок молча
+    исчезает, а вернётся он только следующим запуском хука. Поэтому под
+    локом должен идти весь цикл «прочитал → изменил → записал», а не
+    одна запись.
+
+    Отдаёт True, если лок взят. Не дождавшись за `timeout`, работаем
+    БЕЗ лока и говорим об этом вызывающему: заблокировать сообщение
+    пользователя из-за застрявшего соседа хуже, чем разово потерять
+    чужой блок, — целостность файла в этом случае всё равно защищена
+    атомарной записью.
+    """
+    handle = None
+    try:
+        os.makedirs(os.path.dirname(LOCK_PATH), exist_ok=True)
+        handle = open(LOCK_PATH, "a+")
+    except OSError:
+        # Нет кэш-каталога или прав — патчим без сериализации.
+        yield False
+        return
+
+    acquired = False
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+            break
+        except OSError as exc:
+            if exc.errno not in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
+                break
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+
+    try:
+        yield acquired
+    finally:
+        try:
+            if acquired:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+            handle.close()
+        except OSError:
+            pass

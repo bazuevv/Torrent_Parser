@@ -791,31 +791,40 @@ def main() -> int:
     bootstrap = _build_bootstrap(js_canonical, config)
 
 
-    for ext_dir in glob.glob(EXT_GLOB):
-        webview_dir = os.path.join(ext_dir, "webview")
-        if not os.path.isdir(webview_dir):
-            continue
+    # Под локом идёт весь цикл «прочитал index.js → вставил блок →
+    # записал»: одной атомарной записи мало, два процесса читают файл до
+    # чужой записи и второй затирает первого своим устаревшим снимком.
+    # Лок общий на машину — index.js один на все окна и все проекты.
+    # Сервер и его ожидания сюда не входят: держать лок на время
+    # сетевых таймаутов значило бы блокировать чужие хуки впустую.
+    with ext_patch.patch_lock() as locked:
+        if not locked:
+            _hlog("правка файлов расширения идёт без лока: не дождались соседа")
+        for ext_dir in glob.glob(EXT_GLOB):
+            webview_dir = os.path.join(ext_dir, "webview")
+            if not os.path.isdir(webview_dir):
+                continue
 
-        # 1. webview/claude-custom.css — симлинк на канонический CSS.
-        #    Тогда любой fetch JS-наблюдателем читает актуальный файл
-        #    напрямую (без задержки до следующего UserPromptSubmit).
-        if os.path.isfile(CANONICAL_CSS):
-            _make_symlink(
-                CANONICAL_CSS, os.path.join(webview_dir, CUSTOM_CSS_NAME)
-            )
+            # 1. webview/claude-custom.css — симлинк на канонический CSS.
+            #    Тогда любой fetch JS-наблюдателем читает актуальный файл
+            #    напрямую (без задержки до следующего UserPromptSubmit).
+            if os.path.isfile(CANONICAL_CSS):
+                _make_symlink(
+                    CANONICAL_CSS, os.path.join(webview_dir, CUSTOM_CSS_NAME)
+                )
 
-        # 2. Вставляем/обновляем bootstrap-блок в index.js
-        index_js = os.path.join(webview_dir, "index.js")
-        if os.path.isfile(index_js):
-            _upsert_marker_block(index_js, bootstrap)
+            # 2. Вставляем/обновляем bootstrap-блок в index.js
+            index_js = os.path.join(webview_dir, "index.js")
+            if os.path.isfile(index_js):
+                _upsert_marker_block(index_js, bootstrap)
 
-        # 3. Удаляем устаревший claude-connectivity.css (пинг теперь через JS)
-        stale_conn = os.path.join(webview_dir, "claude-connectivity.css")
-        if os.path.isfile(stale_conn):
-            try:
-                os.remove(stale_conn)
-            except OSError:
-                pass
+            # 3. Удаляем устаревший claude-connectivity.css (пинг теперь через JS)
+            stale_conn = os.path.join(webview_dir, "claude-connectivity.css")
+            if os.path.isfile(stale_conn):
+                try:
+                    os.remove(stale_conn)
+                except OSError:
+                    pass
 
     # 4. HTTP-сервер: поднимаем на SessionStart и UserPromptSubmit,
     #    гасим на SessionEnd. _ensure_http_server сам решает, нужен ли

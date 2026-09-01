@@ -347,8 +347,13 @@ def _emit_context(lines: list[str]) -> None:
 
 def main() -> int:
     messages: list[str] = []
-    for ext_dir in glob.glob(EXT_GLOB):
-        status, restart_status = _patch_ext_dir(ext_dir)
+    # extension.js этот хук правит дважды (CSP и блок перезапуска), и он же
+    # мегабайтный бандл. Лок общий с остальными патчерами — файлы
+    # расширения одни на все окна и проекты (см. ext_patch).
+    with ext_patch.patch_lock():
+        patched = [(d, _patch_ext_dir(d)) for d in glob.glob(EXT_GLOB)]
+
+    for ext_dir, (status, restart_status) in patched:
         name = os.path.basename(ext_dir)
 
         if restart_status == "patched":
