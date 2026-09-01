@@ -43,6 +43,7 @@ import time
 import uuid
 import threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.parse import unquote
 
 # Разбор транскрипта — единственная тяжёлая операция сервера (первый
 # проход по файлу в десятки мегабайт занимает около секунды). Лочим её,
@@ -419,6 +420,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_accounts_get()
             return
 
+        if self.path.split("?", 1)[0] == "/account-env":
+            self._handle_account_env_get()
+            return
+
         if self.path.split("?", 1)[0] == "/restart-exthost":
             self._handle_restart_exthost_get()
             return
@@ -508,6 +513,83 @@ class Handler(BaseHTTPRequestHandler):
             "accounts": account_switcher.list_accounts(),
         })
 
+    # --- правка настроек аккаунта ----------------------------------------
+    #
+    # Панель Accs умеет не только выбирать аккаунт, но и править его
+    # файл — по шестерёнке в строке. Разделов два: `env` (провайдер) и
+    # скалярные настройки верхнего уровня (`model`, `language`, …), без
+    # которых у аккаунта Anthropic редактор был бы пуст.
+    #
+    # Значения ходят как есть, включая токены: сервер слушает только
+    # localhost, а webview, который их запрашивает, живёт на той же
+    # машине. В журнал они не попадают — там только имена.
+    #
+    # Имя endpoint'а осталось прежним (`/account-env`), хотя разделов
+    # теперь два: его знает webview, загруженный до этой правки, а
+    # bootstrap перечитывается только при Reload Window. Переименование
+    # оставило бы такие окна с мёртвой шестерёнкой.
+
+    def _handle_account_env_get(self) -> None:
+        filename = ""
+        if "?" in self.path:
+            for part in self.path.split("?", 1)[1].split("&"):
+                if part.startswith("file="):
+                    filename = unquote(part[len("file="):])
+        try:
+            ok, message, config = account_switcher.read_account_config(filename)
+        except Exception as exc:  # noqa: BLE001 — endpoint не роняет сервер
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+        if not ok:
+            self._json_response(400, {"ok": False, "error": message})
+            return
+        # `env` отдаётся тем же ключом, что и раньше: старый webview
+        # читает только его и продолжает работать.
+        self._json_response(200, {
+            "ok": True,
+            "file": filename,
+            "env": config["env"],
+            "settings": config["settings"],
+            "hints": account_switcher.hints(),
+        })
+
+    def _handle_account_env_post(self) -> None:
+        body = self._read_body()
+        if body is None:
+            return
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except Exception:
+            self._json_response(400, {"ok": False, "error": "тело не JSON"})
+            return
+        if not isinstance(payload, dict):
+            self._json_response(400, {"ok": False, "error": "ожидался объект"})
+            return
+
+        filename = str(payload.get("file") or "")
+        # Отсутствующий раздел — это «не трогать», а не «очистить»:
+        # старый webview шлёт одно `env`, и его правка не должна
+        # стирать настройки верхнего уровня.
+        env = payload.get("env")
+        settings = payload.get("settings")
+        try:
+            ok, message = account_switcher.write_account_config(
+                filename, env, settings)
+        except Exception as exc:  # noqa: BLE001
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+
+        names = ", ".join(sorted(
+            list(env if isinstance(env, dict) else [])
+            + list(settings if isinstance(settings, dict) else [])
+        )) or "—"
+        _log(f"правка настроек {filename!r}: {message} [{names}]")
+        self._json_response(200 if ok else 400, {
+            "ok": ok,
+            "message": message,
+            "accounts": account_switcher.list_accounts(),
+        })
+
     # --- перезапуск extension host ---------------------------------------
     #
     # Транспорт для модального окна, которое панель Accs показывает после
@@ -534,12 +616,34 @@ class Handler(BaseHTTPRequestHandler):
         return token if isinstance(token, str) else ""
 
     def _handle_restart_exthost_post(self) -> None:
-        """Кладёт заявку на перезапуск extension host."""
+        """Кладёт заявку на перезапуск extension host.
+
+        Тело запроса может содержать `sessionId` — идентификатор
+        диалога, из которого нажали «Перезапустить». Он нужен, чтобы
+        после рестарта открыть заново ИМЕННО эту сессию: панель,
+        созданную умершим хостом, оживить нельзя, а новый хост о ней
+        уже ничего не знает. Своё имя знает только сам webview
+        (`window.__claudeSessionId`), поэтому он его и передаёт.
+        """
         if not LOGS_DIR:
             self._json_response(500, {
                 "ok": False, "error": "CLAUDE_PROJECT_DIR не задан",
             })
             return
+
+        session_id = ""
+        body = self._read_body()
+        if body:
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                if isinstance(payload, dict):
+                    value = payload.get("sessionId")
+                    if isinstance(value, str):
+                        session_id = value
+            except Exception:
+                # Тело необязательное: без sessionId заявка остаётся
+                # рабочей, просто вкладку переоткрыть будет нечем.
+                pass
 
         token = uuid.uuid4().hex
         try:
@@ -549,13 +653,15 @@ class Handler(BaseHTTPRequestHandler):
             tmp = RESTART_REQUEST_FILE + ".tmp"
             with open(tmp, "w", encoding="utf-8") as fh:
                 json.dump({"token": token, "ts": time.time(),
-                           "project": PROJECT_DIR}, fh)
+                           "project": PROJECT_DIR,
+                           "sessionId": session_id}, fh)
             os.replace(tmp, RESTART_REQUEST_FILE)
         except OSError as exc:
             self._json_response(500, {"ok": False, "error": str(exc)})
             return
 
-        _log(f"заявка на перезапуск extension host: token={token}")
+        _log(f"заявка на перезапуск extension host: token={token} "
+             f"session={session_id or '—'}")
         self._json_response(200, {"ok": True, "token": token})
 
     def _handle_restart_exthost_get(self) -> None:
@@ -841,6 +947,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/accounts":
             self._handle_accounts_post()
+            return
+
+        if self.path == "/account-env":
+            self._handle_account_env_post()
             return
 
         if self.path == "/restart-exthost":

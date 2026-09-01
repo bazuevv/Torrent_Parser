@@ -9,11 +9,14 @@ CSP.
 
 1. CSP — добавляет connect-src в CSP-meta тег (см. ниже).
 2. Перезапуск extension host — дописывает в конец файла блок, который
-   следит за заявкой от панели Accs и вызывает
-   `workbench.action.restartExtensionHost`. Нужен потому, что смена
+   следит за заявкой от панели Accs, вызывает
+   `workbench.action.restartExtensionHost`, а после рестарта открывает
+   заново вкладку, из которой заявку прислали. Нужен потому, что смена
    аккаунта провайдера подменяет ~/.claude/settings.json, а `env` оттуда
    читает CLI-процесс при старте — и стартует он один раз на активацию
-   хоста. Подробности — в комментарии к RESTART_BLOCK.
+   хоста. Переоткрытие вкладки нужно потому, что панель, созданную
+   умершим хостом, VSCode уже не оживляет: рестарт сам по себе обновляет
+   только tree view. Подробности — в комментарии к RESTART_BLOCK.
 
 Патч 1: добавляет connect-src в CSP-meta тег extension.js Claude Code,
 чтобы webview JS (наш claude-custom.js) мог делать fetch на:
@@ -115,6 +118,17 @@ RESTART_BLOCK = RESTART_BEGIN + """
 // один раз на активацию extension host. Значит применить смену без
 // полной перезагрузки окна можно только перезапуском хоста.
 //
+// Рестарт хоста обновляет только tree view (сессии слева, агенты
+// справа): контент webview-вкладок — диалогов Claude Code — это iframe
+// в окне VSCode, он переживает смерть extension host и остаётся со
+// старым JS, но уже без владельца. Поэтому активную вкладку после
+// рестарта закрываем и открываем заново по sessionId (подробности —
+// у reviveActiveTab).
+//
+// Делает это уже НОВАЯ жизнь хоста: код блока живёт в умирающем
+// процессе и «после рестарта» исполнить ничего не может. Отсюда файл
+// RELOAD — поручение, которое текущий процесс оставляет преемнику.
+//
 // Webview командой VSCode не располагает, поэтому связь через файл:
 // http-server.py кладёт <workspace>/.claude/hooks-runtime/
 // restart-exthost-request.json, а этот блок его читает.
@@ -129,16 +143,34 @@ try {
     var path = require("path");
     var REQ = "restart-exthost-request.json";
     var ACK = "restart-exthost-ack.json";
+    var RELOAD = "restart-exthost-reload.json";
+    var RESTART_CMD = "workbench.action.restartExtensionHost";
+    var OPEN_CMD = "claude-vscode.editor.open";
     var POLL_MS = 1000;
+    // Пауза перед рестартом: панель Accs опрашивает ack каждые 400 мс
+    // (ACK_POLL_MS в claude-custom.js) — дадим ей увидеть подтверждение
+    // и отрисовать статус до того, как хост умрёт.
+    var RESTART_DELAY_MS = 1600;
+    // Пауза перед оживлением вкладки в новом хосте: расширение должно
+    // успеть активироваться и зарегистрировать сериализатор, иначе
+    // восстанавливать панель будет некому.
+    var RELOAD_DELAY_MS = 1500;
+    // Заявка старше этого срока — не наша: рестарта не случилось,
+    // а вкладки давно живут своей жизнью.
+    var RELOAD_TTL_MS = 60000;
 
-    function tokenOf(file) {
+    function readJson(file) {
       try {
-        var d = JSON.parse(fs.readFileSync(file, "utf8"));
-        return d && typeof d.token === "string" ? d.token : "";
+        return JSON.parse(fs.readFileSync(file, "utf8"));
       } catch (e) {
         // Файла нет, или его перезаписывают прямо сейчас — штатно.
-        return "";
+        return null;
       }
+    }
+
+    function tokenOf(file) {
+      var d = readJson(file);
+      return d && typeof d.token === "string" ? d.token : "";
     }
 
     function runtimeDirs() {
@@ -150,6 +182,87 @@ try {
         } catch (e) {}
       }
       return out;
+    }
+
+    // --- журнал -------------------------------------------------------
+    //
+    // Пишем в файл, а не в console: вывод extension host уходит в
+    // логи VSCode, где его не разобрать, а этот файл лежит рядом
+    // с заявками и читается одной командой. Смотреть:
+    // `tail -50 .claude/hooks-runtime/exthost-restart.log`.
+    var LOG_FILE_NAME = "exthost-restart.log";
+    var LOG_MAX_BYTES = 262144;
+
+    function logPath() {
+      var dirs = runtimeDirs();
+      return dirs.length ? path.join(dirs[0], LOG_FILE_NAME) : "";
+    }
+
+    function log(msg) {
+      var f = logPath();
+      if (!f) return;
+      try {
+        fs.appendFileSync(
+          f,
+          new Date().toISOString() + " [pid:" + process.pid + "] " + msg + "\\n");
+      } catch (e) {}
+    }
+
+    function rotateLog() {
+      var f = logPath();
+      if (!f) return;
+      try {
+        if (fs.statSync(f).size > LOG_MAX_BYTES) fs.writeFileSync(f, "");
+      } catch (e) {}
+    }
+
+    /** Перехват webview-API расширения — только для журнала.
+     *
+     * Наш блок исполняется при загрузке модуля, то есть ДО вызова
+     * activate(), поэтому подмена методов `vscode.window` успевает
+     * встать раньше, чем расширение ими воспользуется. Так видно,
+     * восстанавливает ли оно панели после рестарта хоста
+     * (deserializeWebviewPanel) или создаёт их заново.
+     */
+    function instrumentWebviewApi() {
+      try {
+        var origCreate = vscode.window.createWebviewPanel;
+        if (typeof origCreate === "function" && !origCreate.__claudeWrapped) {
+          var wrappedCreate = function (viewType, title, showOptions, options) {
+            log("createWebviewPanel viewType=" + viewType
+              + " title=" + JSON.stringify(String(title))
+              + " retainContextWhenHidden="
+              + !!(options && options.retainContextWhenHidden));
+            return origCreate.apply(vscode.window, arguments);
+          };
+          wrappedCreate.__claudeWrapped = true;
+          vscode.window.createWebviewPanel = wrappedCreate;
+        }
+      } catch (e) {
+        log("не удалось обернуть createWebviewPanel: " + e);
+      }
+
+      try {
+        var origReg = vscode.window.registerWebviewPanelSerializer;
+        if (typeof origReg === "function" && !origReg.__claudeWrapped) {
+          var wrappedReg = function (viewType, serializer) {
+            log("registerWebviewPanelSerializer viewType=" + viewType);
+            var proxy = {
+              deserializeWebviewPanel: function (panel, state) {
+                log("deserializeWebviewPanel viewType=" + viewType
+                  + " title=" + JSON.stringify(String(panel && panel.title))
+                  + " state=" + (state ? "есть" : "нет"));
+                return serializer.deserializeWebviewPanel(panel, state);
+              },
+            };
+            return origReg.call(vscode.window, viewType, proxy);
+          };
+          wrappedReg.__claudeWrapped = true;
+          vscode.window.registerWebviewPanelSerializer = wrappedReg;
+        }
+      } catch (e) {
+        log("не удалось обернуть registerWebviewPanelSerializer: " + e);
+      }
     }
 
     // dir -> токен, известный на момент последней проверки. Базовый
@@ -171,28 +284,199 @@ try {
         // неё записать уже не успеем. Если команда не найдётся —
         // подтверждение снимаем, чтобы панель не считала заявку принятой.
         var ackFile = path.join(dir, ACK);
+        log("новая заявка token=" + tok + " dir=" + dir);
         try {
           fs.writeFileSync(ackFile, JSON.stringify({
             token: tok, pid: process.pid, ts: Date.now(),
           }));
-        } catch (e) {}
-
-        try {
-          Promise.resolve(
-            vscode.commands.executeCommand("workbench.action.restartExtensionHost")
-          ).then(undefined, function () {
-            // Команды нет (сборка VSCode другая) — перезагружаем окно
-            // целиком. Дороже, но смена аккаунта всё-таки применится.
-            try { fs.unlinkSync(ackFile); } catch (e2) {}
-            try { vscode.commands.executeCommand("workbench.action.reloadWindow"); } catch (e2) {}
-          });
         } catch (e) {
-          try { fs.unlinkSync(ackFile); } catch (e2) {}
+          log("ack записать не удалось: " + e);
         }
+
+        var reloadFile = path.join(dir, RELOAD);
+        // Кого переоткрывать после рестарта. sessionId кладёт в заявку
+        // сам webview — только он знает своё имя. Заголовок запоминаем
+        // здесь: после рестарта по нему проверим, что активна всё та же
+        // вкладка, а не другая, на которую успели переключиться.
+        var req = readJson(path.join(dir, REQ)) || {};
+        var target = activeClaudeTab();
+        var handoff = {
+          ts: Date.now(),
+          sessionId: typeof req.sessionId === "string" ? req.sessionId : "",
+          label: target ? String(target.label) : "",
+        };
+        log("после рестарта переоткрою session=" + (handoff.sessionId || "—")
+          + " вкладка=" + JSON.stringify(handoff.label));
+
+        // Запасной путь, когда команды рестарта в сборке нет: окно
+        // целиком. Дороже, но смена аккаунта применится, и вкладки
+        // перезагрузятся заодно — заявка тут лишняя.
+        var fallbackReload = function () {
+          try { fs.unlinkSync(reloadFile); } catch (e2) {}
+          try { fs.unlinkSync(ackFile); } catch (e2) {}
+          try { vscode.commands.executeCommand("workbench.action.reloadWindow"); } catch (e2) {}
+        };
+
+        setTimeout(function () {
+          // Наличие команды выясняем СПИСКОМ, а не по отклонению её
+          // промиса. При удачном рестарте хост умирает, все pending-RPC
+          // отклоняются как «Canceled», и обработчик ошибки успевает
+          // отработать перед смертью процесса — отличить это от
+          // настоящего «команды нет» невозможно. Прежняя версия там и
+          // стирала заявку на перезагрузку вкладок: рестарт проходил,
+          // а новый хост не находил поручения.
+          Promise.resolve(vscode.commands.getCommands(true)).then(function (all) {
+            if (!all || all.indexOf(RESTART_CMD) === -1) {
+              log("команды " + RESTART_CMD + " нет — перезагружаю окно");
+              fallbackReload();
+              return;
+            }
+            // Заявку оставляем ДО команды: после неё этот процесс уже
+            // не исполнит ничего.
+            try {
+              fs.writeFileSync(reloadFile, JSON.stringify(handoff));
+              log("заявка на переоткрытие оставлена: " + reloadFile);
+            } catch (e2) {
+              log("заявку на переоткрытие записать не удалось: " + e2);
+            }
+            log("вызываю " + RESTART_CMD);
+            // Ошибку намеренно глушим пустым обработчиком: реагировать
+            // на неё нельзя (см. выше), а без него это unhandled
+            // rejection в логе расширения.
+            Promise.resolve(
+              vscode.commands.executeCommand(RESTART_CMD)
+            ).then(undefined, function () {});
+          }, function (err) {
+            // Список команд недоступен — пробуем хотя бы окно.
+            log("getCommands не ответил (" + err + ") — перезагружаю окно");
+            fallbackReload();
+          });
+        }, RESTART_DELAY_MS);
         return;
       }
     }
 
+    /** Активная вкладка активной группы, если это панель Claude Code. */
+    function activeClaudeTab() {
+      try {
+        var group = vscode.window.tabGroups && vscode.window.tabGroups.activeTabGroup;
+        var tab = group && group.activeTab;
+        var viewType = tab && tab.input && tab.input.viewType;
+        if (typeof viewType === "string" && viewType.indexOf("claude") !== -1) {
+          return tab;
+        }
+        log("активная вкладка не панель Claude Code (viewType=" + viewType + ")");
+      } catch (e) {
+        log("активную вкладку определить не удалось: " + e);
+      }
+      return null;
+    }
+
+    /** Оживление активной вкладки после рестарта хоста.
+     *
+     * Панель, созданная умершим хостом, остаётся в окне без владельца:
+     * заголовок и содержимое на месте, но отвечать на её сообщения
+     * некому. Сама собой она не оживёт. VSCode просит расширение
+     * восстановить панель (deserializeWebviewPanel) только когда та
+     * СТАНОВИТСЯ видимой, а видимую он не трогает — её содержимое цело,
+     * повода вмешиваться нет. Скрытые вкладки поэтому оживают при
+     * первом показе, активная — никогда.
+     *
+     * Отсюда единственный способ: уничтожить панель и дать расширению
+     * создать её заново — `claude-vscode.editor.open` зовёт
+     * createPanel(sessionId, …) и открывает ИМЕННО ту переписку.
+     * Мягче не выходит:
+     *   - «Developer: Reload Webviews» обнуляет содержимое панели, а
+     *     отвечать на запрос контента после смерти владельца некому —
+     *     вкладка становится пустой при живом заголовке;
+     *   - показ заново (уйти на соседнюю вкладку и вернуться) VSCode
+     *     не считает поводом для восстановления: DOM остаётся прежним
+     *     со всем, что на нём было.
+     *
+     * `claude-vscode.reopenClosedSession` тоже не годится: он берёт
+     * сессию из списка недавно закрытых, а тот живёт в памяти хоста.
+     * Новый хост про закрытую нами панель ничего не знает, список пуст
+     * — команда молча открывала пустой диалог вместо переписки.
+     */
+    function reviveActiveTab(handoff) {
+      var tab = activeClaudeTab();
+      if (!tab) return;
+
+      var label = String(tab.label);
+      if (handoff.label && label !== handoff.label) {
+        // За время рестарта переключились на другую вкладку. Трогать
+        // её нельзя: она живая, а мёртвая оживёт при показе сама.
+        log("активна другая вкладка (" + JSON.stringify(label) + ") — не трогаю");
+        return;
+      }
+      if (!handoff.sessionId) {
+        // Закрыть, не умея открыть ту же переписку, — хуже, чем
+        // оставить мёртвую вкладку: её хотя бы видно в списке.
+        log("session id неизвестен — вкладку не трогаю");
+        return;
+      }
+
+      Promise.resolve(vscode.commands.getCommands(true)).then(function (all) {
+        if (!all || all.indexOf(OPEN_CMD) === -1) {
+          log("команды " + OPEN_CMD + " нет — вкладку не трогаю");
+          return null;
+        }
+        log("закрываю активную вкладку " + JSON.stringify(label));
+        return Promise.resolve(vscode.window.tabGroups.close(tab)).then(function () {
+          log("вкладка закрыта, открываю session=" + handoff.sessionId);
+          // Третий аргумент — колонка. ViewColumn.Active означает «в
+          // той же группе»; конкретный номер расширение трактует иначе
+          // и заодно переставляет себе предпочитаемое место.
+          return vscode.commands.executeCommand(
+            OPEN_CMD, handoff.sessionId, undefined, vscode.ViewColumn.Active);
+        }).then(function () {
+          log("переоткрытие выполнено");
+        });
+      }).then(undefined, function (err) {
+        log("оживление вкладки отказало: " + err);
+      });
+    }
+
+    /** Исполнение заявки, оставленной прошлой жизнью хоста.
+     *
+     * Файл намеренно НЕ удаляется: окна с тем же воркспейсом
+     * перезапускаются каждое по своему расписанию, и первое же
+     * удаление лишило бы остальные перезагрузки вкладок. От вечного
+     * действия защищает TTL, от повторов внутри процесса — то, что
+     * заявка читается один раз при старте, а не в scan().
+     */
+    function consumeReloadRequest() {
+      var dirs = runtimeDirs();
+      for (var i = 0; i < dirs.length; i++) {
+        var file = path.join(dirs[i], RELOAD);
+        var data = null;
+        try {
+          data = JSON.parse(fs.readFileSync(file, "utf8"));
+        } catch (e) {
+          log("заявки на перезагрузку нет в " + dirs[i]);
+          continue;
+        }
+        if (!data || typeof data.ts !== "number") {
+          log("заявка на перезагрузку без ts: " + file);
+          continue;
+        }
+        var age = Date.now() - data.ts;
+        if (age > RELOAD_TTL_MS) {
+          log("заявка протухла (" + Math.round(age / 1000) + " с) — удаляю");
+          try { fs.unlinkSync(file); } catch (e) {}
+          continue;
+        }
+        log("заявка свежая (" + age + " мс), session="
+          + (data.sessionId || "—") + ", жду " + RELOAD_DELAY_MS + " мс");
+        setTimeout(function () { reviveActiveTab(data); }, RELOAD_DELAY_MS);
+        return;
+      }
+    }
+
+    rotateLog();
+    log("=== блок активирован ===");
+    instrumentWebviewApi();
+    consumeReloadRequest();
     scan();
     var timer = setInterval(scan, POLL_MS);
     // Таймер не должен сам по себе держать процесс живым.

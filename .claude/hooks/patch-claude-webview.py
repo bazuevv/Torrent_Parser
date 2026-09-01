@@ -199,6 +199,11 @@ REQUIRED_PARAMS = [
         "должен быть true или false",
     ),
     (
+        "accountsUsageBars",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
+    (
         "moodGauge",
         lambda v: isinstance(v, bool),
         "должен быть true или false",
