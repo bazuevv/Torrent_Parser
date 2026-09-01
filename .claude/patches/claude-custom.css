@@ -1184,10 +1184,16 @@
  * у переменных расширения нет оттенка нужной светлоты, а color-mix
  * этот webview не понимает (как и `:has()`). */
 .claude-accs-usage-track {
-  flex: 0 0 105px;
-  height: 7px;
+  /* Ширина одна на всех участников: по ней же выравниваются оба слоя
+   * надписи внутри шкалы. Держать её в переменной обязательно —
+   * разъехавшиеся слои дали бы двоящийся текст на границе заливки. */
+  --claude-track-width: 118px;
+  position: relative;
+  flex: 0 0 var(--claude-track-width);
+  /* Высота под надпись: в прежние 7px текст не помещался. */
+  height: 16px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.3);
 }
 
@@ -1197,11 +1203,64 @@
 }
 
 .claude-accs-usage-fill {
-  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
   height: 100%;
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--claude-usage-color,
                    var(--app-progressbar-background, var(--vscode-charts-blue, #4daafc)));
+}
+
+/* --- время до сброса внутри шкалы ---------------------------------------
+ *
+ * Надпись лежит сразу на двух фонах: слева заливка окна, справа светлая
+ * подложка. Один цвет читался бы плохо на одном из них, поэтому текст
+ * рисуется двумя слоями: нижний в цвете для подложки, верхний в цвете
+ * для заливки и обрезан ровно по её ширине (`.claude-accs-usage-clip`
+ * с той же шириной в процентах, что и заливка). Цвет меняется точно на
+ * границе заливки.
+ *
+ * Оба слоя обязаны иметь одинаковую ширину и выравнивание — потому
+ * ширина берётся из переменной шкалы. Разъехавшись хотя бы на пиксель,
+ * они дали бы двоящиеся буквы на стыке. */
+.claude-accs-usage-when {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--claude-track-width);
+  height: 100%;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  /* Над светлой подложкой — белым. */
+  color: #fff;
+  pointer-events: none;
+}
+
+.claude-accs-usage-clip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Над заливкой — тёмным: зелёный, жёлтый, оранжевый и красный все
+ * достаточно светлые, чтобы белый текст на них тонул. */
+.claude-accs-usage-when-on-fill {
+  color: #10151b;
+}
+
+/* В светлой теме подложка тёмная от прозрачности на светлом фоне —
+ * белый текст на ней остаётся читаемым, а вот над заливкой цвет тот же
+ * тёмный, что и в тёмной теме: сами цвета заливки от темы не зависят. */
+.vscode-light .claude-accs-usage-when {
+  color: #10151b;
 }
 
 /* Цвет говорит не о том, какое это окно, а сколько лимита уже съедено:

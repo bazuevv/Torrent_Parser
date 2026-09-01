@@ -8085,6 +8085,8 @@
       label.textContent = w.label || '';
       line.appendChild(label);
 
+      var left = formatLeft(w.resetsInSec);
+
       var track = document.createElement('span');
       track.className = 'claude-accs-usage-track';
       var fill = document.createElement('span');
@@ -8094,6 +8096,33 @@
       if (w.key) fill.setAttribute('data-window', w.key);
       fill.style.width = shown + '%';
       track.appendChild(fill);
+
+      // Время до сброса — внутри шкалы, двумя слоями. Надпись лежит на
+      // двух разных фонах сразу: слева заливка окна, справа светлая
+      // подложка, — и один цвет читался бы плохо на одном из них.
+      // Поэтому текст рисуется дважды: нижний слой в цвете для
+      // подложки, верхний — в цвете для заливки и обрезан ровно по её
+      // ширине. Цвет меняется точно на границе заливки, а не «в
+      // среднем по шкале».
+      //
+      // Оба слоя одной ширины (ширина шкалы) и с одинаковым
+      // выравниванием — иначе буквы верхнего слоя не встали бы точно
+      // над буквами нижнего и на стыке двоились бы.
+      if (left) {
+        var under = document.createElement('span');
+        under.className = 'claude-accs-usage-when';
+        under.textContent = left;
+        track.appendChild(under);
+
+        var clip = document.createElement('span');
+        clip.className = 'claude-accs-usage-clip';
+        clip.style.width = shown + '%';
+        var over = document.createElement('span');
+        over.className = 'claude-accs-usage-when claude-accs-usage-when-on-fill';
+        over.textContent = left;
+        clip.appendChild(over);
+        track.appendChild(clip);
+      }
       line.appendChild(track);
 
       var val = document.createElement('span');
@@ -8103,7 +8132,6 @@
 
       box.appendChild(line);
 
-      var left = formatLeft(w.resetsInSec);
       lines.push((w.title || w.label || '') + ' · ' + Math.floor(shown) + '%'
         + (left ? ' · сброс через ' + left : ''));
     }
