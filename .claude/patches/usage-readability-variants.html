@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<!--
+  Стенд сравнения способов сделать надпись в шкале лимитов читаемой.
+
+  Автономная страница, в webview расширения не участвует. Соседний
+  стенд usage-text-picker.html подбирает ЦВЕТ текста; этот отвечает на
+  другой вопрос — каким СПОСОБОМ добиваться читаемости, когда одного
+  цвета не хватает.
+
+  Почему не хватает: синий #000dff даёт на заливках 2.5–4.3:1 (красная
+  худшая) и только на светлой подложке 7.8:1. Любой одиночный цвет
+  сталкивается с тем же — пять фонов слишком разные по светлоте.
+
+  Шесть блоков ниже показывают шесть подходов на одинаковых шкалах.
+  Заполнение 60% выбрано намеренно: граница заливки проходит сквозь
+  текст, поэтому видно и «на цвете», и «на подложке» одновременно.
+  У каждого блока свои регуляторы и подсчёт худшего контраста.
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Способы читаемости надписи в шкале</title>
+<style>
+  :root {
+    --lvl0: #3fb950;
+    --lvl1: #e3b341;
+    --lvl2: #f0883e;
+    --lvl3: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 26px;
+    background: #141414; color: #ccc;
+    font: 13px/1.5 system-ui, sans-serif;
+  }
+  h1 { font-size: 17px; margin: 0 0 6px; }
+  .intro { max-width: 780px; opacity: .75; margin: 0 0 18px; }
+
+  /* --- общие настройки сверху --- */
+  .global {
+    display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-end;
+    padding: 12px 14px; margin-bottom: 22px;
+    border: 1px solid rgba(255,255,255,.14); border-radius: 8px; background: #1a1a1a;
+  }
+  .fld { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+  .fld > span { opacity: .8; }
+  .fld input[type=color] {
+    width: 46px; height: 26px; padding: 0; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.25); border-radius: 4px; background: none;
+  }
+  .fld input[type=text] {
+    width: 88px; padding: 3px 6px; border: 1px solid rgba(255,255,255,.2);
+    border-radius: 4px; background: #111; color: #eee; font: 12px ui-monospace, monospace;
+  }
+  .fld input[type=range] { width: 150px; }
+  .row2 { display: flex; gap: 6px; align-items: center; }
+
+  /* --- сетка вариантов --- */
+  .variants { display: flex; flex-wrap: wrap; gap: 16px; }
+  .variant {
+    width: 430px; padding: 14px;
+    border: 1px solid rgba(255,255,255,.14); border-radius: 8px; background: #1a1a1a;
+  }
+  .variant h2 { font-size: 14px; margin: 0 0 2px; }
+  .variant .note { font-size: 11px; opacity: .7; margin: 0 0 10px; min-height: 46px; }
+  .verdict { font-size: 11px; margin: 8px 0 10px; }
+  .verdict b { font-variant-numeric: tabular-nums; }
+  .ok { color: #3fb950; } .bad { color: #f85149; } .warn { color: #e3b341; }
+
+  /* --- сама панель со шкалами (копия живой) --- */
+  .panel {
+    padding: 8px 10px; border-radius: 8px;
+    background: #1f1f1f; border: 1px solid rgba(255,255,255,.12);
+  }
+  .demo { display: flex; flex-direction: column; gap: 4px; }
+  .bar { display: flex; align-items: center; gap: 5px; }
+  .lbl { flex: 0 0 auto; font-size: 12px; line-height: 1; color: #fff; }
+  .track {
+    position: relative; flex: 0 0 118px;
+    height: var(--h, 16px); border-radius: calc(var(--h, 16px) / 2);
+    overflow: hidden; background: var(--bd, #d5fff5);
+  }
+  .fill { position: absolute; top: 0; left: 0; height: 100%; border-radius: inherit; }
+  .pct { flex: 0 0 32px; font-size: 12px; line-height: 1; font-variant-numeric: tabular-nums; }
+  /* Надпись: базовая раскладка одна на все варианты — сжата по
+   * содержимому и центрирована; различаются только фон, тень и цвет. */
+  .when {
+    position: absolute; inset: 0; margin: auto;
+    width: fit-content; height: fit-content;
+    padding: 1px 5px; border-radius: 7px;
+    font: 700 var(--fs, 10px)/1 system-ui, sans-serif;
+    white-space: nowrap;
+    color: var(--tx, #000dff);
+  }
+
+  /* 1. как есть — ни фона, ни тени */
+  .v-plain .when { background: none; padding: 0; }
+
+  /* 2. плашка под текстом */
+  .v-chip .when { background: var(--chip, #d5fff5); }
+
+  /* 3. светлое гало вокруг букв: четыре тени дают обводку со всех
+   *    сторон, одна тень светила бы только в одну. */
+  .v-halo .when {
+    background: none; padding: 0;
+    text-shadow:
+      0 0 var(--halo, 2px) var(--halo-c, #d5fff5),
+      0 0 var(--halo, 2px) var(--halo-c, #d5fff5),
+      0 0 var(--halo, 2px) var(--halo-c, #d5fff5),
+      0 0 var(--halo, 2px) var(--halo-c, #d5fff5);
+  }
+
+  /* 4. свой цвет текста для красной шкалы */
+  .v-level .when { background: none; padding: 0; }
+  .v-level .bar[data-level="3"] .when { color: var(--red-tx, #1a0000); }
+
+  /* 5. осветлённая красная заливка */
+  .v-lightred .when { background: none; padding: 0; }
+  .v-lightred .fill[data-level="3"] { background: var(--red-bg, #ffb3ad) !important; }
+
+  /* 6. тёмный текст вместо синего */
+  .v-dark .when { background: none; padding: 0; color: var(--dark-tx, #10151b); }
+</style>
+</head>
+<body>
+
+<h1>Способы сделать надпись в шкале читаемой</h1>
+<p class="intro">
+  Одного цвета не хватает: синий даёт на заливках 2.5–4.3:1 (красная —
+  худшая) и 7.8:1 только на светлой подложке. Ниже шесть подходов на
+  одинаковых шкалах. Заполнение 60% выбрано намеренно — граница заливки
+  проходит сквозь текст, поэтому в каждой шкале видно сразу оба случая:
+  буквы на цвете и буквы на подложке. Нижняя шкала пустая.
+</p>
+
+<div class="global">
+  <label class="fld"><span>Цвет текста</span>
+    <span class="row2"><input type="color" id="g-tx" value="#000dff"><input type="text" id="g-tx-hex" value="#000dff"></span></label>
+  <label class="fld"><span>Цвет подложки</span>
+    <span class="row2"><input type="color" id="g-bd" value="#d5fff5"><input type="text" id="g-bd-hex" value="#d5fff5"></span></label>
+  <label class="fld"><span>Заполнение: <output id="g-pct-o">60%</output></span>
+    <input type="range" id="g-pct" min="0" max="100" step="5" value="60"></label>
+  <label class="fld"><span>Размер: <output id="g-fs-o">10px</output></span>
+    <input type="range" id="g-fs" min="8" max="16" step="1" value="10"></label>
+  <label class="fld"><span>Высота шкалы: <output id="g-h-o">16px</output></span>
+    <input type="range" id="g-h" min="12" max="26" step="1" value="16"></label>
+</div>
+
+<div class="variants" id="variants"></div>
+
+<script>
+(function () {
+  /* ---------- контраст ---------- */
+  function hex2rgb(h) {
+    h = String(h).replace('#', '').trim();
+    if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  }
+  function lum(rgb) {
+    var f = rgb.map(function (v) {
+      v /= 255; return v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4);
+    });
+    return 0.2126*f[0] + 0.7152*f[1] + 0.0722*f[2];
+  }
+  function ratio(a, b) {
+    var ra = hex2rgb(a), rb = hex2rgb(b);
+    if (!ra || !rb) return 0;
+    var l1 = lum(ra), l2 = lum(rb);
+    return (Math.max(l1,l2) + 0.05) / (Math.min(l1,l2) + 0.05);
+  }
+
+  var FILLS = ['#3fb950', '#e3b341', '#f0883e', '#f85149'];
+  var NAMES = ['зелёной', 'жёлтой', 'оранжевой', 'красной'];
+
+  /* ---------- описания вариантов ---------- */
+  //   worst(state) → [значение, «на чём»] либо null, если формулой
+  //   не измеряется (гало).
+  var VARIANTS = [
+    {
+      cls: 'v-plain',
+      title: '1. Как есть',
+      note: 'Ничего дополнительного: цвет текста один на все фоны. Точка отсчёта — именно это и оказалось нечитаемым на красной шкале.',
+      controls: [],
+      worst: function (st) {
+        var w = 99, name = '';
+        FILLS.forEach(function (f, i) {
+          var r = ratio(st.tx, f);
+          if (r < w) { w = r; name = 'на ' + NAMES[i] + ' заливке'; }
+        });
+        var rb = ratio(st.tx, st.bd);
+        if (rb < w) { w = rb; name = 'на подложке'; }
+        return [w, name];
+      },
+    },
+    {
+      cls: 'v-chip',
+      title: '2. Плашка под текстом',
+      note: 'Надпись получает собственный фон по размеру букв. Контраст перестаёт зависеть от заливки вообще — он всегда один и тот же. Заливку плашка частично перекрывает.',
+      controls: [
+        { key: 'chipA', label: 'Прозрачность плашки', type: 'range', min: 40, max: 100, step: 5, value: 100,
+          apply: function (el, v, st) {
+            var rgb = hex2rgb(st.bd) || [213,255,245];
+            el.style.setProperty('--chip', 'rgba(' + rgb.join(',') + ',' + (v/100) + ')');
+          }, fmt: function (v) { return v + '%'; } },
+      ],
+      worst: function (st) { return [ratio(st.tx, st.bd), 'на плашке, на любой шкале']; },
+    },
+    {
+      cls: 'v-halo',
+      title: '3. Светлое гало вокруг букв',
+      note: 'Четыре тени одного цвета дают обводку со всех сторон. Заливка видна целиком, буквы отделяются свечением. Формулой контраста не измеряется — только глазами.',
+      controls: [
+        { key: 'halo', label: 'Радиус гало', type: 'range', min: 0, max: 4, step: 1, value: 2,
+          apply: function (el, v) { el.style.setProperty('--halo', v + 'px'); },
+          fmt: function (v) { return v + 'px'; } },
+        { key: 'haloC', label: 'Цвет гало', type: 'color', value: '#d5fff5',
+          apply: function (el, v) { el.style.setProperty('--halo-c', v); } },
+      ],
+      worst: null,
+    },
+    {
+      cls: 'v-level',
+      title: '4. Свой цвет текста для красной',
+      note: 'На красной шкале текст перекрашивается, на остальных остаётся выбранным. Чинит худший случай, но цвет надписи перестаёт быть единым, а зелёная с оранжевой (3.3:1) остаются как были.',
+      controls: [
+        { key: 'redTx', label: 'Текст на красной', type: 'color', value: '#1a0000',
+          apply: function (el, v) { el.style.setProperty('--red-tx', v); } },
+      ],
+      worst: function (st) {
+        var w = 99, name = '';
+        FILLS.forEach(function (f, i) {
+          var r = i === 3 ? ratio(st.redTx || '#1a0000', f) : ratio(st.tx, f);
+          if (r < w) { w = r; name = 'на ' + NAMES[i] + ' заливке'; }
+        });
+        return [w, name];
+      },
+    },
+    {
+      cls: 'v-lightred',
+      title: '5. Осветлить красную заливку',
+      note: 'Контраст растёт за счёт фона, текст везде один. Плата очевидна: пастельный красный слабее читается как тревога, а это единственный сигнал «лимит почти выбран».',
+      controls: [
+        { key: 'redBg', label: 'Красная заливка', type: 'color', value: '#ffb3ad',
+          apply: function (el, v) { el.style.setProperty('--red-bg', v); } },
+      ],
+      worst: function (st) {
+        var w = 99, name = '';
+        FILLS.forEach(function (f, i) {
+          var bg = i === 3 ? (st.redBg || '#ffb3ad') : f;
+          var r = ratio(st.tx, bg);
+          if (r < w) { w = r; name = 'на ' + NAMES[i] + ' заливке'; }
+        });
+        return [w, name];
+      },
+    },
+    {
+      cls: 'v-dark',
+      title: '6. Тёмный текст вместо цветного',
+      note: 'Отказ от выбранного цвета в пользу единственного, который проходит везде. Самый простой вариант — и самый скучный.',
+      controls: [
+        { key: 'darkTx', label: 'Цвет текста', type: 'color', value: '#10151b',
+          apply: function (el, v) { el.style.setProperty('--dark-tx', v); } },
+      ],
+      worst: function (st) {
+        var tx = st.darkTx || '#10151b';
+        var w = 99, name = '';
+        FILLS.forEach(function (f, i) {
+          var r = ratio(tx, f);
+          if (r < w) { w = r; name = 'на ' + NAMES[i] + ' заливке'; }
+        });
+        var rb = ratio(tx, st.bd);
+        if (rb < w) { w = rb; name = 'на подложке'; }
+        return [w, name];
+      },
+    },
+  ];
+
+  /* ---------- общее состояние ---------- */
+  var st = { tx: '#000dff', bd: '#d5fff5', pct: 60, fs: 10, h: 16 };
+
+  /* ---------- разметка ---------- */
+  function buildDemo() {
+    var wrap = document.createElement('div');
+    wrap.className = 'demo';
+    // Четыре цветные шкалы + пустая: тот же набор, что в живой панели
+    // на аккаунте Max, и тот же порядок цветов по уровню расхода.
+    for (var i = 0; i < 5; i++) {
+      var level = Math.min(i, 3);
+      var empty = i === 4;
+      var bar = document.createElement('div');
+      bar.className = 'bar';
+      bar.dataset.level = empty ? 0 : level;
+
+      var lbl = document.createElement('span');
+      lbl.className = 'lbl';
+      lbl.textContent = '5 ч';
+      bar.appendChild(lbl);
+
+      var track = document.createElement('span');
+      track.className = 'track';
+      var fill = document.createElement('span');
+      fill.className = 'fill';
+      fill.dataset.level = empty ? 0 : level;
+      fill.style.background = FILLS[empty ? 0 : level];
+      track.appendChild(fill);
+      var when = document.createElement('span');
+      when.className = 'when';
+      when.textContent = '4 ч 44 мин';
+      track.appendChild(when);
+      bar.appendChild(track);
+
+      var pct = document.createElement('span');
+      pct.className = 'pct';
+      pct.style.color = FILLS[empty ? 0 : level];
+      bar.appendChild(pct);
+
+      wrap.appendChild(bar);
+    }
+    return wrap;
+  }
+
+  var host = document.getElementById('variants');
+  var blocks = [];
+
+  VARIANTS.forEach(function (spec) {
+    var box = document.createElement('div');
+    box.className = 'variant';
+
+    var h = document.createElement('h2');
+    h.textContent = spec.title;
+    box.appendChild(h);
+
+    var note = document.createElement('p');
+    note.className = 'note';
+    note.textContent = spec.note;
+    box.appendChild(note);
+
+    var panel = document.createElement('div');
+    panel.className = 'panel ' + spec.cls;
+    var demo = buildDemo();
+    panel.appendChild(demo);
+    box.appendChild(panel);
+
+    var verdict = document.createElement('div');
+    verdict.className = 'verdict';
+    box.appendChild(verdict);
+
+    // Регуляторы варианта
+    var state = {};
+    spec.controls.forEach(function (c) {
+      var fld = document.createElement('label');
+      fld.className = 'fld';
+      var cap = document.createElement('span');
+      var out = document.createElement('output');
+      cap.textContent = c.label + (c.type === 'range' ? ': ' : ' ');
+      if (c.type === 'range') cap.appendChild(out);
+      fld.appendChild(cap);
+
+      var input = document.createElement('input');
+      input.type = c.type;
+      if (c.type === 'range') {
+        input.min = c.min; input.max = c.max; input.step = c.step;
+      }
+      input.value = c.value;
+      fld.appendChild(input);
+      box.appendChild(fld);
+
+      function push() {
+        state[c.key] = input.value;
+        c.apply(panel, input.value, Object.assign({}, st, state));
+        if (out && c.fmt) out.textContent = c.fmt(input.value);
+        render();
+      }
+      input.addEventListener('input', push);
+      state[c.key] = input.value;
+      // первичное применение — после того, как panel попал в DOM
+      setTimeout(push, 0);
+    });
+
+    host.appendChild(box);
+    blocks.push({ spec: spec, panel: panel, verdict: verdict, state: state });
+  });
+
+  /* ---------- пересчёт ---------- */
+  function render() {
+    blocks.forEach(function (b) {
+      var panel = b.panel;
+      panel.style.setProperty('--tx', st.tx);
+      panel.style.setProperty('--bd', st.bd);
+      panel.style.setProperty('--fs', st.fs + 'px');
+      panel.style.setProperty('--h', st.h + 'px');
+
+      panel.querySelectorAll('.bar').forEach(function (bar, i) {
+        var empty = i === 4;
+        var value = empty ? 0 : st.pct;
+        bar.querySelector('.fill').style.width = value + '%';
+        bar.querySelector('.pct').textContent = value + '%';
+      });
+
+      var merged = Object.assign({}, st, b.state);
+      if (!b.spec.worst) {
+        b.verdict.innerHTML = '<span class="warn">контраст формулой не измеряется</span> — судить глазами';
+        return;
+      }
+      var res = b.spec.worst(merged);
+      var cls = res[0] >= 4.5 ? 'ok' : (res[0] >= 3 ? 'warn' : 'bad');
+      b.verdict.innerHTML = 'худший контраст: <b class="' + cls + '">' +
+        res[0].toFixed(1) + ':1</b> ' + res[1] + (res[0] >= 4.5 ? ' ✓' : '');
+    });
+  }
+
+  /* ---------- общие регуляторы ---------- */
+  function bindColor(idColor, idHex, key) {
+    var c = document.getElementById(idColor);
+    var t = document.getElementById(idHex);
+    function set(v) {
+      if (!hex2rgb(v)) return;
+      st[key] = v; c.value = v; t.value = v;
+      // Плашка зависит от цвета подложки — пересобираем её у блоков.
+      blocks.forEach(function (b) {
+        b.spec.controls.forEach(function (ctl) {
+          if (ctl.key === 'chipA') {
+            ctl.apply(b.panel, b.state.chipA, Object.assign({}, st, b.state));
+          }
+        });
+      });
+      render();
+    }
+    c.addEventListener('input', function () { set(c.value); });
+    t.addEventListener('change', function () { set(t.value); });
+  }
+  function bindRange(id, key, unit) {
+    var r = document.getElementById(id);
+    var o = document.getElementById(id + '-o');
+    function set() { st[key] = +r.value; o.textContent = r.value + unit; render(); }
+    r.addEventListener('input', set);
+    set();
+  }
+
+  bindColor('g-tx', 'g-tx-hex', 'tx');
+  bindColor('g-bd', 'g-bd-hex', 'bd');
+  bindRange('g-pct', 'pct', '%');
+  bindRange('g-fs', 'fs', 'px');
+  bindRange('g-h', 'h', 'px');
+  render();
+})();
+</script>
+</body>
+</html>
