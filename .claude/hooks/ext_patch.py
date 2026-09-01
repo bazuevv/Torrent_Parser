@@ -41,8 +41,18 @@ import errno
 import fcntl
 import os
 import shutil
+import subprocess
 import tempfile
 import time
+
+# Маркеры всех блоков, которые наши хуки вставляют в файлы расширения.
+# Таблица общая, а не «у каждого хука свой», ровно по одной причине:
+# эталонный снимок бандла обязан вычищать ВСЕ блоки, а не только свой.
+# Заводите новый блок — впишите его сюда, иначе он попадёт в эталон и
+# после каждого восстановления будет накладываться поверх себя.
+BOOTSTRAP_MARKERS = ("/* claude-green-timestamp */", "/* /claude-green-timestamp */")
+LOCALIZER_MARKERS = ("/* claude-localizer */", "/* /claude-localizer */")
+BLOCK_MARKERS = (BOOTSTRAP_MARKERS, LOCALIZER_MARKERS)
 
 # Лок общий для ВСЕЙ машины, а не для проекта. Файлы расширения одни на
 # все окна и все проекты: вчерашняя починка пришла ровно оттуда — хуки
@@ -139,3 +149,128 @@ def patch_lock(timeout: float = LOCK_TIMEOUT_SEC):
             handle.close()
         except OSError:
             pass
+
+
+# --- целостность бандла и эталонный снимок --------------------------------
+#
+# Вчерашняя поломка (2026-08-31) показала слабое место: когда файл
+# расширения оказался повреждён, чинить его было НЕЧЕМ. Патчеры
+# переписывают только участок между маркерами, а мусор за его пределами
+# переживает любой запуск; эталонного снимка бандла никто не хранил
+# (для package.json он есть — package.json.original, а для index.js
+# не было). Здесь этот пробел и закрывается.
+
+
+def _read(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def check_blocks(content: str) -> str | None:
+    """Целы ли наши блоки в файле. None — всё в порядке.
+
+    Проверка нарочно дешёвая (счёт подстрок): она идёт на каждом
+    сообщении пользователя, и разбирать ради неё пятимегабайтный файл
+    нельзя. Ловит ровно ту порчу, которую даёт гонка писателей:
+    задвоенные и потерянные маркеры, перевёрнутую пару.
+    """
+    for begin, end in BLOCK_MARKERS:
+        starts, ends = content.count(begin), content.count(end)
+        if starts > 1 or ends > 1 or starts != ends:
+            return (f"маркеры блока {begin} разъехались: "
+                    f"открывающих {starts}, закрывающих {ends}")
+        if starts == 1 and content.index(end) < content.index(begin):
+            return f"блок {begin} перевёрнут: закрывающий маркер раньше открывающего"
+    return None
+
+
+def strip_blocks(content: str) -> str | None:
+    """Бандл без наших блоков. None — файл повреждён, снимать нечего."""
+    if check_blocks(content) is not None:
+        return None
+    for begin, end in BLOCK_MARKERS:
+        if begin in content:
+            start = content.index(begin)
+            finish = content.index(end) + len(end)
+            content = content[:start] + content[finish:]
+    return content.rstrip() + "\n"
+
+
+def node_check(source: str) -> str | None:
+    """Разбирается ли JS. None — да либо проверить нечем (нет node).
+
+    Отсутствие node трактуем как «проверить нечем», а не как ошибку:
+    патч не должен отваливаться из-за того, что в системе нет ноды.
+    """
+    node = shutil.which("node")
+    if not node:
+        return None
+    fd, tmp = tempfile.mkstemp(suffix=".js", prefix=".claude-check-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(source)
+        done = subprocess.run([node, "--check", tmp],
+                              capture_output=True, text=True, timeout=30)
+        if done.returncode == 0:
+            return None
+        first = (done.stderr or "").strip().splitlines()
+        return next((ln.strip() for ln in first if "Error" in ln), "не разбирается")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def reference_path(path: str) -> str:
+    return path + ".original"
+
+
+def sync_reference(path: str, content: str) -> None:
+    """Обновляет эталонный снимок бандла (тот же файл без наших блоков).
+
+    Эталон лежит рядом, ВНУТРИ папки версии расширения. Это не мелочь:
+    обновление расширения создаёт новую папку, и снимок там заводится
+    заново. Общий эталон на все версии рано или поздно наложили бы на
+    чужой бандл.
+
+    Снимок обновляется молча, когда бандл изменился (вышла новая версия
+    расширения), и не пишется вовсе, если файл повреждён или снимок не
+    разбирается: закрепить поломку в эталоне — значит остаться без
+    средства лечения ровно тогда, когда оно понадобится.
+    """
+    pristine = strip_blocks(content)
+    if pristine is None:
+        return
+    ref = reference_path(path)
+    try:
+        if os.path.isfile(ref) and _read(ref) == pristine:
+            return
+    except OSError:
+        pass
+    if node_check(pristine) is not None:
+        return
+    try:
+        atomic_write(ref, pristine)
+    except OSError:
+        pass
+
+
+def repair_from_reference(path: str) -> bool:
+    """Возвращает файл к эталону. False — эталона нет или он негоден."""
+    ref = reference_path(path)
+    if not os.path.isfile(ref):
+        return False
+    try:
+        pristine = _read(ref)
+    except OSError:
+        return False
+    if not pristine.strip() or check_blocks(pristine) is not None:
+        return False
+    try:
+        atomic_write(path, pristine)
+    except OSError:
+        return False
+    return True

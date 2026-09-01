@@ -215,8 +215,10 @@ REQUIRED_PARAMS = [
     ),
 ]
 
-MARKER_BEGIN = "/* claude-green-timestamp */"
-MARKER_END = "/* /claude-green-timestamp */"
+# Маркеры берём из общей таблицы ext_patch: эталонный снимок бандла
+# обязан вычищать в том числе и наш блок, а расхождение двух копий
+# одной строки заметили бы только по симптомам.
+MARKER_BEGIN, MARKER_END = ext_patch.BOOTSTRAP_MARKERS
 
 # Настройки, которые пользователь меняет не в TOML, а в VSCode Settings UI
 # (пункты в манифест расширения вписывает patch-extension-settings.py).
@@ -744,15 +746,87 @@ def _read_hook_event_name() -> str:
     return fallback
 
 
+def _patch_index_js(index_js: str, bootstrap: str) -> list[str]:
+    """Накладывает bootstrap-блок на бандл, следя за его целостностью.
+
+    Трёх вещей здесь не было, и из-за этого поломка 2026-08-31 оказалась
+    и незаметной, и неизлечимой:
+
+    * бандл проверяется ДО правки. Накладывать блок на файл с
+      разъехавшимися маркерами бессмысленно: `_upsert_marker_block`
+      видит только участок между первым BEGIN и первым END, а мусор
+      за его пределами переживает любой запуск;
+    * рядом держится эталонный снимок бандла без наших блоков, и из
+      него файл возвращается к жизни. Вчера чинить было нечем —
+      помогла только перезапись хуками другого проекта;
+    * после реальной записи бандл проверяется на разбор. Синтаксическая
+      ошибка в `claude-custom.js` больше не оставляет пользователя с
+      пустыми вкладками: блок откатывается, расширение остаётся
+      рабочим, а в чат уходит предупреждение.
+
+    Возвращает список проблем для показа пользователю.
+    """
+    issues: list[str] = []
+    name = os.path.basename(os.path.dirname(os.path.dirname(index_js)))
+    try:
+        content = _read(index_js)
+    except OSError as exc:
+        return [f"`{name}/webview/index.js` не прочитать: {exc}"]
+
+    broken = ext_patch.check_blocks(content)
+    if broken:
+        if ext_patch.repair_from_reference(index_js):
+            issues.append(
+                f"Бандл `{name}/webview/index.js` был повреждён ({broken}) — "
+                "это следы гонки писателей. Файл восстановлен из эталона "
+                "`index.js.original`, блоки наложены заново; чтобы окно "
+                "увидело починенный бандл, нужен `Developer: Reload Window`."
+            )
+            try:
+                content = _read(index_js)
+            except OSError:
+                return issues
+        else:
+            # Без эталона наложение блока только закрепит поломку.
+            return [
+                f"Бандл `{name}/webview/index.js` повреждён ({broken}), а "
+                "эталона `index.js.original` рядом нет — сам себя он не "
+                "вылечит: патчер переписывает только участок между "
+                "маркерами. Переустановите расширение Claude Code, эталон "
+                "заведётся автоматически."
+            ]
+    else:
+        ext_patch.sync_reference(index_js, content)
+
+    if not _upsert_marker_block(index_js, bootstrap):
+        return issues  # ничего не менялось — разбирать бандл незачем
+
+    # Проверяем только после реальной записи: разбор пяти мегабайт стоит
+    # около трети секунды, и делать это на каждом сообщении незачем.
+    problem = ext_patch.node_check(_read(index_js))
+    if problem:
+        restored = ext_patch.repair_from_reference(index_js)
+        issues.append(
+            f"После наложения блока `{name}/webview/index.js` перестал "
+            f"разбираться: {problem}. "
+            + ("Бандл возвращён к эталону — расширение работает, но наш JS "
+               "отключён. Проверь синтаксис `.claude/patches/claude-custom.js`, "
+               "затем `Developer: Reload Window`."
+               if restored else
+               "Эталона рядом нет — переустановите расширение Claude Code.")
+        )
+    return issues
+
+
 def _emit_issues(config_issues: list[str], server_issues: list[str],
-                 event_name: str) -> None:
+                 repair_issues: list[str], event_name: str) -> None:
     """Кладёт предупреждения в `additionalContext` под маркерами, по
     которым модель обязана сообщить пользователю.
 
     Оба вида уходят одним JSON: harness читает со stdout ровно один
     объект, и вторым print'ом мы бы сломали разбор.
     """
-    if not config_issues and not server_issues:
+    if not config_issues and not server_issues and not repair_issues:
         return
     body_lines = []
     if config_issues:
@@ -769,6 +843,15 @@ def _emit_issues(config_issues: list[str], server_issues: list[str],
             "[http-server WARNING] Локальный сервер хуков — сообщи пользователю:"
         )
         for issue in server_issues:
+            body_lines.append(f"- {issue}")
+    if repair_issues:
+        if body_lines:
+            body_lines.append("")
+        body_lines.append(
+            "[webview-repair WARNING] Целостность бандла расширения — "
+            "сообщи пользователю:"
+        )
+        for issue in repair_issues:
             body_lines.append(f"- {issue}")
     output = {
         "hookSpecificOutput": {
@@ -797,6 +880,7 @@ def main() -> int:
     # Лок общий на машину — index.js один на все окна и все проекты.
     # Сервер и его ожидания сюда не входят: держать лок на время
     # сетевых таймаутов значило бы блокировать чужие хуки впустую.
+    repair_issues: list[str] = []
     with ext_patch.patch_lock() as locked:
         if not locked:
             _hlog("правка файлов расширения идёт без лока: не дождались соседа")
@@ -813,10 +897,11 @@ def main() -> int:
                     CANONICAL_CSS, os.path.join(webview_dir, CUSTOM_CSS_NAME)
                 )
 
-            # 2. Вставляем/обновляем bootstrap-блок в index.js
+            # 2. Вставляем/обновляем bootstrap-блок в index.js, попутно
+            #    проверяя бандл и держа рядом эталонный снимок.
             index_js = os.path.join(webview_dir, "index.js")
             if os.path.isfile(index_js):
-                _upsert_marker_block(index_js, bootstrap)
+                repair_issues.extend(_patch_index_js(index_js, bootstrap))
 
             # 3. Удаляем устаревший claude-connectivity.css (пинг теперь через JS)
             stale_conn = os.path.join(webview_dir, "claude-connectivity.css")
@@ -846,7 +931,7 @@ def main() -> int:
     # 5. Предупреждения уходят последними и одним объектом: модель
     #    увидит маркеры `[claude-custom-config WARNING]` и
     #    `[http-server WARNING]` и сообщит пользователю в чате.
-    _emit_issues(config_issues, server_issues, event_name)
+    _emit_issues(config_issues, server_issues, repair_issues, event_name)
 
     return 0
 

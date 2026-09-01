@@ -70,8 +70,8 @@ if not PROJECT_DIR:
 PATCHES_DIR = os.path.join(PROJECT_DIR, ".claude", "patches")
 CONFIG_PATH = os.path.join(PATCHES_DIR, "claude-custom-config.toml")
 
-LOC_MARKER_BEGIN = "/* claude-localizer */"
-LOC_MARKER_END = "/* /claude-localizer */"
+# Маркеры — из общей таблицы ext_patch (см. там же про эталон бандла).
+LOC_MARKER_BEGIN, LOC_MARKER_END = ext_patch.LOCALIZER_MARKERS
 
 _LOC_BLOCK_RE = re.compile(
     re.escape(LOC_MARKER_BEGIN) + r".*?" + re.escape(LOC_MARKER_END),
