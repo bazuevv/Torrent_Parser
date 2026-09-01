@@ -7843,11 +7843,6 @@
    */
   var showUsage = cfg.accountsUsageBars !== false;
 
-  // Порог, после которого полоска краснеет. Тот же, что в штатной
-  // панели «Account & Usage», — два места не должны спорить о том,
-  // когда лимит уже близко.
-  var USAGE_HIGH_PCT = 80;
-
   // Возраст данных, после которого блок считается устаревшим.
   // Полчаса: CLI обновляет кэш в каждой сессии, и запись старше
   // получаса означает, что на этом логине давно никто не работал.
@@ -8074,12 +8069,18 @@
 
       var line = document.createElement('span');
       line.className = 'claude-accs-usage-row';
+      // Уровень расхода четвертями: 0 — меньше четверти лимита,
+      // 3 — больше трёх четвертей. Цвет шкалы и процента берётся из
+      // него, поэтому строка красится целиком одним атрибутом.
+      line.setAttribute('data-level',
+        String(Math.min(3, Math.floor(shown / 25))));
 
       var label = document.createElement('span');
-      // Подпись красится в цвет своей шкалы — тем же ключом окна, что и
-      // заливка: пара «подпись + шкала» должна читаться как одно целое.
-      label.className = 'claude-accs-usage-label'
-        + (shown >= USAGE_HIGH_PCT ? ' claude-accs-usage-label-high' : '');
+      // Подпись всегда белая: цветом говорит шкала, а подпись только
+      // называет окно. Ключ окна в разметке остаётся — по нему видно,
+      // какая шкала перед тобой, и на него можно опереться, если
+      // палитру снова захочется сделать по-оконной.
+      label.className = 'claude-accs-usage-label';
       if (w.key) label.setAttribute('data-window', w.key);
       label.textContent = w.label || '';
       line.appendChild(label);
@@ -8087,8 +8088,7 @@
       var track = document.createElement('span');
       track.className = 'claude-accs-usage-track';
       var fill = document.createElement('span');
-      fill.className = 'claude-accs-usage-fill'
-        + (shown >= USAGE_HIGH_PCT ? ' claude-accs-usage-fill-high' : '');
+      fill.className = 'claude-accs-usage-fill';
       // Цвет полоски задаёт CSS по ключу окна: держать палитру в JS
       // значило бы требовать Reload Window на каждый подбор оттенка.
       if (w.key) fill.setAttribute('data-window', w.key);
