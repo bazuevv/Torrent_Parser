@@ -5,6 +5,9 @@
 Убивается хуком на SessionEnd (через PID-файл).
 
 Endpoints:
+  POST /webview-error — тело = JSON с исключением webview, дописывает строку в
+                        .claude/hooks-runtime/webview-errors.log (свои ошибки страницы
+                        иначе нигде не видны: в логи VSCode они не попадают)
   POST /save-log      — тело = текст лога, сохраняет в .claude/hooks-runtime/debug-log-<ts>.txt
   POST /locale-drift  — тело = JSON {items: [{section,label,title}, ...]}, перезаписывает
                         .claude/hooks-runtime/locales-drift-pending.json (последний снимок DOM
@@ -759,6 +762,50 @@ class Handler(BaseHTTPRequestHandler):
 
         self._json_response(200, {"ok": True, "active": os.path.isfile(marker)})
 
+    def _handle_webview_error(self) -> None:
+        """Складывает исключения из webview в один журнал.
+
+        Своих ошибок webview нам не показывал вовсе: devtools открыты не
+        всегда, а в логи VSCode исключения страницы не попадают. Из-за
+        этого поломку 2026-09-01 («вкладки пустые, бандл цел, наш JS
+        исполняется») нечем было даже локализовать — журнал знал только
+        про install/init, но не про падения.
+
+        Пишем строками в один файл, а не файлом на ошибку, как
+        /save-log: ошибка обычно повторяется десятками, и каталог
+        засорился бы мгновенно. Размер ограничен — журнал ведётся ради
+        последнего инцидента, а не вечно.
+        """
+        raw = self._read_body()
+        if raw is None:
+            return
+        if not LOGS_DIR:
+            self._json_response(500, {"ok": False, "error": "LOGS_DIR не найден"})
+            return
+        try:
+            payload = json.loads(raw.decode("utf-8", errors="replace"))
+        except Exception:
+            payload = {"raw": raw.decode("utf-8", errors="replace")[:2000]}
+
+        path = os.path.join(LOGS_DIR, "webview-errors.log")
+        try:
+            os.makedirs(LOGS_DIR, exist_ok=True)
+            # Простая ротация: перед записью подрезаем хвостом.
+            if os.path.isfile(path) and os.path.getsize(path) > 512 * 1024:
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    tail = fh.readlines()[-500:]
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.writelines(tail)
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(f"{stamp} {json.dumps(payload, ensure_ascii=False)}\n")
+        except OSError as exc:
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+
+        _log(f"webview-error: {str(payload.get('message'))[:200]}")
+        self._json_response(200, {"ok": True})
+
     def _handle_cache_usage(self) -> None:
         """Статистика prompt-кэша сессии для кнопки Cache в футере.
 
@@ -955,6 +1002,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/restart-exthost":
             self._handle_restart_exthost_post()
+            return
+
+        if self.path == "/webview-error":
+            self._handle_webview_error()
             return
 
         if self.path == "/save-log":

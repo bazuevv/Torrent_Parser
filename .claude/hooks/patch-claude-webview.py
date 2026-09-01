@@ -204,6 +204,16 @@ REQUIRED_PARAMS = [
         "должен быть true или false",
     ),
     (
+        "sessionMover",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
+    (
+        "safeMode",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
+    (
         "moodGauge",
         lambda v: isinstance(v, bool),
         "должен быть true или false",
@@ -224,6 +234,41 @@ REQUIRED_PARAMS = [
 # обязан вычищать в том числе и наш блок, а расхождение двух копий
 # одной строки заметили бы только по симптомам.
 MARKER_BEGIN, MARKER_END = ext_patch.BOOTSTRAP_MARKERS
+
+# Флаги модулей claude-custom.js. Нужны безопасному режиму: он гасит их
+# все разом, не трогая значения в TOML, — иначе исходные настройки
+# пришлось бы восстанавливать руками после каждой проверки.
+MODULE_FLAGS = (
+    "sessionMover",
+    "emojiPicker",
+    "emojiAutoReplace",
+    "fixSettingsMenuItem",
+    "usageButton",
+    "bypassButton",
+    "cacheKeepalive",
+    "findInPage",
+    "accountsButton",
+    "moodGauge",
+    "quoteFromSelection",
+)
+
+
+def _apply_safe_mode(config: dict) -> dict:
+    """safeMode = true — оставить только базовый модуль.
+
+    База (метка времени, ping, оверлей) — ровно то, что крутится в
+    проектах, где расширение никогда не ломалось. Всё остальное
+    выключается, и дальше модули включаются по одному: так ищется
+    виновник поломки, при которой бандл цел, а вкладки пусты.
+
+    Флаги гасятся здесь, а не в TOML, чтобы настройки пользователя
+    пережили проверку без правки файла.
+    """
+    if config.get("safeMode") is not True:
+        return config
+    for flag in MODULE_FLAGS:
+        config[flag] = False
+    return config
 
 # Настройки, которые пользователь меняет не в TOML, а в VSCode Settings UI
 # (пункты в манифест расширения вписывает patch-extension-settings.py).
@@ -284,8 +329,62 @@ JS_BOOTSTRAP_TEMPLATE = """\
     tryLoadCss();
   }
 
+  // === сбор ошибок webview ===
+  //
+  // Своих исключений страница нам не показывала вовсе: devtools открыты
+  // не всегда, а в логи VSCode ошибки webview не попадают. Из-за этого
+  // поломку 2026-09-01 нечем было локализовать — бандл был цел, наш JS
+  // исполнялся, а вкладки оставались пустыми, и виновный модуль так и
+  // не назвался. Теперь любое исключение уходит в
+  // hooks-runtime/webview-errors.log.
+  //
+  // Лимит на число отправок обязателен: падение внутри MutationObserver
+  // повторяется на каждой мутации DOM, и без предела мы завалили бы
+  // сервер сотнями запросов в секунду.
+  var errSent = 0;
+  function claudeReportError(kind, data) {
+    if (errSent >= 20) return;
+    errSent++;
+    try {
+      data.kind = kind;
+      data.href = location.href.slice(0, 200);
+      data.ts = Date.now();
+      fetch('http://localhost:18923/webview-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        keepalive: true,
+      }).catch(function(){});
+    } catch (e) {}
+    try { console.error('[claude-custom]', kind, data); } catch (e) {}
+  }
+  window.addEventListener('error', function (e) {
+    claudeReportError('error', {
+      message: String(e && e.message || e),
+      file: String(e && e.filename || '').slice(-120),
+      line: e && e.lineno, col: e && e.colno,
+      stack: String(e && e.error && e.error.stack || '').slice(0, 1500),
+    });
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    claudeReportError('rejection', {
+      message: String(r && r.message || r),
+      stack: String(r && r.stack || '').slice(0, 1500),
+    });
+  });
+
   // === inline custom JS из .claude/patches/claude-custom.js ===
+  // Обёртка ловит падение НА ЗАГРУЗКЕ: без неё исключение в любом
+  // модуле обрывало бы установку всех следующих молча.
+  try {
 __CUSTOM_JS__
+  } catch (e) {
+    claudeReportError('boot', {
+      message: String(e && e.message || e),
+      stack: String(e && e.stack || '').slice(0, 1500),
+    });
+  }
   // === /inline custom JS ===
 })();
 /* /claude-green-timestamp */
@@ -876,6 +975,7 @@ def main() -> int:
     js_canonical = _read(CANONICAL_JS) if os.path.isfile(CANONICAL_JS) else ""
     config, config_issues = _read_config()
     config = _apply_vscode_settings(config)
+    config = _apply_safe_mode(config)
     bootstrap = _build_bootstrap(js_canonical, config)
 
 

@@ -2146,6 +2146,11 @@
   if (window.__claudeSessionMoverInstalled) return;
   window.__claudeSessionMoverInstalled = true;
 
+  // Единственный модуль, у которого выключателя не было: без него
+  // безопасный режим не мог погасить всё и поиск виновника поломки
+  // упирался бы в неснимаемую кнопку в списке сессий.
+  if ((window.__CLAUDE_CUSTOM_CONFIG__ || {}).sessionMover === false) return;
+
   var API_BASE = 'http://localhost:18923';
   var MOVE_BTN_CLASS = 'claude-move-session-btn';
   var INSTALLED_ATTR = 'data-claude-move-installed';
