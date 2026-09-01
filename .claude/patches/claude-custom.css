@@ -1234,7 +1234,9 @@
   height: 100%;
   font-size: 10px;
   line-height: 1;
-  font-weight: 600;
+  /* 650, а не круглое 600: на variable-шрифтах заметно плотнее,
+   * на обычных браузер сам возьмёт ближайший доступный вес. */
+  font-weight: 650;
   white-space: nowrap;
   /* Цвет подобран на стенде usage-text-picker.html парой с подложкой
    * #d5fff5 (контраст 7.8:1). */
