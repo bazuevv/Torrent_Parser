@@ -981,15 +981,16 @@
   flex-shrink: 0;
 }
 
-/* Ширина рассчитана на строку с полосками лимитов: имя и endpoint
- * слева, две полоски справа. На 340px, как было раньше, endpoint
- * обрезался бы многоточием почти сразу после «api.anthropic». */
+/* Ширину задаёт строка аккаунта claude.ai: «Anthropic Pro (почта)» в
+ * первой строке и две полоски лимитов во второй. На 400px почта
+ * начинала обрезаться многоточием, на 340px (как было до полосок)
+ * обрезался бы и endpoint у аккаунтов провайдеров. */
 .claude-accs-panel {
   position: fixed;
   z-index: 100000;
   display: flex;
   flex-direction: column;
-  width: min(400px, calc(100vw - 12px));
+  width: min(430px, calc(100vw - 12px));
   max-height: min(70vh, 480px);
   overflow-y: auto;
   padding: 10px 12px;
@@ -1058,8 +1059,28 @@
   gap: 1px;
 }
 
+/* Строка имени — flex-ряд: название аккаунта и приписка с тарифом и
+ * почтой. min-width:0 нужен, чтобы обрезалась именно приписка, а не
+ * съезжало название. */
 .claude-accs-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
   line-height: 1.45;
+}
+
+/* Тариф и почта: приглушены и моноширинные, как служебная строка —
+ * главным словом строки остаётся имя аккаунта. */
+.claude-accs-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.6;
 }
 
 /* Endpoint и модель — служебная строка: моноширинный, приглушённый,
@@ -1084,14 +1105,16 @@
  * Цвета взяты те же, что у штатной панели «Account & Usage»
  * (--app-progressbar-background, --app-claude-orange): одно и то же
  * число в двух местах интерфейса не должно выглядеть по-разному. */
+/* Полоски идут второй строкой под именем и в один ряд: сперва
+ * пятичасовое окно, следом недельное. Справа от имени места нет —
+ * его занимает почта. */
 .claude-accs-usage {
-  flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-  align-self: center;
-  margin-left: auto;
-  padding-left: 8px;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  margin-top: 3px;
 }
 
 /* Данные из кэша Claude Code: пока сессия идёт через стороннего
@@ -1121,15 +1144,14 @@
 
 .claude-accs-usage-label {
   flex: 0 0 auto;
-  min-width: 26px;
   font-size: 10px;
   line-height: 1;
   opacity: 0.6;
-  text-align: right;
+  white-space: nowrap;
 }
 
 .claude-accs-usage-track {
-  flex: 0 0 56px;
+  flex: 0 0 64px;
   height: 4px;
   overflow: hidden;
   border-radius: 2px;

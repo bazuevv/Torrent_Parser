@@ -8122,13 +8122,21 @@
    * выглядел бы как потерянное значение.
    */
   function accountSubtitle(acc) {
-    if (acc.oauth && (acc.plan || acc.email)) {
-      var parts = [];
-      if (acc.plan) parts.push(acc.plan);
-      if (acc.email) parts.push(acc.email);
-      return parts.join('  ·  ');
-    }
+    // У логина claude.ai тариф и почта стоят в строке имени, а вторую
+    // строку занимают полоски лимитов — endpoint там уже не нужен.
+    // Но если ни тарифа, ни почты нет (файлы CLI не прочитались),
+    // строка не должна оставаться пустой: показываем endpoint.
+    if (acc.oauth && (acc.plan || acc.email)) return '';
     return acc.model ? acc.baseUrl + '  ·  ' + acc.model : acc.baseUrl;
+  }
+
+  /** «Pro (почта)» — приписка к названию OAuth-аккаунта. */
+  function accountMeta(acc) {
+    if (!acc.oauth) return '';
+    var parts = [];
+    if (acc.plan) parts.push(acc.plan);
+    if (acc.email) parts.push('(' + acc.email + ')');
+    return parts.join(' ');
   }
 
   function accountRow(acc, btn, body) {
@@ -8154,28 +8162,48 @@
 
     var name = document.createElement('span');
     name.className = 'claude-accs-name';
-    name.textContent = acc.name;
+    var nameText = document.createElement('span');
+    nameText.textContent = acc.name;
+    name.appendChild(nameText);
+
+    // Тариф и почта — приписка в той же строке, приглушённая: имя
+    // аккаунта должно оставаться главным словом строки.
+    var meta = accountMeta(acc);
+    if (meta) {
+      var metaEl = document.createElement('span');
+      metaEl.className = 'claude-accs-meta';
+      metaEl.textContent = meta;
+      // Почта длинная и обрезается многоточием — под курсором должна
+      // читаться целиком.
+      metaEl.title = meta;
+      name.appendChild(metaEl);
+    }
     text.appendChild(name);
 
-    var sub = document.createElement('span');
-    sub.className = 'claude-accs-sub';
-    sub.textContent = accountSubtitle(acc);
-    // Строка узкая и обрезается многоточием — под курсором должно
-    // читаться целиком, особенно почта.
-    sub.title = sub.textContent;
-    text.appendChild(sub);
-
-    row.appendChild(text);
+    var subtitle = accountSubtitle(acc);
+    if (subtitle) {
+      var sub = document.createElement('span');
+      sub.className = 'claude-accs-sub';
+      sub.textContent = subtitle;
+      sub.title = subtitle;
+      text.appendChild(sub);
+    }
 
     // Лимиты приходят только у аккаунтов на OAuth-логине claude.ai —
     // у стороннего провайдера своих окон нет, и рисовать там нечего.
-    // Строку помечаем по acc.oauth, а не по наличию acc.usage: кэша
-    // может не быть вовсе, а место под свежие числа нужно всё равно.
+    // Помечаем по acc.oauth, а не по наличию acc.usage: кэша может не
+    // быть вовсе, а место под свежие числа нужно всё равно.
+    //
+    // Полоски идут второй строкой внутри текстовой колонки, а не
+    // справа от неё: почта занимает всю ширину строки имени, и справа
+    // от неё места уже нет.
     if (showUsage && acc.oauth) {
-      row.setAttribute(USAGE_HOST_ATTR, '1');
+      text.setAttribute(USAGE_HOST_ATTR, '1');
       var usage = usageBlock(acc.usage);
-      if (usage) row.appendChild(usage);
+      if (usage) text.appendChild(usage);
     }
+
+    row.appendChild(text);
 
     row.addEventListener('mousedown', function (e) { e.preventDefault(); });
     row.addEventListener('click', function (e) {
