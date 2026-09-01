@@ -1101,6 +1101,18 @@
   opacity: 0.45;
 }
 
+/* Идёт запрос свежих чисел у расширения. Полоски не прячем и не
+ * обнуляем: кэшированное значение — уже полезная правда, а мигание
+ * пустотой на полсекунды читалось бы как «лимитов нет». */
+.claude-accs-usage-busy {
+  animation: claude-accs-usage-pulse 1s ease-in-out infinite;
+}
+
+@keyframes claude-accs-usage-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
 .claude-accs-usage-row {
   display: flex;
   align-items: center;

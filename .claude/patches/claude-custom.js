@@ -7874,6 +7874,188 @@
     return 'обновлены ' + formatLeft(sec) + ' назад';
   }
 
+  // Атрибут-метка строки, которой полагаются полоски. Ставится по
+  // acc.oauth, поэтому свежие числа есть куда положить даже тогда,
+  // когда кэш пуст и при первой отрисовке полосок не было.
+  var USAGE_HOST_ATTR = 'data-claude-usage-host';
+
+  /**
+   * Окна лимитов: ключ в ответе API, подпись полоски, полное название.
+   *
+   * Таблица повторяет USAGE_WINDOWS из account_switcher.py — числа
+   * приходят двумя путями (кэш через сервер и живой ответ отсюда), и
+   * одно и то же окно не должно называться в них по-разному. Меняете
+   * здесь — правьте и там.
+   */
+  var USAGE_WINDOWS = [
+    ['five_hour', '5 ч', 'Сессия (5 часов)'],
+    ['seven_day', '7 дн', 'Неделя (7 дней)'],
+    ['seven_day_opus', 'Opus', 'Неделя, Opus'],
+    ['seven_day_sonnet', 'Sonnet', 'Неделя, Sonnet'],
+  ];
+
+  /**
+   * Приводит `rate_limits` из ответа расширения к тому же виду, в
+   * котором лимиты присылает сервер, — чтобы отрисовка была одна.
+   */
+  function windowsFromRateLimits(limits) {
+    if (!limits || typeof limits !== 'object') return null;
+    var windows = [];
+    for (var i = 0; i < USAGE_WINDOWS.length; i++) {
+      var key = USAGE_WINDOWS[i][0];
+      var w = limits[key];
+      if (!w || typeof w !== 'object') continue;
+      var pct = w.utilization;
+      if (typeof pct !== 'number' || !isFinite(pct)) continue;
+      var left = null;
+      if (typeof w.resets_at === 'string' && w.resets_at) {
+        var at = Date.parse(w.resets_at);
+        if (!isNaN(at)) left = Math.max(0, Math.round((at - Date.now()) / 1000));
+      }
+      windows.push({
+        key: key,
+        label: USAGE_WINDOWS[i][1],
+        title: USAGE_WINDOWS[i][2],
+        percent: pct,
+        resetsInSec: left,
+      });
+    }
+    return windows.length ? { windows: windows, ageSec: 0 } : null;
+  }
+
+  /* ---------- свежие лимиты у самого расширения ---------- */
+
+  /**
+   * Сервер отдаёт лимиты из кэша, который ведёт CLI (`~/.claude.json`),
+   * и обновляет он его, только когда его об этом просят: пока никто не
+   * открывал «Аккаунт и расход», числа стареют. Прецедент (2026-09-01):
+   * пятичасовое окно успело сброситься, штатное окно показывало 2%,
+   * а панель — 33% из вчерашнего кэша.
+   *
+   * Поэтому при открытии панели мы просим свежие числа у самого
+   * расширения — тем же вызовом `session.getUsage()`, которым их берёт
+   * штатное окно «Account & Usage». Побочный эффект тут главный: CLI
+   * при этом перезаписывает свой кэш, так что свежие числа достаются и
+   * серверу, и всем остальным потребителям.
+   *
+   * Объект сессии достаём из React-fiber — тем же приёмом, что
+   * `findSessionId` в CACHE USAGE BUTTON и `openConfig` в SETTINGS MENU
+   * FIX. Признак нужного объекта — метод `getUsage`.
+   */
+  function fiberOfEl(el) {
+    if (!el) return null;
+    var keys = Object.keys(el);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf('__reactFiber') === 0) return el[keys[i]];
+    }
+    return null;
+  }
+
+  function hasUsageApi(o) {
+    return !!o && typeof o === 'object' && typeof o.getUsage === 'function';
+  }
+
+  /** Ищет объект сессии в пропсах/состоянии одного fiber'а. */
+  function usageHolderIn(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    if (hasUsageApi(obj)) return obj;
+    var keys;
+    try { keys = Object.keys(obj); } catch (e) { return null; }
+    for (var i = 0; i < keys.length && i < 30; i++) {
+      var c;
+      try { c = obj[keys[i]]; } catch (e) { continue; }
+      if (hasUsageApi(c)) return c;
+      // Сессия бывает завёрнута в сигнал: значение лежит в `.value`.
+      if (c && typeof c === 'object' && hasUsageApi(c.value)) return c.value;
+    }
+    return null;
+  }
+
+  function findUsageHolder() {
+    var anchor = document.querySelector('[class*="inputContainer_"]')
+      || document.getElementById('root')
+      || document.body;
+    var fiber = fiberOfEl(anchor);
+    var hops = 0;
+    while (fiber && hops < 80) {
+      var found = usageHolderIn(fiber.memoizedProps)
+        || usageHolderIn(fiber.memoizedState);
+      if (found) return found;
+      // Состояние функционального компонента — связный список хуков.
+      var hook = fiber.memoizedState;
+      var n = 0;
+      while (hook && typeof hook === 'object' && n < 40) {
+        var got = usageHolderIn(hook.memoizedState);
+        if (got) return got;
+        hook = hook.next;
+        n++;
+      }
+      fiber = fiber.return;
+      hops++;
+    }
+    return null;
+  }
+
+  /** Перерисовывает полоски во всех строках, которым они положены. */
+  function applyUsage(body, usage) {
+    var hosts = body.querySelectorAll('[' + USAGE_HOST_ATTR + ']');
+    for (var i = 0; i < hosts.length; i++) {
+      var host = hosts[i];
+      var fresh = usageBlock(usage);
+      var old = host.querySelector('.claude-accs-usage');
+      if (!fresh) {
+        if (old) host.removeChild(old);
+        continue;
+      }
+      if (old) host.replaceChild(fresh, old);
+      else host.appendChild(fresh);
+    }
+  }
+
+  function markUsageBusy(body, busy) {
+    var blocks = body.querySelectorAll('.claude-accs-usage');
+    for (var i = 0; i < blocks.length; i++) {
+      blocks[i].classList.toggle('claude-accs-usage-busy', !!busy);
+    }
+  }
+
+  /**
+   * Просит у расширения свежие лимиты и заменяет ими показанные из кэша.
+   * Молчаливая: не вышло — остаются кэшированные числа, и подсказка
+   * честно называет их возраст.
+   */
+  function refreshUsage(body) {
+    if (!showUsage) return;
+    if (!body.querySelector('[' + USAGE_HOST_ATTR + ']')) return;
+    var holder = findUsageHolder();
+    if (!holder) {
+      logInfo('объект сессии с getUsage не найден — остаёмся на кэше');
+      return;
+    }
+    var promise;
+    try { promise = holder.getUsage(); } catch (e) { return; }
+    if (!promise || typeof promise.then !== 'function') return;
+
+    markUsageBusy(body, true);
+    promise.then(function (res) {
+      // Панель могли закрыть или перерисовать, пока шёл запрос.
+      if (!panel || !body.isConnected) return;
+      markUsageBusy(body, false);
+      var usage = res && res.usage;
+      var fresh = usage && windowsFromRateLimits(usage.rate_limits);
+      if (!fresh) {
+        logInfo('расширение не отдало лимиты — остаёмся на кэше');
+        return;
+      }
+      applyUsage(body, fresh);
+      logInfo('лимиты обновлены у расширения');
+    }, function (err) {
+      if (!panel || !body.isConnected) return;
+      markUsageBusy(body, false);
+      logInfo('getUsage отказал', err);
+    });
+  }
+
   function usageBlock(usage) {
     var wins = usage && usage.windows;
     if (!wins || !wins.length) return null;
@@ -7961,7 +8143,10 @@
 
     // Лимиты приходят только у аккаунтов на OAuth-логине claude.ai —
     // у стороннего провайдера своих окон нет, и рисовать там нечего.
-    if (showUsage && acc.usage) {
+    // Строку помечаем по acc.oauth, а не по наличию acc.usage: кэша
+    // может не быть вовсе, а место под свежие числа нужно всё равно.
+    if (showUsage && acc.oauth) {
+      row.setAttribute(USAGE_HOST_ATTR, '1');
       var usage = usageBlock(acc.usage);
       if (usage) row.appendChild(usage);
     }
@@ -8359,6 +8544,9 @@
         // Высота стала известна только сейчас — переставляем, иначе
         // длинный список уедет за верхний край окна.
         positionPanel(btn);
+        // Кэшированные числа уже на экране; свежие догоняют их через
+        // расширение (и заодно обновляют кэш для остальных).
+        refreshUsage(body);
       })
       .catch(function (err) {
         if (!panel) return;
