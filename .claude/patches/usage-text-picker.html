@@ -87,7 +87,7 @@
     height: var(--track-h, 16px);          /* ← настраивается на стенде */
     overflow: hidden;
     border-radius: calc(var(--track-h, 16px) / 2);
-    background: rgba(255,255,255,.3);
+    background: var(--track-backdrop, rgba(255,255,255,.3));  /* ← цвет со стенда */
   }
   .usage-fill {
     position: absolute; top: 0; left: 0; height: 100%;
@@ -137,7 +137,19 @@
     display: inline-block; width: 22px; height: 22px; margin-right: 8px;
     border-radius: 4px; border: 1px solid rgba(255,255,255,.25); vertical-align: middle;
   }
+  /* Переключатель цели колеса: красим текст или подложку пустой
+   * шкалы. Одно колесо — две цели, размер страницы не растёт. */
+  .targets {
+    display: flex; width: 260px; margin: 0 auto 10px;
+    border: 1px solid rgba(255,255,255,.2); border-radius: 6px; overflow: hidden;
+  }
+  .targets button {
+    flex: 1; padding: 5px 0; border: 0; background: #222; color: #ccc;
+    cursor: pointer; font: 12px inherit;
+  }
+  .targets button.on { background: #3a3a3a; color: #fff; }
   .presets { margin: 10px 0 4px; text-align: center; }
+  .presets.hidden { display: none; }
   .presets button {
     padding: 3px 8px; margin: 2px; border-radius: 4px; cursor: pointer;
     border: 1px solid rgba(255,255,255,.2); background: #222; color: #ddd; font: 11px inherit;
@@ -173,8 +185,9 @@
   чистой подложке). Цвет выбирается большим колесом и применяется сразу,
   при движении мыши; полоска под ним задаёт яркость. Ниже — параметры
   текста: размер, толщина, шрифт, межбуквенный интервал, тень и высота
-  самой шкалы (крупный кегль в низкую шкалу не помещается). Таблица
-  считает контраст цвета с каждым фоном: зелёная отметка ≥ 4.5:1.
+  самой шкалы (крупный кегль в низкую шкалу не помещается). Вкладки над
+  колесом переключают цель: красится текст или подложка пустой шкалы
+  (её цвет тоже участвует в таблице контрастов).
 </p>
 
 <!-- Вариант A -->
@@ -196,14 +209,24 @@
     </div>
   </div>
   <div class="controls">
+    <div class="targets" data-for="a">
+      <button data-target="text" class="on">Цвет текста</button>
+      <button data-target="bg">Цвет подложки</button>
+    </div>
     <canvas class="wheel" id="wheel-a" width="260" height="260"></canvas>
     <canvas class="vslider" id="vslider-a" width="260" height="16"></canvas>
     <div class="hex-row"><span class="swatch" id="swatch-a"></span><input type="text" id="hex-a" value="#ffffff"></div>
-    <div class="presets" data-for="a">
+    <div class="presets" data-for="a" data-target="text">
       <button data-hex="#ffffff">белый</button>
       <button data-hex="#10151b">тёмный</button>
       <button data-hex="#000000">чёрный</button>
       <button data-hex="#2b3138">графит</button>
+    </div>
+    <div class="presets hidden" data-for="a" data-target="bg">
+      <button data-hex="#626262">живой (0.3)</button>
+      <button data-hex="#848484">светлее (0.45)</button>
+      <button data-hex="#3a3a3a">темнее</button>
+      <button data-hex="#ffffff">белый</button>
     </div>
     <div class="params" data-for="a">
       <h3>Параметры текста</h3>
@@ -254,14 +277,24 @@
     </div>
   </div>
   <div class="controls">
+    <div class="targets" data-for="b">
+      <button data-target="text" class="on">Цвет текста</button>
+      <button data-target="bg">Цвет подложки</button>
+    </div>
     <canvas class="wheel" id="wheel-b" width="260" height="260"></canvas>
     <canvas class="vslider" id="vslider-b" width="260" height="16"></canvas>
     <div class="hex-row"><span class="swatch" id="swatch-b"></span><input type="text" id="hex-b" value="#10151b"></div>
-    <div class="presets" data-for="b">
+    <div class="presets" data-for="b" data-target="text">
       <button data-hex="#ffffff">белый</button>
       <button data-hex="#10151b">тёмный</button>
       <button data-hex="#000000">чёрный</button>
       <button data-hex="#2b3138">графит</button>
+    </div>
+    <div class="presets hidden" data-for="b" data-target="bg">
+      <button data-hex="#626262">живой (0.3)</button>
+      <button data-hex="#848484">светлее (0.45)</button>
+      <button data-hex="#3a3a3a">темнее</button>
+      <button data-hex="#ffffff">белый</button>
     </div>
     <div class="params" data-for="b">
       <h3>Параметры текста</h3>
@@ -472,18 +505,32 @@
 
   /* ---------- применение варианта ---------- */
 
-  function apply(which, hex) {
+  // Живой цвет подложки — композит rgba(255,255,255,.3) над панелью.
+  var BACKDROP_LIVE = rgb2hex(BACKDROP);
+
+  /** Цвета и цель колеса для каждого варианта.
+   *  text — цвет надписи, bg — цвет подложки пустой шкалы. */
+  var state = {
+    a: { text: '#ffffff', bg: BACKDROP_LIVE },
+    b: { text: '#10151b', bg: BACKDROP_LIVE },
+  };
+
+  function apply(which) {
+    var st = state[which];
     var panel = document.getElementById('panel-' + which);
     var table = document.getElementById('ratios-' + which);
-    var rgb = hex2rgb(hex);
+    var rgb = hex2rgb(st.text);
     if (!rgb) return;
-    panel.style.setProperty('--picker-text', rgb2hex(rgb));
+    panel.style.setProperty('--picker-text', st.text);
+    panel.style.setProperty('--track-backdrop', st.bg);
 
+    // Подложка в таблице — выбранная, а не живая: стенд подбирает её.
+    var bg = Object.assign({}, BG, { 'подложка': hex2rgb(st.bg) || BACKDROP });
     var rows = '';
-    for (var name in BG) {
-      var r = ratio(rgb, BG[name]);
+    for (var name in bg) {
+      var r = ratio(rgb, bg[name]);
       var cls = r >= 4.5 ? 'ok' : 'bad';
-      rows += '<tr><td><span class="sw" style="background:' + rgb2hex(BG[name]) + '"></span>' + name +
+      rows += '<tr><td><span class="sw" style="background:' + rgb2hex(bg[name]) + '"></span>' + name +
         '</td><td class="' + cls + '">' + r.toFixed(1) + ':1' +
         (r >= 4.5 ? ' ✓' : ' —') + '</td></tr>';
     }
@@ -505,15 +552,38 @@
   ['a', 'b'].forEach(function (which) {
     var panel = document.getElementById('panel-' + which);
     var hexField = document.getElementById('hex-' + which);
-    var presets = document.querySelector('.presets[data-for="' + which + '"]');
-    var start = which === 'a' ? '#ffffff' : '#10151b';
+    var targets = document.querySelector('.targets[data-for="' + which + '"]');
+    var st = state[which];
+    // Колесо красит то, что выбрано вкладкой; вкладка при переключении
+    // подставляет в колесо текущий цвет новой цели.
+    var target = 'text';
 
-    var wheelCtl = makeWheel(which, start, function (hex) { apply(which, hex); });
-    apply(which, start);
+    var wheelCtl = makeWheel(which, st.text, function (hex) {
+      st[target] = hex;
+      apply(which);
+    });
+    apply(which);
+
+    function retarget(next) {
+      if (next === target) return;
+      target = next;
+      targets.querySelectorAll('button').forEach(function (b) {
+        b.classList.toggle('on', b.dataset.target === target);
+      });
+      document.querySelectorAll('.presets[data-for="' + which + '"]').forEach(function (pr) {
+        pr.classList.toggle('hidden', pr.dataset.target !== target);
+      });
+      wheelCtl.set(st[target]);
+    }
+    targets.addEventListener('click', function (e) {
+      if (e.target.dataset.target) retarget(e.target.dataset.target);
+    });
 
     hexField.addEventListener('change', function () { wheelCtl.set(hexField.value); });
-    presets.addEventListener('click', function (e) {
-      if (e.target.dataset.hex) wheelCtl.set(e.target.dataset.hex);
+    document.querySelectorAll('.presets[data-for="' + which + '"]').forEach(function (pr) {
+      pr.addEventListener('click', function (e) {
+        if (e.target.dataset.hex) wheelCtl.set(e.target.dataset.hex);
+      });
     });
 
     PARAMS.forEach(function (p) {
