@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<!--
+  Стенд подбора цвета текста внутри шкал лимитов панели Accs.
+
+  Автономная страница: открывается в любом браузере (file:// или
+  xdg-open), ни от чего не зависит и в webview расширения не участвует.
+  Стили скопированы из claude-custom.css на 2026-09-01 (живое состояние
+  после ручного отката к двухслойной схеме 55.2): те же размеры шкалы,
+  палитра уровней расхода, подложка 0.3.
+
+  Здесь текст в шкалах красится ОДНИМ выбранным цветом (без слоёв) —
+  это и есть предмет подбора: найти цвет, читаемый на всех пяти фонах
+  (четыре заливки + подложка). Рядом с каждым вариантом живой расчёт
+  контраста по WCAG: ≥4.5 — зелёная отметка, ниже — красная.
+
+  Два варианта (A и B) — чтобы сравнить два кандидата одновременно.
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Подбор цвета текста в шкалах лимитов</title>
+<style>
+  :root {
+    --panel-bg: #1f1f1f;
+    --panel-fg: #ddd;
+    --track-w: 118px;
+    --lvl0: #3fb950;
+    --lvl1: #e3b341;
+    --lvl2: #f0883e;
+    --lvl3: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px;
+    background: #141414;
+    color: #ccc;
+    font: 13px/1.5 var(--system, system-ui, sans-serif);
+  }
+  h1 { font-size: 16px; margin: 0 0 6px; }
+  .intro { max-width: 720px; opacity: .7; margin: 0 0 24px; }
+
+  .variant { margin-bottom: 28px; }
+  .variant-title { font-weight: 600; margin-bottom: 8px; }
+
+  /* --- копия строки аккаунта из панели Accs ----------------------- */
+  .accs-panel {
+    display: inline-block;
+    padding: 10px 12px;
+    background: var(--panel-bg);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 8px;
+    color: var(--panel-fg);
+    font-size: 12px;
+    vertical-align: top;
+  }
+  .accs-row { display: flex; align-items: flex-start; gap: 8px; }
+  .accs-mark { flex: 0 0 12px; color: #89d185; line-height: 1.45; }
+  .accs-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+  .accs-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; line-height: 1.45; }
+  .accs-meta {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: ui-monospace, monospace; font-size: 11px; opacity: .6;
+  }
+  .usage { display: flex; flex-direction: row; align-items: center; gap: 12px; width: 100%; min-width: 0; margin-top: 4px; }
+  .usage-row { display: flex; align-items: center; flex: 0 0 auto; gap: 5px; }
+  .usage-label { flex: 0 0 auto; font-size: 12px; line-height: 1; color: #fff; white-space: nowrap; }
+  .usage-track {
+    position: relative;
+    flex: 0 0 var(--track-w);
+    height: 16px;
+    overflow: hidden;
+    border-radius: 8px;
+    background: rgba(255,255,255,.3);
+  }
+  .usage-fill { position: absolute; top: 0; left: 0; height: 100%; border-radius: 8px; }
+  .usage-when {
+    position: absolute; top: 0; left: 0;
+    display: flex; align-items: center; justify-content: center;
+    width: var(--track-w); height: 100%;
+    font-size: 10px; line-height: 1; font-weight: 600; white-space: nowrap;
+    color: var(--picker-text, #fff);      /* ← цвет со стенда */
+    pointer-events: none;
+  }
+  .usage-pct { flex: 0 0 32px; font-size: 12px; line-height: 1; font-variant-numeric: tabular-nums; text-align: left; }
+
+  /* --- управление вариантом ---------------------------------------- */
+  .controls {
+    display: inline-block;
+    vertical-align: top;
+    margin-left: 16px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 8px;
+    background: #1a1a1a;
+  }
+  .controls label { display: block; margin-bottom: 6px; }
+  .controls input[type=color] {
+    width: 44px; height: 26px; padding: 0; border: 1px solid rgba(255,255,255,.2);
+    border-radius: 4px; background: none; cursor: pointer; vertical-align: middle;
+  }
+  .controls input[type=text] {
+    width: 84px; padding: 3px 6px; border: 1px solid rgba(255,255,255,.2);
+    border-radius: 4px; background: #111; color: #eee; font: 12px ui-monospace, monospace;
+    vertical-align: middle;
+  }
+  .presets { margin: 8px 0 10px; }
+  .presets button {
+    padding: 3px 8px; margin-right: 4px; border-radius: 4px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.2); background: #222; color: #ddd; font: 11px inherit;
+  }
+  .presets button:hover { background: #333; }
+  table.ratios { border-collapse: collapse; font-size: 11px; }
+  table.ratios td { padding: 2px 10px 2px 0; white-space: nowrap; }
+  table.ratios .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .ok  { color: #3fb950; }
+  .bad { color: #f85149; }
+</style>
+</head>
+<body>
+
+<h1>Подбор цвета текста в шкалах лимитов</h1>
+<p class="intro">
+  В каждой карточке — строка аккаунта Anthropic и четыре шкалы всех
+  цветов уровней расхода. Текст внутри шкалы красится выбранным цветом
+  одним слоем. Заполнение шкал (15 / 40 / 65 / 90%) подобрано так,
+  чтобы под текстом оказывались и заливка, и подложка — как в живой
+  панели. Ниже — контраст выбранного цвета с каждым фоном: зелёная
+  отметка ≥ 4.5:1 (WCAG AA), красная — ниже.
+</p>
+
+<!-- Вариант A -->
+<div class="variant">
+  <div class="variant-title">Вариант A</div>
+  <div class="accs-panel" id="panel-a">
+    <div class="accs-row">
+      <span class="accs-mark">✓</span>
+      <span class="accs-text">
+        <span class="accs-name">Anthropic <span class="accs-meta">Pro (ckfkzzxtr9@privaterelay.appleid.com)</span></span>
+        <span class="usage">
+          <span class="usage-row"><span class="usage-label">5 ч</span><span class="usage-track"><span class="usage-fill" style="width:15%;background:var(--lvl0)"></span><span class="usage-when">4 ч 44 мин</span></span><span class="usage-pct" style="color:var(--lvl0)">15%</span></span>
+          <span class="usage-row"><span class="usage-label">7 дн</span><span class="usage-track"><span class="usage-fill" style="width:40%;background:var(--lvl1)"></span><span class="usage-when">5 д 11 ч</span></span><span class="usage-pct" style="color:var(--lvl1)">40%</span></span>
+          <span class="usage-row"><span class="usage-label">Opus</span><span class="usage-track"><span class="usage-fill" style="width:65%;background:var(--lvl2)"></span><span class="usage-when">6 д 2 ч</span></span><span class="usage-pct" style="color:var(--lvl2)">65%</span></span>
+          <span class="usage-row"><span class="usage-label">Sonnet</span><span class="usage-track"><span class="usage-fill" style="width:90%;background:var(--lvl3)"></span><span class="usage-when">2 д 18 ч</span></span><span class="usage-pct" style="color:var(--lvl3)">90%</span></span>
+        </span>
+      </span>
+    </div>
+  </div>
+  <div class="controls">
+    <label>Цвет текста <input type="color" id="pick-a" value="#ffffff"> <input type="text" id="hex-a" value="#ffffff"></label>
+    <div class="presets" data-for="a">
+      <button data-hex="#ffffff">белый</button>
+      <button data-hex="#10151b">тёмный</button>
+      <button data-hex="#000000">чёрный</button>
+      <button data-hex="#2b3138">графит</button>
+    </div>
+    <table class="ratios" id="ratios-a"></table>
+  </div>
+</div>
+
+<!-- Вариант B -->
+<div class="variant">
+  <div class="variant-title">Вариант B</div>
+  <div class="accs-panel" id="panel-b">
+    <div class="accs-row">
+      <span class="accs-mark">✓</span>
+      <span class="accs-text">
+        <span class="accs-name">Anthropic <span class="accs-meta">Pro (ckfkzzxtr9@privaterelay.appleid.com)</span></span>
+        <span class="usage">
+          <span class="usage-row"><span class="usage-label">5 ч</span><span class="usage-track"><span class="usage-fill" style="width:15%;background:var(--lvl0)"></span><span class="usage-when">4 ч 44 мин</span></span><span class="usage-pct" style="color:var(--lvl0)">15%</span></span>
+          <span class="usage-row"><span class="usage-label">7 дн</span><span class="usage-track"><span class="usage-fill" style="width:40%;background:var(--lvl1)"></span><span class="usage-when">5 д 11 ч</span></span><span class="usage-pct" style="color:var(--lvl1)">40%</span></span>
+          <span class="usage-row"><span class="usage-label">Opus</span><span class="usage-track"><span class="usage-fill" style="width:65%;background:var(--lvl2)"></span><span class="usage-when">6 д 2 ч</span></span><span class="usage-pct" style="color:var(--lvl2)">65%</span></span>
+          <span class="usage-row"><span class="usage-label">Sonnet</span><span class="usage-track"><span class="usage-fill" style="width:90%;background:var(--lvl3)"></span><span class="usage-when">2 д 18 ч</span></span><span class="usage-pct" style="color:var(--lvl3)">90%</span></span>
+        </span>
+      </span>
+    </div>
+  </div>
+  <div class="controls">
+    <label>Цвет текста <input type="color" id="pick-b" value="#10151b"> <input type="text" id="hex-b" value="#10151b"></label>
+    <div class="presets" data-for="b">
+      <button data-hex="#ffffff">белый</button>
+      <button data-hex="#10151b">тёмный</button>
+      <button data-hex="#000000">чёрный</button>
+      <button data-hex="#2b3138">графит</button>
+    </div>
+    <table class="ratios" id="ratios-b"></table>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Подложка шкалы — rgba(255,255,255,.3) поверх панели #1f1f1f;
+  // контраст с полупрозрачным фоном считаем по композиту.
+  var PANEL = [0x1f, 0x1f, 0x1f];
+  var BACKDROP = mix([255, 255, 255], PANEL, 0.3);
+  var BG = {
+    'зелёная заливка': [0x3f, 0xb9, 0x50],
+    'жёлтая заливка': [0xe3, 0xb3, 0x41],
+    'оранжевая заливка': [0xf0, 0x88, 0x3e],
+    'красная заливка': [0xf8, 0x51, 0x49],
+    'подложка': BACKDROP,
+  };
+
+  function mix(top, bottom, alpha) {
+    return top.map(function (v, i) {
+      return Math.round(v * alpha + bottom[i] * (1 - alpha));
+    });
+  }
+  function hex2rgb(h) {
+    h = String(h).replace('#', '').trim();
+    if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  function rgb2hex(rgb) {
+    return '#' + rgb.map(function (v) {
+      return ('0' + v.toString(16)).slice(-2);
+    }).join('');
+  }
+  function luminance(rgb) {
+    var f = rgb.map(function (v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2];
+  }
+  function ratio(a, b) {
+    var l1 = luminance(a), l2 = luminance(b);
+    var hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  function apply(which, hex) {
+    var panel = document.getElementById('panel-' + which);
+    var picker = document.getElementById('pick-' + which);
+    var field = document.getElementById('hex-' + which);
+    var table = document.getElementById('ratios-' + which);
+    var rgb = hex2rgb(hex);
+    if (!rgb) { field.style.borderColor = '#f85149'; return; }
+    field.style.borderColor = '';
+    picker.value = rgb2hex(rgb);
+    field.value = rgb2hex(rgb);
+    panel.style.setProperty('--picker-text', rgb2hex(rgb));
+
+    var rows = '';
+    for (var name in BG) {
+      var r = ratio(rgb, BG[name]);
+      var cls = r >= 4.5 ? 'ok' : 'bad';
+      rows += '<tr><td><span class="sw" style="background:' + rgb2hex(BG[name]) + '"></span>' + name +
+        '</td><td class="' + cls + '">' + r.toFixed(1) + ':1' +
+        (r >= 4.5 ? ' ✓' : ' —') + '</td></tr>';
+    }
+    table.innerHTML = rows;
+  }
+
+  ['a', 'b'].forEach(function (which) {
+    var picker = document.getElementById('pick-' + which);
+    var field = document.getElementById('hex-' + which);
+    picker.addEventListener('input', function () { apply(which, picker.value); });
+    field.addEventListener('change', function () { apply(which, field.value); });
+    var presets = document.querySelector('.presets[data-for="' + which + '"]');
+    presets.addEventListener('click', function (e) {
+      if (e.target.dataset.hex) apply(which, e.target.dataset.hex);
+    });
+    apply(which, picker.value);
+  });
+})();
+</script>
+</body>
+</html>
