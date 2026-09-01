@@ -1143,7 +1143,30 @@
   background: var(--app-progressbar-background, var(--vscode-charts-blue, #4daafc));
 }
 
-.claude-accs-usage-fill-high {
+/* У каждого окна свой цвет: две одноцветные полоски одна под другой
+ * читаются как одна шкала, разбитая пополам, и взгляд не различает,
+ * где сессия, а где неделя. Палитра из переменных VSCode — живёт в
+ * любой теме; при их отсутствии подставляются близкие значения.
+ * Незнакомому окну цвет не назначается: оно останется базовым, а не
+ * притворится знакомым. */
+.claude-accs-usage-fill[data-window="five_hour"] {
+  background: var(--vscode-charts-blue, #4daafc);
+}
+.claude-accs-usage-fill[data-window="seven_day"] {
+  background: var(--vscode-charts-purple, #b180d7);
+}
+.claude-accs-usage-fill[data-window="seven_day_opus"] {
+  background: var(--vscode-charts-green, #89d185);
+}
+.claude-accs-usage-fill[data-window="seven_day_sonnet"] {
+  background: var(--vscode-charts-yellow, #d7ba7d);
+}
+
+/* Близость к лимиту важнее собственного цвета окна: у самой границы
+ * полоска обязана читаться как предупреждение. Двойной класс — чтобы
+ * правило перевешивало селекторы с атрибутом (у них та же
+ * специфичность, и без этого выигрывал бы просто последний). */
+.claude-accs-usage-fill.claude-accs-usage-fill-high {
   background: var(--app-claude-orange, var(--vscode-charts-orange, #d97757));
 }
 

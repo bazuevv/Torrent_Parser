@@ -8085,6 +8085,9 @@
       var fill = document.createElement('span');
       fill.className = 'claude-accs-usage-fill'
         + (shown >= USAGE_HIGH_PCT ? ' claude-accs-usage-fill-high' : '');
+      // Цвет полоски задаёт CSS по ключу окна: держать палитру в JS
+      // значило бы требовать Reload Window на каждый подбор оттенка.
+      if (w.key) fill.setAttribute('data-window', w.key);
       fill.style.width = shown + '%';
       track.appendChild(fill);
       line.appendChild(track);
@@ -8103,6 +8106,29 @@
     lines.push('Данные Claude Code, ' + formatAge(usage.ageSec));
     box.title = lines.join('\n');
     return box;
+  }
+
+  /**
+   * Подпись под названием аккаунта.
+   *
+   * У логина claude.ai это тариф и почта: endpoint у него всегда
+   * `api.anthropic.com`, одинаковый у любого такого аккаунта, и в
+   * строке он не отличает его ни от чего. У аккаунта провайдера
+   * наоборот — адрес и модель и есть всё различие.
+   *
+   * Тариф идёт первым, потому что он короткий: длинная почта уходит
+   * под многоточие, и обрезаться должна именно она, а не он. Модель
+   * показываем только когда она задана явно — пустой разделитель
+   * выглядел бы как потерянное значение.
+   */
+  function accountSubtitle(acc) {
+    if (acc.oauth && (acc.plan || acc.email)) {
+      var parts = [];
+      if (acc.plan) parts.push(acc.plan);
+      if (acc.email) parts.push(acc.email);
+      return parts.join('  ·  ');
+    }
+    return acc.model ? acc.baseUrl + '  ·  ' + acc.model : acc.baseUrl;
   }
 
   function accountRow(acc, btn, body) {
@@ -8133,10 +8159,10 @@
 
     var sub = document.createElement('span');
     sub.className = 'claude-accs-sub';
-    // Модель показываем только когда она в файле задана явно: у
-    // Anthropic-настроек её нет, и пустой разделитель выглядел бы
-    // как потерянное значение.
-    sub.textContent = acc.model ? acc.baseUrl + '  ·  ' + acc.model : acc.baseUrl;
+    sub.textContent = accountSubtitle(acc);
+    // Строка узкая и обрезается многоточием — под курсором должно
+    // читаться целиком, особенно почта.
+    sub.title = sub.textContent;
     text.appendChild(sub);
 
     row.appendChild(text);

@@ -47,9 +47,24 @@ BACKUP_FILE = SETTINGS_FILE + ".bak"
 ACTIVE_MARKER = os.path.join(CLAUDE_DIR, ".active-account")
 
 # Глобальное состояние самого Claude Code — не настройки, а его рабочий
-# файл. Нам оттуда нужен только кэш лимитов подписки claude.ai
-# (`cachedUsageUtilization`), см. anthropic_usage().
+# файл. Нам оттуда нужен кэш лимитов подписки claude.ai
+# (`cachedUsageUtilization`, см. anthropic_usage()) и почта логина.
 CONFIG_JSON = os.path.expanduser("~/.claude.json")
+
+# Токены OAuth-логина. Читаем ровно одно поле — тариф подписки;
+# ни токены, ни их части наружу не уходят и в журнал не пишутся.
+CREDENTIALS_JSON = os.path.join(CLAUDE_DIR, ".credentials.json")
+
+# Тариф из credentials → как его называет сам Claude. Незнакомое
+# значение показываем как есть с большой буквы: список планов меняется
+# чаще, чем наш код.
+PLAN_NAMES = {
+    "pro": "Pro",
+    "max": "Max",
+    "team": "Team",
+    "enterprise": "Enterprise",
+    "free": "Free",
+}
 
 # Имя базового файла — он же аккаунт по умолчанию.
 BASE_NAME = "settings.json"
@@ -347,6 +362,48 @@ USAGE_WINDOWS = (
 )
 
 
+def anthropic_identity() -> dict:
+    """Почта и тариф логина claude.ai — то, чем аккаунт узнаётся в лицо.
+
+    Endpoint у такого аккаунта всегда `api.anthropic.com`, и в строке
+    панели он не говорит ни о чём: одинаков у любого OAuth-аккаунта.
+    Почта с тарифом отличают его от соседнего, поэтому подпись строки
+    строится из них. У аккаунта провайдера наоборот — адрес и модель
+    там и есть всё различие, их и показываем.
+
+    Почта лежит в рабочем файле CLI, тариф — в его же credentials рядом
+    с токенами. Берём оттуда ровно одно поле; ни токены, ни их части
+    наружу не уходят и в журнал не пишутся.
+
+    Пустой словарь означает «показывать нечего» — панель в этом случае
+    возвращается к endpoint'у.
+    """
+    identity: dict = {}
+
+    try:
+        with open(CONFIG_JSON, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        account = data.get("oauthAccount") if isinstance(data, dict) else None
+        email = account.get("emailAddress") if isinstance(account, dict) else None
+        if isinstance(email, str) and email.strip():
+            identity["email"] = email.strip()
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    try:
+        with open(CREDENTIALS_JSON, "r", encoding="utf-8") as fh:
+            creds = json.load(fh)
+        oauth = creds.get("claudeAiOauth") if isinstance(creds, dict) else None
+        plan = oauth.get("subscriptionType") if isinstance(oauth, dict) else None
+        if isinstance(plan, str) and plan.strip():
+            key = plan.strip().lower()
+            identity["plan"] = PLAN_NAMES.get(key, key.capitalize())
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    return identity
+
+
 def _resets_in_sec(value) -> int | None:
     """Сколько секунд осталось до сброса окна (None — время не разобрать)."""
     if not isinstance(value, str) or not value:
@@ -471,9 +528,10 @@ def list_accounts() -> list[dict]:
     `settings_foo.json` появляется в панели сам.
     """
     current = get_current_account()
-    # Лимиты читаются один раз на список: файл общий, а аккаунтов
-    # на OAuth-логине может оказаться больше одного.
+    # Лимиты и данные логина читаются один раз на список: файлы общие,
+    # а аккаунтов на OAuth-логине может оказаться больше одного.
     usage = anthropic_usage()
+    identity = anthropic_identity()
     accounts = []
     for path in sorted(glob.glob(os.path.join(CLAUDE_DIR, "settings*.json"))):
         filename = os.path.basename(path)
@@ -490,9 +548,12 @@ def list_accounts() -> list[dict]:
         }
         # Лимиты принадлежат логину claude.ai, а не активному аккаунту:
         # пока сессия идёт через стороннего провайдера, они не тратятся,
-        # но остаются тем, что ждёт при возврате на Anthropic.
-        if info["oauth"] and usage:
-            entry["usage"] = usage
+        # но остаются тем, что ждёт при возврате на Anthropic. Почта и
+        # тариф — по той же причине: это свойства логина.
+        if info["oauth"]:
+            if usage:
+                entry["usage"] = usage
+            entry.update(identity)
         accounts.append(entry)
 
     # Базовый аккаунт первым, остальные по алфавиту.
