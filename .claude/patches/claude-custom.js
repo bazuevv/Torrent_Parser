@@ -8076,7 +8076,11 @@
       line.className = 'claude-accs-usage-row';
 
       var label = document.createElement('span');
-      label.className = 'claude-accs-usage-label';
+      // Подпись красится в цвет своей шкалы — тем же ключом окна, что и
+      // заливка: пара «подпись + шкала» должна читаться как одно целое.
+      label.className = 'claude-accs-usage-label'
+        + (shown >= USAGE_HIGH_PCT ? ' claude-accs-usage-label-high' : '');
+      if (w.key) label.setAttribute('data-window', w.key);
       label.textContent = w.label || '';
       line.appendChild(label);
 

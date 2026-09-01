@@ -1172,8 +1172,14 @@
   flex: 0 0 auto;
   font-size: 12px;
   line-height: 1;
-  color: #fff;
+  color: var(--claude-usage-color, #fff);
   white-space: nowrap;
+}
+
+/* У самой границы лимита подпись уходит в тревожный цвет вместе со
+ * шкалой — иначе пара распалась бы на два разных цвета. */
+.claude-accs-usage-label-high {
+  color: var(--app-claude-orange, var(--vscode-charts-orange, #d97757));
 }
 
 /* Шкала тянется на всё свободное место строки. Неизрасходованная часть
@@ -1199,7 +1205,8 @@
   display: block;
   height: 100%;
   border-radius: 4px;
-  background: var(--app-progressbar-background, var(--vscode-charts-blue, #4daafc));
+  background: var(--claude-usage-color,
+                   var(--app-progressbar-background, var(--vscode-charts-blue, #4daafc)));
 }
 
 /* У каждого окна свой цвет: две одноцветные полоски одна под другой
@@ -1207,18 +1214,26 @@
  * где сессия, а где неделя. Палитра из переменных VSCode — живёт в
  * любой теме; при их отсутствии подставляются близкие значения.
  * Незнакомому окну цвет не назначается: оно останется базовым, а не
- * притворится знакомым. */
-.claude-accs-usage-fill[data-window="five_hour"] {
-  background: var(--vscode-charts-blue, #4daafc);
+ * притворится знакомым.
+ *
+ * Цвет записан один раз в переменную и достаётся и шкале, и её
+ * подписи: пара «подпись + шкала» должна читаться как одно целое, и
+ * два места с одним оттенком рано или поздно разошлись бы. */
+.claude-accs-usage-fill[data-window="five_hour"],
+.claude-accs-usage-label[data-window="five_hour"] {
+  --claude-usage-color: var(--vscode-charts-blue, #4daafc);
 }
-.claude-accs-usage-fill[data-window="seven_day"] {
-  background: var(--vscode-charts-purple, #b180d7);
+.claude-accs-usage-fill[data-window="seven_day"],
+.claude-accs-usage-label[data-window="seven_day"] {
+  --claude-usage-color: var(--vscode-charts-purple, #b180d7);
 }
-.claude-accs-usage-fill[data-window="seven_day_opus"] {
-  background: var(--vscode-charts-green, #89d185);
+.claude-accs-usage-fill[data-window="seven_day_opus"],
+.claude-accs-usage-label[data-window="seven_day_opus"] {
+  --claude-usage-color: var(--vscode-charts-green, #89d185);
 }
-.claude-accs-usage-fill[data-window="seven_day_sonnet"] {
-  background: var(--vscode-charts-yellow, #d7ba7d);
+.claude-accs-usage-fill[data-window="seven_day_sonnet"],
+.claude-accs-usage-label[data-window="seven_day_sonnet"] {
+  --claude-usage-color: var(--vscode-charts-yellow, #d7ba7d);
 }
 
 /* Близость к лимиту важнее собственного цвета окна: у самой границы
@@ -1247,7 +1262,6 @@
 
 /* Белый — цвет тёмной темы; в светлой он был бы невидим, там берём
  * штатный цвет текста. */
-.vscode-light .claude-accs-usage-label,
 .vscode-light .claude-accs-usage-pct {
   color: var(--app-primary-foreground, #1f1f1f);
 }
