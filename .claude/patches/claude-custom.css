@@ -1151,11 +1151,14 @@
   gap: 5px;
 }
 
+/* Подписи окон и проценты — тем же кеглем, что и остальной текст
+ * панели, и без приглушения: это не служебная мелочь, а то, ради чего
+ * строку и открывают. */
 .claude-accs-usage-label {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
-  opacity: 0.6;
+  color: #fff;
   white-space: nowrap;
 }
 
@@ -1166,8 +1169,7 @@
  * у переменных расширения нет оттенка нужной светлоты, а color-mix
  * этот webview не понимает (как и `:has()`). */
 .claude-accs-usage-track {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 0 81px;
   height: 7px;
   overflow: hidden;
   border-radius: 4px;
@@ -1218,12 +1220,19 @@
 /* Ширина колонки процентов фиксирована: иначе «9%» и «100%» дали бы
  * шкалам разную длину, и сравнивать их стало бы нельзя. */
 .claude-accs-usage-pct {
-  flex: 0 0 28px;
-  font-size: 10px;
+  flex: 0 0 34px;
+  font-size: 12px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   text-align: right;
-  opacity: 0.75;
+  color: #fff;
+}
+
+/* Белый — цвет тёмной темы; в светлой он был бы невидим, там берём
+ * штатный цвет текста. */
+.vscode-light .claude-accs-usage-label,
+.vscode-light .claude-accs-usage-pct {
+  color: var(--app-primary-foreground, #1f1f1f);
 }
 
 .claude-accs-foot {
