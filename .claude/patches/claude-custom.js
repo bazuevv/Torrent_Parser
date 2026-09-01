@@ -8097,31 +8097,17 @@
       fill.style.width = shown + '%';
       track.appendChild(fill);
 
-      // Время до сброса — внутри шкалы, двумя слоями. Надпись лежит на
-      // двух разных фонах сразу: слева заливка окна, справа светлая
-      // подложка, — и один цвет читался бы плохо на одном из них.
-      // Поэтому текст рисуется дважды: нижний слой в цвете для
-      // подложки, верхний — в цвете для заливки и обрезан ровно по её
-      // ширине. Цвет меняется точно на границе заливки, а не «в
-      // среднем по шкале».
-      //
-      // Оба слоя одной ширины (ширина шкалы) и с одинаковым
-      // выравниванием — иначе буквы верхнего слоя не встали бы точно
-      // над буквами нижнего и на стыке двоились бы.
+      // Время до сброса — внутри шкалы, одним слоем и всегда тёмным
+      // цветом: это единственный цвет, читаемый на всех пяти фонах
+      // сразу (четыре заливки средней светлоты + светлая подложка).
+      // Менять цвет по границе заливки двумя слоями нельзя: сглаживание
+      // глифов смешивается с нижним текстом, а не с фоном, и буквы
+      // получают белую кайму (прецедент 55.2).
       if (left) {
-        var under = document.createElement('span');
-        under.className = 'claude-accs-usage-when';
-        under.textContent = left;
-        track.appendChild(under);
-
-        var clip = document.createElement('span');
-        clip.className = 'claude-accs-usage-clip';
-        clip.style.width = shown + '%';
-        var over = document.createElement('span');
-        over.className = 'claude-accs-usage-when claude-accs-usage-when-on-fill';
-        over.textContent = left;
-        clip.appendChild(over);
-        track.appendChild(clip);
+        var when = document.createElement('span');
+        when.className = 'claude-accs-usage-when';
+        when.textContent = left;
+        track.appendChild(when);
       }
       line.appendChild(track);
 
