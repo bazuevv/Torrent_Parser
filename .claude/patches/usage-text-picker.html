@@ -10,8 +10,10 @@
 
   Здесь текст в шкалах красится ОДНИМ выбранным цветом (без слоёв) —
   это и есть предмет подбора: найти цвет, читаемый на всех пяти фонах
-  (четыре заливки + подложка). Рядом с каждым вариантом живой расчёт
-  контраста по WCAG: ≥4.5 — зелёная отметка, ниже — красная.
+  (четыре заливки + подложка). Цвет выбирается круговой палитрой
+  (колесо hue/saturation + полоска яркости) и применяется в момент
+  выбора — при движении мыши с зажатой кнопкой, без отпускания.
+  Рядом живой расчёт контраста по WCAG: ≥4.5 — зелёная отметка.
 
   Два варианта (A и B) — чтобы сравнить два кандидата одновременно.
 -->
@@ -35,12 +37,12 @@
     padding: 28px;
     background: #141414;
     color: #ccc;
-    font: 13px/1.5 var(--system, system-ui, sans-serif);
+    font: 13px/1.5 system-ui, sans-serif;
   }
   h1 { font-size: 16px; margin: 0 0 6px; }
   .intro { max-width: 720px; opacity: .7; margin: 0 0 24px; }
 
-  .variant { margin-bottom: 28px; }
+  .variant { margin-bottom: 32px; }
   .variant-title { font-weight: 600; margin-bottom: 8px; }
 
   /* --- копия строки аккаунта из панели Accs ----------------------- */
@@ -62,7 +64,15 @@
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-family: ui-monospace, monospace; font-size: 11px; opacity: .6;
   }
-  .usage { display: flex; flex-direction: row; align-items: center; gap: 12px; width: 100%; min-width: 0; margin-top: 4px; }
+  .usage {
+    display: flex;
+    flex-direction: column;   /* каждая шкала — свой ряд, как в панели */
+    align-items: flex-start;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+    margin-top: 4px;
+  }
   .usage-row { display: flex; align-items: center; flex: 0 0 auto; gap: 5px; }
   .usage-label { flex: 0 0 auto; font-size: 12px; line-height: 1; color: #fff; white-space: nowrap; }
   .usage-track {
@@ -89,24 +99,33 @@
     display: inline-block;
     vertical-align: top;
     margin-left: 16px;
-    padding: 10px 12px;
+    padding: 12px;
     border: 1px solid rgba(255,255,255,.12);
     border-radius: 8px;
     background: #1a1a1a;
   }
-  .controls label { display: block; margin-bottom: 6px; }
-  .controls input[type=color] {
-    width: 44px; height: 26px; padding: 0; border: 1px solid rgba(255,255,255,.2);
-    border-radius: 4px; background: none; cursor: pointer; vertical-align: middle;
+  /* Круговая палитра: колесо hue/saturation, под ним полоска яркости.
+   * Обе рисуются на canvas и слушают мышь: движение с зажатой кнопкой
+   * меняет цвет немедленно. */
+  .wheel { display: block; border-radius: 50%; cursor: crosshair; }
+  .vslider {
+    display: block; margin-top: 10px;
+    width: 150px; height: 14px;
+    border-radius: 4px; cursor: ew-resize;
   }
-  .controls input[type=text] {
+  .hex-row { margin-top: 10px; }
+  .hex-row input[type=text] {
     width: 84px; padding: 3px 6px; border: 1px solid rgba(255,255,255,.2);
     border-radius: 4px; background: #111; color: #eee; font: 12px ui-monospace, monospace;
     vertical-align: middle;
   }
+  .hex-row .swatch {
+    display: inline-block; width: 22px; height: 22px; margin-right: 8px;
+    border-radius: 4px; border: 1px solid rgba(255,255,255,.25); vertical-align: middle;
+  }
   .presets { margin: 8px 0 10px; }
   .presets button {
-    padding: 3px 8px; margin-right: 4px; border-radius: 4px; cursor: pointer;
+    padding: 3px 8px; margin: 0 4px 4px 0; border-radius: 4px; cursor: pointer;
     border: 1px solid rgba(255,255,255,.2); background: #222; color: #ddd; font: 11px inherit;
   }
   .presets button:hover { background: #333; }
@@ -122,11 +141,13 @@
 <h1>Подбор цвета текста в шкалах лимитов</h1>
 <p class="intro">
   В каждой карточке — строка аккаунта Anthropic и четыре шкалы всех
-  цветов уровней расхода. Текст внутри шкалы красится выбранным цветом
-  одним слоем. Заполнение шкал (15 / 40 / 65 / 90%) подобрано так,
-  чтобы под текстом оказывались и заливка, и подложка — как в живой
-  панели. Ниже — контраст выбранного цвета с каждым фоном: зелёная
-  отметка ≥ 4.5:1 (WCAG AA), красная — ниже.
+  цветов уровней расхода, друг под другом. Текст внутри шкалы красится
+  выбранным цветом одним слоем; заполнение (15 / 40 / 65 / 90%)
+  подобрано так, чтобы под текстом оказывались и заливка, и подложка.
+  Цвет выбирается круговой палитрой — колесо задаёт тон и насыщенность,
+  полоска под ним яркость — и применяется сразу, при движении мыши.
+  Таблица справа считает контраст с каждым фоном: зелёная отметка
+  ≥ 4.5:1 (WCAG AA), красная — ниже.
 </p>
 
 <!-- Вариант A -->
@@ -147,7 +168,9 @@
     </div>
   </div>
   <div class="controls">
-    <label>Цвет текста <input type="color" id="pick-a" value="#ffffff"> <input type="text" id="hex-a" value="#ffffff"></label>
+    <canvas class="wheel" id="wheel-a" width="150" height="150"></canvas>
+    <canvas class="vslider" id="vslider-a" width="150" height="14"></canvas>
+    <div class="hex-row"><span class="swatch" id="swatch-a"></span><input type="text" id="hex-a" value="#ffffff"></div>
     <div class="presets" data-for="a">
       <button data-hex="#ffffff">белый</button>
       <button data-hex="#10151b">тёмный</button>
@@ -176,7 +199,9 @@
     </div>
   </div>
   <div class="controls">
-    <label>Цвет текста <input type="color" id="pick-b" value="#10151b"> <input type="text" id="hex-b" value="#10151b"></label>
+    <canvas class="wheel" id="wheel-b" width="150" height="150"></canvas>
+    <canvas class="vslider" id="vslider-b" width="150" height="14"></canvas>
+    <div class="hex-row"><span class="swatch" id="swatch-b"></span><input type="text" id="hex-b" value="#10151b"></div>
     <div class="presets" data-for="b">
       <button data-hex="#ffffff">белый</button>
       <button data-hex="#10151b">тёмный</button>
@@ -189,6 +214,8 @@
 
 <script>
 (function () {
+  /* ---------- цветовая математика ---------- */
+
   // Подложка шкалы — rgba(255,255,255,.3) поверх панели #1f1f1f;
   // контраст с полупрозрачным фоном считаем по композиту.
   var PANEL = [0x1f, 0x1f, 0x1f];
@@ -214,9 +241,10 @@
   }
   function rgb2hex(rgb) {
     return '#' + rgb.map(function (v) {
-      return ('0' + v.toString(16)).slice(-2);
+      return ('0' + Math.round(v).toString(16)).slice(-2);
     }).join('');
   }
+  function rgb2css(rgb) { return rgb2hex(rgb); }
   function luminance(rgb) {
     var f = rgb.map(function (v) {
       v /= 255;
@@ -229,17 +257,155 @@
     var hi = Math.max(l1, l2), lo = Math.min(l1, l2);
     return (hi + 0.05) / (lo + 0.05);
   }
+  function hsv2rgb(h, s, v) {
+    var c = v * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = v - c;
+    var r, g, b;
+    if      (h < 60)  { r = c; g = x; b = 0; }
+    else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; }
+    else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; }
+    else              { r = c; g = 0; b = x; }
+    return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+  }
+  function rgb2hsv(rgb) {
+    var r = rgb[0] / 255, g = rgb[1] / 255, b = rgb[2] / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    var h = 0;
+    if (d !== 0) {
+      if (mx === r)      h = 60 * (((g - b) / d) % 6);
+      else if (mx === g) h = 60 * ((b - r) / d + 2);
+      else               h = 60 * ((r - g) / d + 4);
+      if (h < 0) h += 360;
+    }
+    return { h: h, s: mx === 0 ? 0 : d / mx, v: mx };
+  }
+
+  /* ---------- круговая палитра ---------- */
+
+  /**
+   * Колесо hue/saturation + полоска яркости. Выбранный цвет
+   * пересчитывается и уходит в onChange при КАЖДОМ движении мыши с
+   * зажатой кнопкой — отпустить кнопку не нужно. Отпущенная кнопка на
+   * колесе с нулевым радиусом даёт белый (s=0), левый край полоски —
+   * чёрный (v=0), так что весь куб достижим двумя элементами.
+   */
+  function makeWheel(which, initial, onChange) {
+    var wheel = document.getElementById('wheel-' + which);
+    var slider = document.getElementById('vslider-' + which);
+    var hexField = document.getElementById('hex-' + which);
+    var swatch = document.getElementById('swatch-' + which);
+    var wctx = wheel.getContext('2d');
+    var sctx = slider.getContext('2d');
+    var W = wheel.width, R = W / 2;
+    var hsv = rgb2hsv(hex2rgb(initial) || [255, 255, 255]);
+
+    function wheelPos() {
+      var ang = hsv.h * Math.PI / 180;
+      var r = hsv.s * (R - 2);
+      return [R + Math.cos(ang) * r, R + Math.sin(ang) * r];
+    }
+
+    function drawWheel() {
+      var img = wctx.createImageData(W, W);
+      var d = img.data;
+      for (var y = 0; y < W; y++) {
+        for (var x = 0; x < W; x++) {
+          var dx = x - R + 0.5, dy = y - R + 0.5;
+          var dist = Math.sqrt(dx * dx + dy * dy);
+          var i = (y * W + x) * 4;
+          if (dist > R) { d[i + 3] = 0; continue; }
+          var h = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+          var rgb = hsv2rgb(h, Math.min(1, dist / R), 1);
+          d[i] = rgb[0]; d[i + 1] = rgb[1]; d[i + 2] = rgb[2]; d[i + 3] = 255;
+        }
+      }
+      wctx.putImageData(img, 0, 0);
+      var pos = wheelPos();
+      wctx.beginPath(); wctx.arc(pos[0], pos[1], 5, 0, 7);
+      wctx.strokeStyle = 'rgba(0,0,0,.7)'; wctx.lineWidth = 3; wctx.stroke();
+      wctx.beginPath(); wctx.arc(pos[0], pos[1], 5, 0, 7);
+      wctx.strokeStyle = '#fff'; wctx.lineWidth = 1.5; wctx.stroke();
+    }
+
+    function drawSlider() {
+      var g = sctx.createLinearGradient(0, 0, slider.width, 0);
+      g.addColorStop(0, rgb2css(hsv2rgb(hsv.h, hsv.s, 1)));
+      g.addColorStop(1, '#000');
+      sctx.fillStyle = g;
+      sctx.fillRect(0, 0, slider.width, slider.height);
+      var x = 3 + hsv.v * (slider.width - 6);
+      sctx.strokeStyle = '#fff';
+      sctx.strokeRect(x - 2, 0.5, 4, slider.height - 1);
+    }
+
+    function currentHex() {
+      return rgb2hex(hsv2rgb(hsv.h, hsv.s, hsv.v));
+    }
+
+    function emit() {
+      var hex = currentHex();
+      hexField.value = hex;
+      swatch.style.background = hex;
+      drawWheel();
+      drawSlider();
+      onChange(hex);
+    }
+
+    // Мышь: mousedown на элементе включает перетаскивание, движение
+    // обрабатывается на window — курсор может выйти за края.
+    var dragging = null;
+
+    function wheelPick(e) {
+      var rect = wheel.getBoundingClientRect();
+      var scale = W / rect.width;
+      var dx = (e.clientX - rect.left) * scale - R;
+      var dy = (e.clientY - rect.top) * scale - R;
+      hsv.h = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+      var dist = Math.sqrt(dx * dx + dy * dy) / (R - 2);
+      hsv.s = Math.max(0, Math.min(1, dist));
+      emit();
+    }
+    function sliderPick(e) {
+      var rect = slider.getBoundingClientRect();
+      hsv.v = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      emit();
+    }
+
+    wheel.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      dragging = wheel;
+      wheelPick(e);
+    });
+    slider.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      dragging = slider;
+      sliderPick(e);
+    });
+    window.addEventListener('mousemove', function (e) {
+      if (dragging === wheel) wheelPick(e);
+      else if (dragging === slider) sliderPick(e);
+    });
+    window.addEventListener('mouseup', function () { dragging = null; });
+
+    // Ручной ввод hex и пресеты приходят сюда же.
+    return {
+      set: function (hex) {
+        var rgb = hex2rgb(hex);
+        if (!rgb) return;
+        hsv = rgb2hsv(rgb);
+        emit();
+      },
+    };
+  }
+
+  /* ---------- применение варианта ---------- */
 
   function apply(which, hex) {
     var panel = document.getElementById('panel-' + which);
-    var picker = document.getElementById('pick-' + which);
-    var field = document.getElementById('hex-' + which);
     var table = document.getElementById('ratios-' + which);
     var rgb = hex2rgb(hex);
-    if (!rgb) { field.style.borderColor = '#f85149'; return; }
-    field.style.borderColor = '';
-    picker.value = rgb2hex(rgb);
-    field.value = rgb2hex(rgb);
+    if (!rgb) return;
     panel.style.setProperty('--picker-text', rgb2hex(rgb));
 
     var rows = '';
@@ -254,15 +420,17 @@
   }
 
   ['a', 'b'].forEach(function (which) {
-    var picker = document.getElementById('pick-' + which);
-    var field = document.getElementById('hex-' + which);
-    picker.addEventListener('input', function () { apply(which, picker.value); });
-    field.addEventListener('change', function () { apply(which, field.value); });
+    var hexField = document.getElementById('hex-' + which);
     var presets = document.querySelector('.presets[data-for="' + which + '"]');
+    var start = which === 'a' ? '#ffffff' : '#10151b';
+
+    var wheelCtl = makeWheel(which, start, function (hex) { apply(which, hex); });
+    apply(which, start);
+
+    hexField.addEventListener('change', function () { wheelCtl.set(hexField.value); });
     presets.addEventListener('click', function (e) {
-      if (e.target.dataset.hex) apply(which, e.target.dataset.hex);
+      if (e.target.dataset.hex) wheelCtl.set(e.target.dataset.hex);
     });
-    apply(which, picker.value);
   });
 })();
 </script>
