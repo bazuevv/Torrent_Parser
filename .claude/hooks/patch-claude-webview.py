@@ -368,10 +368,43 @@ JS_BOOTSTRAP_TEMPLATE = """\
   // Лимит на число отправок обязателен: падение внутри MutationObserver
   // повторяется на каждой мутации DOM, и без предела мы завалили бы
   // сервер сотнями запросов в секунду.
+  // Известный дефект поставки расширения: воркеры Monaco в пакет не
+  // входят — в webview/ нет ни каталога vs/, ни единого файла воркера,
+  // а имя модуля встречается в бандле ровно один раз. Поэтому
+  // import('…/vs/language/css/cssWorker.js') всегда даёт 404, и чинить
+  // это нечем: файла не существует.
+  //
+  // Такие ошибки считаем шумом и сообщаем один раз, не тратя на них
+  // лимит. Иначе двадцать одинаковых 404 выбирали бы всю квоту на
+  // загрузку страницы, и настоящее исключение — то, ради которого
+  // сборщик и заводился, — в журнал бы уже не попало.
+  // Каждый набор — подстроки, которые должны встретиться все сразу.
+  // Подстроки, а не регулярка: в шаблоне пришлось бы экранировать
+  // слэши, а Python ругается на них как на неизвестный escape.
+  var KNOWN_NOISE = [
+    ['Failed to fetch dynamically imported module', '/vs/language/'],
+  ];
+  var knownSeen = {};
+
   var errSent = 0;
   function claudeReportError(kind, data) {
-    if (errSent >= 20) return;
-    errSent++;
+    var msg = String((data && data.message) || '');
+    var known = -1;
+    for (var i = 0; i < KNOWN_NOISE.length; i++) {
+      var parts = KNOWN_NOISE[i], hit = true;
+      for (var j = 0; j < parts.length; j++) {
+        if (msg.indexOf(parts[j]) === -1) { hit = false; break; }
+      }
+      if (hit) { known = i; break; }
+    }
+    if (known >= 0) {
+      if (knownSeen[known]) return;
+      knownSeen[known] = true;
+      kind = 'known-noise';
+    } else {
+      if (errSent >= 20) return;
+      errSent++;
+    }
     try {
       data.kind = kind;
       data.href = location.href.slice(0, 200);
