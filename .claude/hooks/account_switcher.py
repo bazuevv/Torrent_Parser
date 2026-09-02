@@ -405,7 +405,12 @@ def anthropic_identity() -> dict:
 
 
 def _resets_in_sec(value) -> int | None:
-    """Сколько секунд осталось до сброса окна (None — время не разобрать)."""
+    """Секунды до сброса окна; отрицательное — момент уже прошёл.
+
+    Знак здесь значим, поэтому к нулю НЕ прижимаем: прошедшее время
+    сброса означает, что окно уже перевалило, и показывать по нему
+    старые проценты нельзя (см. anthropic_usage).
+    """
     if not isinstance(value, str) or not value:
         return None
     try:
@@ -415,7 +420,7 @@ def _resets_in_sec(value) -> int | None:
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=datetime.timezone.utc)
     left = (moment - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
-    return max(0, int(left))
+    return int(left)
 
 
 def anthropic_usage() -> dict | None:
@@ -469,12 +474,27 @@ def anthropic_usage() -> dict | None:
         # красивой неправдой.
         if isinstance(percent, bool) or not isinstance(percent, (int, float)):
             continue
+        left = _resets_in_sec(window.get("resets_at"))
+
+        # Окно, чьё время сброса прошло, уже началось заново, и
+        # прежние проценты к нему не относятся. Кэш об этом не знает:
+        # обновляет его CLI, а на стороннем провайдере он к claude.ai
+        # не обращается вовсе — потому и застревало «100%, меньше
+        # минуты» на сутки.
+        #
+        # Показываем 0%: на стороннем аккаунте лимит claude.ai не
+        # тратится, так что после сброса окно и правда пустое. Это
+        # расчёт, а не измерение, поэтому окно помечается expired —
+        # панель говорит «сброшен» вместо обратного отсчёта и пишет
+        # в подсказке, что свежих данных нет.
+        expired = left is not None and left <= 0
         windows.append({
             "key": key,
             "label": label,
             "title": title,
-            "percent": percent,
-            "resetsInSec": _resets_in_sec(window.get("resets_at")),
+            "percent": 0 if expired else percent,
+            "resetsInSec": None if expired else left,
+            "expired": expired,
         })
     if not windows:
         return None

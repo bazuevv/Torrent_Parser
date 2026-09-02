@@ -7910,14 +7910,19 @@
       var left = null;
       if (typeof w.resets_at === 'string' && w.resets_at) {
         var at = Date.parse(w.resets_at);
-        if (!isNaN(at)) left = Math.max(0, Math.round((at - Date.now()) / 1000));
+        if (!isNaN(at)) left = Math.round((at - Date.now()) / 1000);
       }
+      // То же правило, что на сервере: окно с прошедшим временем сброса
+      // уже началось заново, и прежние проценты к нему не относятся
+      // (см. anthropic_usage в account_switcher.py).
+      var expired = left !== null && left <= 0;
       windows.push({
         key: key,
         label: USAGE_WINDOWS[i][1],
         title: USAGE_WINDOWS[i][2],
-        percent: pct,
-        resetsInSec: left,
+        percent: expired ? 0 : pct,
+        resetsInSec: expired ? null : left,
+        expired: expired,
       });
     }
     return windows.length ? { windows: windows, ageSec: 0 } : null;
@@ -8090,7 +8095,13 @@
       label.textContent = w.label || '';
       line.appendChild(label);
 
+      // У сброшенного окна отсчитывать нечего: время прошло, а нового
+      // рубежа кэш не знает — его назовёт только следующий ответ API.
       var left = formatLeft(w.resetsInSec);
+      var barText = w.expired ? 'сброшен' : left;
+      var hint = w.expired
+        ? ' · окно сброшено, свежих данных нет'
+        : (left ? ' · сброс через ' + left : '');
 
       var track = document.createElement('span');
       track.className = 'claude-accs-usage-track';
@@ -8107,10 +8118,10 @@
       // цветом подложки). Менять цвет по границе заливки двумя слоями
       // нельзя: сглаживание глифов смешивается с нижним текстом, а не
       // с фоном, и буквы получают светлую кайму (прецедент 55.2).
-      if (left) {
+      if (barText) {
         var when = document.createElement('span');
         when.className = 'claude-accs-usage-when';
-        when.textContent = left;
+        when.textContent = barText;
         track.appendChild(when);
       }
       line.appendChild(track);
@@ -8122,8 +8133,7 @@
 
       box.appendChild(line);
 
-      lines.push((w.title || w.label || '') + ' · ' + Math.floor(shown) + '%'
-        + (left ? ' · сброс через ' + left : ''));
+      lines.push((w.title || w.label || '') + ' · ' + Math.floor(shown) + '%' + hint);
     }
     lines.push('Данные Claude Code, ' + formatAge(usage.ageSec));
     box.title = lines.join('\n');
