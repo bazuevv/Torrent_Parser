@@ -411,6 +411,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_cache_usage()
             return
 
+        if self.path.split("?", 1)[0] == "/mood-history":
+            self._handle_mood_history()
+            return
+
         if self.path.split("?", 1)[0] == "/bypass":
             self._handle_bypass_get()
             return
@@ -806,18 +810,15 @@ class Handler(BaseHTTPRequestHandler):
         _log(f"webview-error: {str(payload.get('message'))[:200]}")
         self._json_response(200, {"ok": True})
 
-    def _handle_cache_usage(self) -> None:
-        """Статистика prompt-кэша сессии для кнопки Cache в футере.
+    def _resolve_transcript(self):
+        """Находит транскрипт сессии и TTL для запросов о кэше.
 
-        Сессия определяется по самому свежему .jsonl в папке проекта
-        (~/.claude/projects/<кодированный cwd>/) — webview собственного
-        session_id не знает, а свежий файл почти всегда и есть текущая
-        сессия. Явный ?session=<uuid> перекрывает автоопределение:
-        нужно, чтобы посмотреть уже закрытую сессию.
+        Общий для /cache-usage и /mood-history: оба отвечают об
+        одной и той же сессии, и разъехавшийся поиск означал бы,
+        что окно истории показывает не ту переписку, что стрелка.
 
-        Разбор инкрементальный, состояние — в hooks-runtime, поэтому
-        повторные нажатия кнопки почти бесплатны даже на транскрипте
-        в десятки мегабайт.
+        Возвращает (транскрипт, ttl, каталог состояния) либо None —
+        в последнем случае ответ об ошибке уже отправлен.
         """
         if not PROJECT_DIR:
             self._json_response(500, {
@@ -888,6 +889,25 @@ class Handler(BaseHTTPRequestHandler):
             ttl = 60
 
         state_dir = LOGS_DIR or os.path.join(PROJECT_DIR, ".claude", "hooks-runtime")
+        return transcript, ttl, state_dir
+
+    def _handle_cache_usage(self) -> None:
+        """Статистика prompt-кэша сессии для кнопки Cache в футере.
+
+        Сессия определяется по самому свежему .jsonl в папке проекта
+        (~/.claude/projects/<кодированный cwd>/) — webview собственного
+        session_id не знает, а свежий файл почти всегда и есть текущая
+        сессия. Явный ?session=<uuid> перекрывает автоопределение:
+        нужно, чтобы посмотреть уже закрытую сессию.
+
+        Разбор инкрементальный, состояние — в hooks-runtime, поэтому
+        повторные нажатия кнопки почти бесплатны даже на транскрипте
+        в десятки мегабайт.
+        """
+        resolved = self._resolve_transcript()
+        if resolved is None:
+            return
+        transcript, ttl, state_dir = resolved
         try:
             with _CACHE_LOCK:
                 stats = cache_usage.collect(
@@ -898,6 +918,32 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self._json_response(200 if stats.get("ok") else 404, stats)
+
+    def _handle_mood_history(self) -> None:
+        """История индикатора Mood за сессию — ряд накопленных чисел.
+
+        Сессия ищется тем же способом, что и для /cache-usage, и ответ
+        строится из того же разобранного состояния: история — это не
+        отдельная запись событий, а пересчёт уже имеющегося транскрипта,
+        поэтому она полна с первого хода сессии, включая ходы, сделанные
+        до появления самого окна истории.
+
+        Значение шкалы здесь не считается: его формула живёт в JS, и
+        вторая копия рано или поздно разошлась бы с первой.
+        """
+        resolved = self._resolve_transcript()
+        if resolved is None:
+            return
+        transcript, ttl, state_dir = resolved
+        try:
+            with _CACHE_LOCK:
+                data = cache_usage.collect_series(
+                    transcript, state_dir=state_dir, ttl_minutes=ttl,
+                )
+        except Exception as exc:  # noqa: BLE001 — endpoint не роняет сервер
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+        self._json_response(200 if data.get("ok") else 404, data)
 
     def _handle_vscode_settings(self) -> None:
         """Отдаёт webview'у актуальные значения настроек из VSCode

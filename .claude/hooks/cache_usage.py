@@ -70,11 +70,16 @@ MAX_TRACKED_MISSES = 20  # хвост промахов, который отда�
 # одному числу на промах хвост в полтысячи записей ничего не весит.
 MAX_TRACKED_GAPS = 500
 
+# Сколько ходов держим в ряду для истории Mood. Одна запись — четыре
+# числа, так что три тысячи ходов это десятки килобайт: дешевле, чем
+# перечитывать транскрипт на каждое открытие окна.
+MAX_TRACKED_TURNS = 3000
+
 # Версия схемы файла состояния. Инкрементировать при любом изменении
 # набора полей: старое состояние тогда отбрасывается и транскрипт
 # перечитывается целиком. Без этого добавленное поле молча остаётся
 # пустым на всех сессиях, у которых состояние уже накоплено.
-STATE_VERSION = 4
+STATE_VERSION = 5
 
 
 def rate_for(model: str):
@@ -111,6 +116,12 @@ def blank_state() -> dict:
         "miss_log": [],  # хвост последних промахов для панели
         "miss_gaps": [],  # паузы перед промахами, мин (для доли ранних)
         "context_peak": 0,  # самый большой контекст хода за сессию
+        # Ряд ходов для истории Mood: по записи на ход. Храним сырьё
+        # (был ли промах, какая пауза, какой контекст), а не готовое
+        # значение шкалы — сравнение паузы с TTL делается при выдаче,
+        # поэтому правка cacheKeepaliveTtlMinutes пересчитывает и уже
+        # накопленную историю, ровно как текущее положение стрелки.
+        "turns": [],
         "model": "",
         "started": "",
         "prev": None,  # {"ts": iso, "rd": int, "wr": int, "sig": [...]}
@@ -221,6 +232,16 @@ def consume(state: dict, path: str) -> None:
         # а вот докуда окно вообще раскрывалось, по последнему ходу
         # уже не восстановить — компактификация обнуляет контекст.
         state["context_peak"] = max(state["context_peak"], rd + wr)
+        state["turns"].append({
+            "ts": ts_raw,
+            # Промах в смысле Mood — потерянный кэш, включая частичный.
+            "miss": verdict in ("промах", "частичное"),
+            "gap": round(gap_min, 2) if gap_min is not None else None,
+            "ctx": rd + wr,
+            # Первый ход шанса не имел: кэшу неоткуда было взяться.
+            "chance": prev is not None,
+        })
+        del state["turns"][:-MAX_TRACKED_TURNS]
         state["requests"] += 1
         state["read"] += rd
         state["write"] += wr
@@ -360,6 +381,73 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
             "write_mult": CACHE_WRITE_MULT,
             "read_mult": CACHE_READ_MULT,
         },
+    }
+
+
+def mood_series(state: dict, ttl_minutes: float) -> list[dict]:
+    """История Mood по ходам: накопленные числа на момент каждого хода.
+
+    Отдаём не готовое значение шкалы, а те же сырые числа, что и
+    `/cache-usage` (`early_misses`, `early_chances`, `context_peak`).
+    Формула положения стрелки живёт в JS, и считать её здесь значило бы
+    завести вторую копию: кривая истории и живая стрелка обязаны
+    получаться из одного кода, иначе они однажды разойдутся и объяснить
+    расхождение будет нечем.
+
+    Сравнение паузы с TTL делается здесь, при выдаче, а не при разборе —
+    поэтому правка `cacheKeepaliveTtlMinutes` пересчитывает всю
+    накопленную историю, как и текущее показание.
+    """
+    series = []
+    early = 0
+    chances = 0
+    peak = 0
+    for turn in state.get("turns") or []:
+        ctx = turn.get("ctx") or 0
+        peak = max(peak, ctx)
+        if turn.get("chance"):
+            chances += 1
+        gap = turn.get("gap")
+        # Промах без разобранной паузы в ранние не идёт: сравнить его
+        # с TTL не с чем, а записать вслепую — соврать.
+        if turn.get("miss") and gap is not None and gap < ttl_minutes:
+            early += 1
+        series.append({
+            "ts": turn.get("ts") or "",
+            "early_misses": early,
+            "early_chances": chances,
+            "context_peak": peak,
+            "context": ctx,
+            "miss": bool(turn.get("miss")),
+            "gap": gap,
+        })
+    return series
+
+
+def collect_series(transcript_path: str, state_dir: str = STATE_DIR,
+                   ttl_minutes: float = 60.0) -> dict:
+    """История Mood по транскрипту: разбор плюс ряд по ходам.
+
+    Отдельная функция, а не поле в `collect()`: ряд нужен только при
+    открытии окна истории, а `/cache-usage` опрашивается индикатором
+    каждые двадцать секунд — таскать в нём сотни точек значило бы
+    гонять их вхолостую.
+    """
+    stats = collect(transcript_path, state_dir=state_dir,
+                    ttl_minutes=ttl_minutes)
+    if not stats.get("ok"):
+        return stats
+
+    key = os.path.basename(transcript_path)
+    if key.endswith(".jsonl"):
+        key = key[:-6]
+    state = _load_state(os.path.join(state_dir, f"cache-usage-{key}.json"))
+    return {
+        "ok": True,
+        "session": stats.get("session"),
+        "started": stats.get("started"),
+        "ttl_minutes": ttl_minutes,
+        "series": mood_series(state, ttl_minutes),
     }
 
 
