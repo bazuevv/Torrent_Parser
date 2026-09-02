@@ -9275,3 +9275,81 @@
     init();
   }
 })();
+
+/* ============================================================
+ * BLANK VIEW DETECTOR — датчик пустой вкладки
+ *
+ * Отказ 2026-09-01: вкладки расширения пусты, при этом бандл цел,
+ * наш JS исполняется, протокол webview работает, исключений нет.
+ * Разбор упёрся в то, что о самом факте «ничего не нарисовано» не
+ * оставалось ни одной записи — приложение не падает, оно просто не
+ * рисует, и через сутки об этом уже не спросишь.
+ *
+ * Датчик через BLANK_AFTER_MS смотрит, есть ли в #root содержимое, и
+ * при пустоте один раз отправляет снимок состояния: смонтировался ли
+ * React, сколько узлов в body, какие ключевые классы приложения
+ * присутствуют, установились ли наши модули. Этого набора хватит,
+ * чтобы в следующий раз сразу отделить «React не смонтировался» от
+ * «нарисовал, но невидимо».
+ *
+ * Диагностика, а не функция: safeMode её не гасит — иначе в самом
+ * безопасном режиме, куда уходят при поломке, мы снова остались бы
+ * без данных.
+ * ============================================================ */
+(function () {
+  if (window.__claudeBlankDetectorInstalled) return;
+  window.__claudeBlankDetectorInstalled = true;
+
+  var BLANK_AFTER_MS = 12000;
+
+  function snapshot() {
+    var root = document.getElementById('root');
+    var body = document.body;
+    var text = '';
+    try { text = (root && root.innerText || '').trim(); } catch (e) {}
+    return {
+      hasRoot: !!root,
+      rootChildren: root ? root.children.length : -1,
+      rootTextLen: text.length,
+      bodyChildren: body ? body.children.length : -1,
+      bodyClass: body ? String(body.className).slice(0, 120) : '',
+      // Классы приложения, по которым видно, дошёл ли рендер до чата
+      appNodes: {
+        message: document.querySelectorAll('[data-testid="assistant-message"]').length,
+        container: document.querySelectorAll('[class*="messageContainer_"]').length,
+        input: document.querySelectorAll('[class*="inputContainer_"]').length,
+        footer: document.querySelectorAll('[class*="inputFooter_"]').length,
+        session: document.querySelectorAll('[class*="sessionItem_"]').length,
+      },
+      ours: {
+        boot: !!window.__claudeCustomBootInstalled,
+        base: !!window.__claudeCustomScriptInstalled,
+        accs: !!window.__claudeAccountsButtonInstalled,
+        mood: !!window.__claudeMoodGaugeInstalled,
+        emoji: !!window.__claudeEmojiPickerInstalled,
+        mover: !!window.__claudeSessionMoverInstalled,
+      },
+    };
+  }
+
+  setTimeout(function () {
+    var s = snapshot();
+    // Признак нормы: React смонтировался и что-то нарисовал. Пустой
+    // #root при живом бандле — это и есть тот самый отказ.
+    if (s.hasRoot && s.rootChildren > 0 && s.rootTextLen > 0) return;
+    try {
+      fetch('http://localhost:18923/webview-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'blank-view',
+          message: 'вкладка пуста через ' + (BLANK_AFTER_MS / 1000) + ' с после загрузки',
+          href: location.href.slice(0, 200),
+          snapshot: s,
+          ts: Date.now(),
+        }),
+        keepalive: true,
+      }).catch(function () {});
+    } catch (e) {}
+  }, BLANK_AFTER_MS);
+})();
