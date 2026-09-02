@@ -8978,14 +8978,37 @@
     return svg;
   }
 
-  function createGauge() {
-    var root = document.createElement('div');
-    root.className = ROOT_CLASS;
+  /**
+   * Индикатор — кнопка, как Accs и Usage: заимствует класс штатной
+   * `footerButton_`, поэтому размеры, шрифт и подсветка при наведении
+   * достаются даром и совпадают с соседями.
+   *
+   * Раньше он был неинтерактивным `div`: обещать действие, которого
+   * нет, было бы неправдой. Действие появилось — окно истории, —
+   * и вид приведён в соответствие.
+   */
+  function createGauge(donor) {
+    var root = document.createElement('button');
+    root.type = 'button';
+    var donorClass = donor && typeof donor.className === 'string'
+      ? donor.className : '';
+    root.className = donorClass
+      ? donorClass + ' ' + ROOT_CLASS
+      : ROOT_CLASS + ' ' + ROOT_CLASS + '-bare';
     root.appendChild(createSvg());
     var label = document.createElement('span');
     label.className = 'claude-mood-label';
     label.textContent = 'Mood';
     root.appendChild(label);
+    // Без preventDefault фокус уходит из composer'а: пользователь
+    // теряет позицию каретки просто посмотрев историю.
+    root.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    root.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (panel) closePanel();
+      else openPanel(root);
+    });
     applyTo(root);
     return root;
   }
@@ -9198,6 +9221,249 @@
       .catch(function () { onFail('сервер недоступен'); });
   }
 
+
+  /* ---------- окно истории ---------- */
+
+  /**
+   * История шкалы за сессию — по клику на индикаторе, как у Accs
+   * и Usage: та же панель, то же закрытие по клику мимо и Escape.
+   *
+   * История не копится в браузере, а приходит с сервера: он строит её
+   * пересчётом уже разобранного транскрипта (GET /mood-history), и
+   * потому она полна с первого хода сессии — включая ходы, сделанные
+   * до появления самого окна.
+   *
+   * Значение каждой точки считает `valueFor` — та же функция, что
+   * ставит стрелку. Второй копии формулы нет намеренно: разойдясь
+   * однажды, кривая и стрелка рассказывали бы об одном ходе разное,
+   * и объяснить расхождение было бы нечем.
+   */
+  var HISTORY_URL = 'http://localhost:18923/mood-history';
+  var PANEL_ID = 'claude-mood-panel';
+
+  // Габариты графика в единицах viewBox. Ширина с запасом под подписи
+  // слева: значения шкалы (0..100) и без них читались бы, но тогда
+  // непонятно, где границы зон.
+  var CH_W = 420;
+  var CH_H = 150;
+  var CH_PAD_L = 26;
+  var CH_PAD_R = 6;
+  var CH_PAD_T = 6;
+  var CH_PAD_B = 16;
+
+  var panel = null;
+
+  function closePanel() {
+    if (!panel) return;
+    if (panel.parentNode) panel.parentNode.removeChild(panel);
+    panel = null;
+    document.removeEventListener('mousedown', onOutside, true);
+    document.removeEventListener('keydown', onKeydown, true);
+  }
+
+  function onOutside(e) {
+    if (!panel) return;
+    if (panel.contains(e.target)) return;
+    // Клик по самому индикатору обрабатывает его собственный
+    // listener — иначе панель закрылась бы здесь и тут же открылась.
+    if (e.target.closest && e.target.closest('.' + ROOT_CLASS)) return;
+    closePanel();
+  }
+
+  function onKeydown(e) {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    closePanel();
+  }
+
+  function positionPanel(btn) {
+    if (!panel) return;
+    // Футер прижат к низу окна — раскрываемся вверх от кнопки.
+    var r = btn.getBoundingClientRect();
+    panel.style.bottom = Math.max(8, window.innerHeight - r.top + 6) + 'px';
+    panel.style.left = Math.max(8, r.left) + 'px';
+  }
+
+  function svgEl(name, attrs) {
+    var el = document.createElementNS('http://www.w3.org/2000/svg', name);
+    for (var k in attrs) {
+      if (attrs.hasOwnProperty(k)) el.setAttribute(k, attrs[k]);
+    }
+    return el;
+  }
+
+  /** Точка ряда → значение шкалы тем же кодом, что и у стрелки. */
+  function valueOfPoint(p) {
+    return valueFor({
+      early: num(p.early_misses) || 0,
+      chances: num(p.early_chances) || 0,
+      peak: num(p.context_peak),
+    });
+  }
+
+  /**
+   * График значения по ходам.
+   *
+   * Фон — те же четыре зоны, что у самой шкалы: без них кривая
+   * читалась бы как абстрактные числа, а вопрос всегда один — в какой
+   * зоне сессия шла и когда из неё вышла.
+   *
+   * По оси X — номер хода, а не время: паузы между ходами бывают
+   * часами, и на временной оси вся работа сжалась бы в несколько
+   * пятен. Время остаётся в подписи под графиком и в подсказке точки.
+   */
+  function chart(series) {
+    var svg = svgEl('svg', {
+      viewBox: '0 0 ' + CH_W + ' ' + CH_H,
+      width: '100%',
+      height: CH_H,
+      preserveAspectRatio: 'none',
+    });
+    svg.setAttribute('class', 'claude-mood-chart');
+
+    var x0 = CH_PAD_L;
+    var y0 = CH_PAD_T;
+    var w = CH_W - CH_PAD_L - CH_PAD_R;
+    var h = CH_H - CH_PAD_T - CH_PAD_B;
+
+    // Зоны: снизу вверх красная, оранжевая, жёлтая, зелёная.
+    var zones = ['claude-mood-zone-1', 'claude-mood-zone-2',
+      'claude-mood-zone-3', 'claude-mood-zone-4'];
+    for (var z = 0; z < zones.length; z++) {
+      svg.appendChild(svgEl('rect', {
+        x: x0, width: w,
+        y: y0 + h * (1 - (z + 1) / 4), height: h / 4,
+        class: zones[z],
+      }));
+    }
+
+    // Подписи границ зон — 0, 25, 50, 75, 100.
+    for (var v = 0; v <= 100; v += 25) {
+      var y = y0 + h * (1 - v / 100);
+      svg.appendChild(svgEl('line', {
+        x1: x0, x2: x0 + w, y1: y, y2: y, class: 'claude-mood-grid',
+      }));
+      var t = svgEl('text', {
+        x: x0 - 4, y: y + 3, class: 'claude-mood-axis',
+        'text-anchor': 'end',
+      });
+      t.textContent = String(v);
+      svg.appendChild(t);
+    }
+
+    if (!series.length) return svg;
+
+    // Кривая. Один ход — одна точка; при сотнях ходов линия и так
+    // сплошная, поэтому маркеры не рисуем: они слились бы в кашу.
+    var pts = [];
+    for (var i = 0; i < series.length; i++) {
+      var px = x0 + (series.length === 1 ? w / 2 : w * i / (series.length - 1));
+      var py = y0 + h * (1 - valueOfPoint(series[i]) / 100);
+      pts.push(round3(px) + ',' + round3(py));
+    }
+    svg.appendChild(svgEl('polyline', {
+      points: pts.join(' '), class: 'claude-mood-line',
+    }));
+
+    // Последняя точка — текущее положение стрелки. Её помечаем: глаз
+    // должен находить «где мы сейчас» без пересчёта.
+    var last = pts[pts.length - 1].split(',');
+    svg.appendChild(svgEl('circle', {
+      cx: last[0], cy: last[1], r: 3, class: 'claude-mood-dot',
+    }));
+    return svg;
+  }
+
+  /** Короткая сводка под графиком. */
+  function summary(data) {
+    var series = data.series || [];
+    var box = document.createElement('div');
+    box.className = 'claude-mood-summary';
+
+    var last = series.length ? series[series.length - 1] : null;
+    var first = series.length ? series[0] : null;
+    var rows = [];
+    if (last) {
+      rows.push(['сейчас', Math.round(valueOfPoint(last)) + ' / 100']);
+      rows.push(['ходов в сессии', String(series.length)]);
+      rows.push(['потерь живого кэша',
+        last.early_misses + ' из ' + last.early_chances]);
+      rows.push(['пик контекста', tokens(last.context_peak)]);
+      if (first && first.ts && last.ts) {
+        rows.push(['период', first.ts.slice(11, 16) + ' — ' + last.ts.slice(11, 16)]);
+      }
+    }
+    rows.push(['TTL кэша', (num(data.ttl_minutes) || 60) + ' мин']);
+
+    for (var i = 0; i < rows.length; i++) {
+      var line = document.createElement('div');
+      line.className = 'claude-mood-summary-row';
+      var k = document.createElement('span');
+      k.textContent = rows[i][0];
+      var v = document.createElement('span');
+      v.className = 'claude-mood-summary-val';
+      v.textContent = rows[i][1];
+      line.appendChild(k);
+      line.appendChild(v);
+      box.appendChild(line);
+    }
+    return box;
+  }
+
+  function renderError(body, text) {
+    var div = document.createElement('div');
+    div.className = 'claude-mood-empty';
+    div.textContent = text;
+    body.appendChild(div);
+  }
+
+  function openPanel(btn) {
+    closePanel();
+
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.className = 'claude-mood-panel';
+
+    var head = document.createElement('div');
+    head.className = 'claude-mood-head';
+    head.textContent = 'История Mood за сессию';
+    panel.appendChild(head);
+
+    var body = document.createElement('div');
+    body.className = 'claude-mood-body';
+    body.textContent = 'загрузка…';
+    panel.appendChild(body);
+    document.body.appendChild(panel);
+    positionPanel(btn);
+
+    document.addEventListener('mousedown', onOutside, true);
+    document.addEventListener('keydown', onKeydown, true);
+
+    var sid = sessionId();
+    fetch(HISTORY_URL + (sid ? '?session=' + encodeURIComponent(sid) : ''),
+          { cache: 'no-store' })
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        if (!panel) return;
+        body.textContent = '';
+        if (!d || !d.ok) {
+          renderError(body, (d && d.error) || 'нет данных');
+        } else if (!(d.series || []).length) {
+          renderError(body, 'в сессии ещё нет ходов');
+        } else {
+          body.appendChild(chart(d.series));
+          body.appendChild(summary(d));
+        }
+        positionPanel(btn);
+      })
+      .catch(function (err) {
+        if (!panel) return;
+        body.textContent = '';
+        renderError(body, 'http-server.py недоступен (порт 18923)');
+        logInfo('история недоступна', err);
+      });
+  }
+
   /* ---------- монтирование ---------- */
 
   /** Самый левый из наших контролов футера — перед ним и встаём. */
@@ -9214,7 +9480,7 @@
   function mount(container) {
     var footer = container.querySelector('[class*="inputFooter_"]');
     if (!footer) return false;
-    var gauge = createGauge();
+    var gauge = createGauge(footer.querySelector('[class*="footerButton_"]'));
     // Порядок в футере: Mood · Accs · Usage · Cache · ByPass.
     // Опираемся на соседа, а не на порядок инициализации модулей:
     // React пересоздаёт футер, и кто смонтируется первым — не

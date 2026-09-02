@@ -1683,16 +1683,41 @@
  * Отступы повторяют .claude-*-btn-bare, чтобы в ряду футера
  * индикатор стоял на той же сетке, что и соседние кнопки. */
 .claude-mood {
+  /* Индикатор — кнопка, как Accs и Usage: класс штатной
+   * `footerButton_` заимствуется, поэтому размеры, шрифт и подсветка
+   * при наведении достаются даром. Здесь остаётся только раскладка
+   * «шкала + подпись» и приглушение в покое, как у соседей.
+   *
+   * Прежнее правило гласило «это не кнопка, cursor: default»: тогда
+   * клик ничего не делал, и обещать действие было бы неправдой.
+   * С появлением окна истории действие есть — вид ему соответствует. */
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  opacity: 0.75;
+  user-select: none;
+}
+
+.claude-mood:hover {
+  opacity: 1;
+}
+
+/* Запасной вид, когда донора стиля в футере не нашлось (см. такой же
+ * у .claude-accs-btn-bare): UA-оформление кнопки снимаем явно, иначе
+ * в футере проступит серая плашка с рамкой. */
+.claude-mood-bare {
   padding: 3px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
   color: inherit;
   font: inherit;
   line-height: 1.2;
-  opacity: 0.85;
-  cursor: default;
-  user-select: none;
+  cursor: pointer;
+}
+
+.claude-mood-bare:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
 }
 
 /* Подпись жирнее соседних — как у Accs и Usage: в ряду мелких
@@ -1759,4 +1784,106 @@
   .claude-mood-needle {
     transition: none;
   }
+}
+
+/* --- окно истории Mood ---------------------------------------------
+ *
+ * Повторяет панель Accs: раскрывается вверх от футера, закрывается
+ * кликом мимо и Escape. Отдельного вида не придумываем — два разных
+ * оформления у соседних кнопок читались бы как два разных механизма.
+ */
+.claude-mood-panel {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  width: min(470px, calc(100vw - 12px));
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-mood-head {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.claude-mood-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.claude-mood-empty {
+  padding: 10px 2px;
+  opacity: 0.7;
+}
+
+.claude-mood-chart {
+  display: block;
+  width: 100%;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* Зоны фона — те же четыре цвета, что у секторов шкалы, но сильно
+ * приглушённые: они разметка, а не сообщение. Яркие полосы спорили бы
+ * с самой кривой за внимание. */
+.claude-mood-zone-1 { fill: #f85149; fill-opacity: 0.16; }
+.claude-mood-zone-2 { fill: #f0883e; fill-opacity: 0.16; }
+.claude-mood-zone-3 { fill: #e3b341; fill-opacity: 0.16; }
+.claude-mood-zone-4 { fill: #3fb950; fill-opacity: 0.16; }
+
+.claude-mood-grid {
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 1;
+}
+
+.claude-mood-axis {
+  fill: var(--app-secondary-foreground, #aaa);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Кривая белая, а не цветная: цвет уже занят зонами фона, и вторая
+ * цветовая шкала поверх первой читалась бы как отдельный смысл. */
+.claude-mood-line {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.claude-mood-dot {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.5);
+  stroke-width: 1;
+}
+
+.claude-mood-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.claude-mood-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  opacity: 0.85;
+}
+
+.claude-mood-summary-val {
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
 }
