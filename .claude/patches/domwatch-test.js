@@ -74,9 +74,23 @@ global.document = {
 };
 global.window = {};
 
+/* Фейковые узлы. Достаточно того, чем пользуется фильтр
+ * релевантности: closest/matches/querySelector и nodeType. */
+function node(opts) {
+  const o = opts || {};
+  return {
+    nodeType: 1,
+    __claudeOwnNode: !!o.own,
+    // relevant — узел лежит внутри поля ввода/строки сессии
+    closest: () => (o.relevant ? {} : null),
+    matches: () => !!o.isContainer,
+    querySelector: () => (o.holdsContainer ? {} : null),
+  };
+}
+
 /** Эмуляция пачки мутаций от браузера. */
-function mutate(targets) {
-  observerCb(targets.map((t) => ({ target: t })));
+function mutate(targets, added) {
+  observerCb(targets.map((t) => ({ target: t, addedNodes: added || [] })));
 }
 
 /* ---------- прогон ---------- */
@@ -98,14 +112,14 @@ watch.register('beta', () => { b++; });
 check('первый скан при регистрации', a === 1 && b === 1, `a=${a} b=${b}`);
 
 // --- throttle: сто мутаций подряд дают ОДИН проход
-const foreign = {};
+const foreign = node({ relevant: true });
 for (let i = 0; i < 100; i++) mutate([foreign]);
 check('мутации не сканируют синхронно', a === 1, `a=${a}`);
 advance(250);
 check('сто мутаций → один проход', a === 2 && b === 2, `a=${a} b=${b}`);
 
 // --- свои узлы не будят наблюдателя
-const own = { __claudeOwnNode: true };
+const own = node({ own: true, relevant: true });
 for (let i = 0; i < 50; i++) mutate([own]);
 advance(1000);
 check('свои мутации игнорируются', a === 2, `a=${a}`);
@@ -114,6 +128,27 @@ check('свои мутации игнорируются', a === 2, `a=${a}`);
 mutate([own, foreign]);
 advance(250);
 check('чужой узел в пачке со своим будит', a === 3, `a=${a}`);
+
+/* --- фильтр релевантности: мутация вне поля ввода и списка сессий
+ * не должна вызывать сканы вовсе. Это главное приобретение 60.1:
+ * в покое приложение мутирует DOM непрерывно, и раньше каждая такая
+ * мутация оплачивалась восемью обходами документа. */
+const irrelevant = node({});
+const aBeforeIrrelevant = a;
+for (let i = 0; i < 200; i++) mutate([irrelevant]);
+advance(250);
+check('нерелевантные мутации не сканируют', a === aBeforeIrrelevant,
+  `a=${a}`);
+
+// --- но монтирование самого контейнера ловится через addedNodes
+mutate([irrelevant], [node({ isContainer: true })]);
+advance(250);
+check('контейнер в addedNodes будит', a === aBeforeIrrelevant + 1, `a=${a}`);
+
+// --- и контейнер, лежащий ГЛУБЖЕ добавленного узла, тоже
+mutate([irrelevant], [node({ holdsContainer: true })]);
+advance(250);
+check('контейнер внутри addedNodes будит', a === aBeforeIrrelevant + 2, `a=${a}`);
 
 // --- периодический обход-подстраховка
 const beforeSweep = a;

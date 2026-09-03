@@ -2601,15 +2601,57 @@
     }, THROTTLE_MS);
   }
 
+  /* Узлы, ради которых вообще существуют сканы: поле ввода с футером
+   * (шесть модулей) и строка списка сессий (SESSION MOVER). Мутация
+   * вне этих поддеревьев ничего для нас не меняет.
+   *
+   * Замер 2026-09-03 показал, зачем это нужно. В покое приложение
+   * мутирует DOM непрерывно — 20–30 записей в секунду, — и throttle
+   * честно пропускал по пять проходов в секунду. Каждый проход это
+   * восемь обходов документа, а документ здесь не виртуализирован:
+   * 11 700 узлов на 190 сообщений. Выходило 5–7% главного потока
+   * ради футера, который всё это время не менялся.
+   *
+   * Проверка стоит `closest` на запись — десятки шагов вверх по
+   * дереву против восьми обходов всего документа. */
+  var RELEVANT = '[class*="inputContainer_"], [class*="inputFooter_"], [class*="sessionItem_"]';
+
+  function isRelevant(m) {
+    var target = m.target;
+    if (target && target.nodeType === 3) target = target.parentNode;
+    // Наши собственные узлы (оверлей, панели) — не повод для скана.
+    if (!target || target.__claudeOwnNode) return false;
+    if (target.closest && target.closest(RELEVANT)) return true;
+
+    /* Монтирование самого контейнера: React вставляет поле ввода
+     * целиком, и тогда цель мутации — его будущий родитель, а сам
+     * контейнер лежит в addedNodes. Без этой ветки кнопка появлялась
+     * бы только со следующим обходом-подстраховкой, то есть через
+     * секунды после открытия вкладки. */
+    var added = m.addedNodes;
+    if (!added) return false;
+    for (var i = 0; i < added.length; i++) {
+      var node = added[i];
+      // Текстовые узлы — самый частый гость при стриминге ответа,
+      // и они заведомо ничего не монтируют.
+      if (node.nodeType !== 1) continue;
+      if (node.matches && node.matches(RELEVANT)) return true;
+      if (node.querySelector && node.querySelector(RELEVANT)) return true;
+    }
+    return false;
+  }
+
   function onMutations(mutations) {
     for (var i = 0; i < mutations.length; i++) {
-      var target = mutations[i].target;
-      if (target && target.nodeType === 3) target = target.parentNode;
-      // Наши собственные узлы (оверлей, панели) — не повод для скана.
-      if (target && target.__claudeOwnNode) continue;
+      if (!isRelevant(mutations[i])) continue;
+      if (perf) perf.bump('batches-relevant');
       schedule();
       return;
     }
+    // Ни одна мутация нас не касается — прохода не будет вовсе.
+    // Промах фильтра не страшен: раз в SWEEP_MS идёт полный обход,
+    // и кнопка встанет с задержкой, а не потеряется.
+    if (perf) perf.bump('batches-skipped');
   }
 
   function observeBody() {
