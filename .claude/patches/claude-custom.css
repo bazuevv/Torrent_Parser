@@ -658,10 +658,43 @@
   color: var(--vscode-charts-yellow, #e2c08d);
 }
 
+/* Промах сразу после смены модели или аккаунта. Кэш в этот момент
+ * холодный по определению, винить некого — поэтому не красный и не
+ * жёлтый, а приглушённый: строка объясняет, а не тревожит. Тем же
+ * цветом помечена сводная строка «из них после переключений». */
+.claude-cache-explained .claude-cache-label,
+.claude-cache-explained .claude-cache-value {
+  color: var(--app-secondary-foreground, #9aa0a6);
+}
+
+/* Переключение модели или аккаунта — не потеря, а событие, поэтому
+ * из палитры потерь оно выпадает совсем. Синий отделяет причину от
+ * следствия: в ленте события стоят вперемешку с промахами, и глаз
+ * должен различать их без чтения. */
+.claude-cache-event .claude-cache-label,
+.claude-cache-event .claude-cache-value {
+  color: var(--vscode-charts-blue, #3794ff);
+}
+
+/* Смена аккаунта весомее смены модели: она тянет за собой и модель,
+ * и провайдера, и лимиты. */
+.claude-cache-event-account .claude-cache-value {
+  font-weight: 600;
+}
+
+/* Переключение, после которого хода ещё не было: кэш не проверялся,
+ * и обещать «обошлось» нельзя. Пунктир снизу — знак незавершённости,
+ * тот же приём, что у черновиков в интерфейсах. */
+.claude-cache-event-pending .claude-cache-label {
+  border-bottom: 1px dashed var(--vscode-charts-blue, #3794ff);
+}
+
 /* Пояснение приходит из title, поэтому курсор должен намекать,
  * что на строку стоит навести. */
 .claude-cache-unexpected,
-.claude-cache-expired {
+.claude-cache-expired,
+.claude-cache-explained,
+.claude-cache-event {
   cursor: help;
 }
 

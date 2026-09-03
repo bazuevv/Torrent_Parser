@@ -5727,6 +5727,114 @@
     body.appendChild(p);
   }
 
+  /** Короткое имя модели: claude-opus-5 → opus-5, glm-5.3 → glm-5.3. */
+  function shortModel(name) {
+    return String(name || '').replace(/^claude-/, '') || '—';
+  }
+
+  /**
+   * История сессии: промахи вперемешку с переключениями модели
+   * и аккаунта, по времени.
+   *
+   * Раньше здесь были «последние промахи», и они выглядели
+   * беспричинными: «переписано 900k» без намёка, что минутой раньше
+   * сменили аккаунт. Теперь причина стоит рядом со следствием.
+   *
+   * Ленту готовит сервер (`history`). Запасной путь по `miss_log`
+   * нужен, пока в окне работает webview, загруженный до обновления
+   * сервера: список промахов без событий — это ровно прежнее
+   * поведение, и оно лучше пустого раздела.
+   */
+  function renderHistory(body, d, ttl, rate) {
+    var items = d.history;
+    if (!items) {
+      items = (d.miss_log || []).filter(function (m) {
+        // «Переписано 0» — частичное попадание: кэш сработал, терять
+        // было нечего. В ленте такие записи только шумят.
+        return m.written > 0;
+      }).map(function (m) {
+        return {
+          kind: 'miss', ts: m.ts, gap: m.gap, written: m.written,
+        };
+      });
+    }
+    if (!items.length) return;
+
+    var title = document.createElement('div');
+    title.className = 'claude-cache-head claude-cache-head-sub';
+    title.textContent = 'история';
+    body.appendChild(title);
+
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.kind === 'miss') body.appendChild(missRow(it, ttl, rate));
+      else body.appendChild(eventRow(it));
+    }
+  }
+
+  /** Строка промаха. */
+  function missRow(m, ttl, rate) {
+    // Три разных случая, и различать их важно. Есть причина —
+    // переключение: кэш был холодным по определению, винить некого.
+    // Пауза короче TTL — аномалия: кэш обязан был выжить, значит
+    // префикс сломало что-то другое (смена tools, окно просмотра
+    // назад). Пауза длиннее — обычное вытеснение по времени.
+    var known = typeof m.gap === 'number';
+    var cls = '';
+    var hint = '';
+    if (m.explain) {
+      cls = 'claude-cache-explained';
+      hint = m.explain === 'account'
+        ? 'сразу после смены аккаунта — кэш нового провайдера пуст, '
+          + 'промах неизбежен и в потери не идёт'
+        : 'сразу после смены модели — префикс другой, промах неизбежен '
+          + 'и в потери не идёт';
+    } else if (!known) {
+      cls = '';
+      hint = '';
+    } else if (m.gap < ttl) {
+      cls = 'claude-cache-unexpected';
+      hint = 'пауза короче TTL (' + ttl + ' мин), кэш должен был выжить';
+    } else {
+      cls = 'claude-cache-expired';
+      hint = 'пауза больше TTL (' + ttl + ' мин) — кэш вытеснен '
+        + 'по истечении максимального времени хранения';
+    }
+    // Потеря — разница между тем, что заплачено (запись, 2x),
+    // и тем, что стоило бы попадание (чтение, 0.1x). Не полная
+    // стоимость записи: даже при попадании префикс не бесплатен.
+    var lost = m.written * MISS_LOSS_MULT * rate / 1e6;
+    return row(
+      hhmm(m.ts) + '  ·  пауза ' + (gapText(m.gap) || '—'),
+      'переписано ' + human(m.written) + '  (-' + money(lost) + ')',
+      cls, hint
+    );
+  }
+
+  /** Строка переключения: смена модели или аккаунта. */
+  function eventRow(ev) {
+    var isAccount = ev.kind === 'account';
+    var from = isAccount ? (ev.from || '—') : shortModel(ev.from);
+    var to = isAccount ? (ev.to || '—') : shortModel(ev.to);
+    var el = row(
+      hhmm(ev.ts) + '  ·  ' + (isAccount ? 'аккаунт' : 'модель'),
+      from + ' → ' + to,
+      'claude-cache-event' + (isAccount ? ' claude-cache-event-account' : ''),
+      isAccount
+        ? 'Переключение аккаунта. Кэш нового провайдера пуст, поэтому '
+          + 'первый ход после переключения промахивается закономерно'
+        : 'Смена модели. Префикс кэша у каждой модели свой, поэтому '
+          + 'первый ход после смены промахивается закономерно'
+    );
+    if (ev.pending) {
+      // Ход после переключения ещё не сделан — кэш не проверялся.
+      // Без пометки событие читалось бы как обошедшееся без промаха.
+      el.classList.add('claude-cache-event-pending');
+      el.title += '. Ход после него ещё не сделан';
+    }
+    return el;
+  }
+
   function renderStats(body, d, guessed) {
     var last = d.last || {};
     // TTL приходит с сервера (он читает конфиг по mtime), поэтому
@@ -5782,50 +5890,18 @@
       ));
     }
 
-    // Записи с «переписано 0» — частичные попадания: кэш использовался,
-    // перезаписи и потерь нет. В списке промахов они только шумят,
-    // поэтому не показываем. Если после фильтра список пуст — секцию
-    // не рисуем вовсе.
-    var missLog = (d.miss_log || []).filter(function (m) {
-      return m.written > 0;
-    });
-
-    if (missLog.length) {
-      var title = document.createElement('div');
-      title.className = 'claude-cache-head claude-cache-head-sub';
-      title.textContent = 'последние промахи';
-      body.appendChild(title);
-      for (var i = 0; i < missLog.length; i++) {
-        var m = missLog[i];
-        // Два разных случая, и различать их важно. Пауза короче TTL —
-        // аномалия: кэш обязан был выжить, значит префикс сломало
-        // что-то другое (смена tools, окно просмотра назад). Пауза
-        // длиннее — обычное вытеснение по времени, тут всё закономерно.
-        var known = typeof m.gap === 'number';
-        var odd = known && m.gap < ttl;
-        var cls, title;
-        if (!known) {
-          cls = '';
-          title = '';
-        } else if (odd) {
-          cls = 'claude-cache-unexpected';
-          title = 'пауза короче TTL (' + ttl + ' мин), кэш должен был выжить';
-        } else {
-          cls = 'claude-cache-expired';
-          title = 'пауза больше TTL (' + ttl + ' мин) — кэш вытеснен '
-            + 'по истечении максимального времени хранения';
-        }
-        // Потеря — разница между тем, что заплачено (запись, 2x),
-        // и тем, что стоило бы попадание (чтение, 0.1x). Не полная
-        // стоимость записи: даже при попадании префикс не бесплатен.
-        var lost = m.written * MISS_LOSS_MULT * rate / 1e6;
-        body.appendChild(row(
-          hhmm(m.ts) + '  ·  пауза ' + (gapText(m.gap) || '—'),
-          'переписано ' + human(m.written) + '  (-' + money(lost) + ')',
-          cls, title
-        ));
-      }
+    // Промахи, у которых нашлась причина, показываем отдельной строкой:
+    // это разница между «кэш течёт» и «я много переключался».
+    if (d.explained_misses) {
+      body.appendChild(row(
+        'из них после переключений', String(d.explained_misses),
+        'claude-cache-explained',
+        'Промахи сразу после смены модели или аккаунта. Кэш в этот '
+        + 'момент холодный по определению, поэтому в потери они не идут'
+      ));
     }
+
+    renderHistory(body, d, ttl, rate);
 
     // Показываем, чью статистику видим. Без этого нельзя отличить
     // «данные моей вкладки» от «данные соседней, попавшей под
