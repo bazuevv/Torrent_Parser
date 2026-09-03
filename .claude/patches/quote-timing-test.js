@@ -16,11 +16,20 @@ const fs = require('fs');
 const SRC = '/mnt/Projects/Torrent_Parser/.claude/patches/claude-custom.js';
 const lines = fs.readFileSync(SRC, 'utf8').split('\n');
 
-const headIdx = lines.findIndex((l) => l.includes('QUOTE FROM SELECTION'));
-if (headIdx < 0) throw new Error('заголовок QUOTE FROM SELECTION не найден');
-const startIdx = lines.findIndex((l, i) => i > headIdx && l === '(function () {');
-const endIdx = lines.findIndex((l, i) => i > startIdx && l === '})();');
-const block = lines.slice(startIdx, endIdx + 1).join('\n');
+/** Вырезает IIFE-блок, следующий за заголовком с указанным текстом. */
+function cut(headText) {
+  const head = lines.findIndex((l) => l.includes(headText));
+  if (head < 0) throw new Error('заголовок не найден: ' + headText);
+  const start = lines.findIndex((l, i) => i > head && l === '(function () {');
+  const end = lines.findIndex((l, i) => i > start && l === '})();');
+  return lines.slice(start, end + 1).join('\n');
+}
+
+// Модуль цитирования вставляет текст через общий помощник, поэтому
+// стенд поднимает оба блока — иначе проверялась бы заглушка, а не то,
+// что работает в окне.
+const composerBlock = cut('COMPOSER TEXT — чтение и вставка');
+const block = cut('QUOTE FROM SELECTION');
 
 /* ---------- фейковое окружение ---------- */
 
@@ -82,17 +91,26 @@ global.document = {
     contains: () => false,
     offsetHeight: 36,
   }),
-  // Вся вставка идёт через execCommand — его аргумент и проверяем.
+  /* Эмуляция редактора. Ключевой момент, ради которого стенд и
+   * существует: Chromium НЕ делает разрыва из `\n` внутри insertText —
+   * именно поэтому многострочная цитата склеивалась в одну строку.
+   * Здесь это воспроизведено буквально: перенос внутри insertText
+   * молча теряется, а строку рвёт только insertLineBreak. */
   execCommand(cmd, ui, value) {
+    if (cmd === 'insertLineBreak') {
+      composerText += '\n';
+      commands.push('break');
+      return true;
+    }
     if (cmd !== 'insertText') return false;
-    composerText += value;
+    composerText += String(value).replace(/\n/g, '');
+    commands.push('text:' + value);
     caretAtEnd = true;
-    lastInserted = value;
     return true;
   },
 };
 
-let lastInserted = null;
+const commands = [];
 
 global.window = {
   __CLAUDE_CUSTOM_CONFIG__: { quoteFromSelection: true, logs: false },
@@ -107,6 +125,7 @@ global.InputEvent = class {};
 
 /* ---------- прогон ---------- */
 
+eval(composerBlock);   // общий помощник — до модуля, как и в bootstrap
 eval(block);
 
 function fire(type, target) {
@@ -166,33 +185,49 @@ check('кнопка показана перед новым выделением'
 fire('mousedown');                 // начали новое выделение
 check('начало нового выделения гасит кнопку', !visible());
 
-/* --- сценарий 5: вставка цитаты.
- * Главное здесь — перевод строки в конце: он и ставит каретку
- * в начало следующей строки. */
+/* --- сценарий 5: вставка многострочной цитаты.
+ * Проверяем не аргумент одного вызова, а то, что ОКАЗАЛОСЬ в поле:
+ * ровно здесь ломалось раньше — текст вставлялся целиком, `\n` внутри
+ * него терялся, и три строки склеивались в одну. */
 selectionText = 'hello\nworld';
 fire('mouseup');
 composerText = 'уже набранное';
-lastInserted = null;
+commands.length = 0;
 btn().onclick({ preventDefault() {}, stopPropagation() {} });
 
-check('цитата вставлена', lastInserted !== null, String(lastInserted));
+check('цитата вставлена', commands.length > 0, commands.join(' | '));
 check('каждая строка процитирована',
-  lastInserted && lastInserted.includes('> hello') && lastInserted.includes('> world'),
-  JSON.stringify(lastInserted));
-check('перед цитатой перевод строки (composer не пуст)',
-  lastInserted && lastInserted.startsWith('\n'), JSON.stringify(lastInserted));
-check('после цитаты перевод строки — каретка на следующей строке',
-  lastInserted && lastInserted.endsWith('\n'), JSON.stringify(lastInserted));
+  composerText.includes('> hello') && composerText.includes('> world'),
+  JSON.stringify(composerText));
+check('строки цитаты РАЗДЕЛЕНЫ переносами, а не склеены',
+  composerText === 'уже набранное\n> hello\n> world\n',
+  JSON.stringify(composerText));
+check('переносы сделаны insertLineBreak, а не \\n внутри текста',
+  commands.filter((c) => c === 'break').length === 3,
+  commands.join(' | '));
+check('после цитаты каретка на следующей строке',
+  composerText.endsWith('\n'), JSON.stringify(composerText));
 check('кнопка спрятана после вставки', !visible());
 
 /* --- сценарий 6: пустой composer не получает лишний перевод строки сверху */
 selectionText = 'one';
 fire('mouseup');
 composerText = '';
-lastInserted = null;
+commands.length = 0;
 btn().onclick({ preventDefault() {}, stopPropagation() {} });
 check('в пустой composer цитата идёт без ведущего перевода строки',
-  lastInserted === '> one\n', JSON.stringify(lastInserted));
+  composerText === '> one\n', JSON.stringify(composerText));
+
+/* --- сценарий 7: цитата с пустой строкой внутри (два абзаца).
+ * Ровно случай из отчёта: между абзацами пустая строка `> `. */
+selectionText = 'Работает как задумано.\n\nТекущая сессия зафиксировала переход';
+fire('mouseup');
+composerText = '';
+commands.length = 0;
+btn().onclick({ preventDefault() {}, stopPropagation() {} });
+check('два абзаца дают три строки цитаты',
+  composerText === '> Работает как задумано.\n> \n> Текущая сессия зафиксировала переход\n',
+  JSON.stringify(composerText));
 
 /* ---------- отчёт ---------- */
 let failed = 0;

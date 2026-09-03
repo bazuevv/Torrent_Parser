@@ -2697,6 +2697,74 @@
 })();
 
 /* ============================================================
+ * COMPOSER TEXT — чтение и вставка текста в поле ввода
+ *
+ * Поле ввода — `div[contenteditable="plaintext-only"]`, React-
+ * controlled. С ним связаны две ловушки, на каждую из которых уже
+ * наступали, и обе стоят отдельной функции.
+ *
+ * ЧТЕНИЕ. `textContent` склеивает строки: он конкатенирует текст
+ * узлов и о разрывах не знает. `innerText` учитывает раскладку и
+ * отдаёт ровно то, что видит пользователь, — с `\n` на каждом
+ * переносе, независимо от того, хранит их поле символами или <br>.
+ *
+ * ВСТАВКА. Один `insertText` со всей строкой не годится: перенос
+ * внутри неё Chromium разрывом не делает. Снаружи это выглядит
+ * особенно обманчиво — каретка встаёт куда надо, выделение показывает
+ * несколько строк, а видимый текст склеен в одну. Так и есть: поле
+ * рисует текст прозрачным, а видимое рисует зеркало `.mentionMirror_*`
+ * (см. заметку про EMOJI PICKER), и до зеркала переносы не доезжают.
+ * Поэтому вставляем построчно, а между строками просим редактор
+ * сделать разрыв — тем же действием, что и Shift+Enter.
+ *
+ * Пойманы обе ловушки порознь: чтение — на возврате черновика
+ * keepalive, вставка — там же, а потом ещё раз на цитировании.
+ * Отсюда общий блок: третьей копии быть не должно.
+ * ============================================================ */
+(function () {
+  if (window.__claudeComposerTextInstalled) return;
+  window.__claudeComposerTextInstalled = true;
+
+  window.__claudeComposer = {
+    /** Содержимое поля с сохранением переносов. */
+    read: function (el) {
+      if (!el) return '';
+      return (typeof el.innerText === 'string' ? el.innerText : el.textContent) || '';
+    },
+
+    /**
+     * Вставляет текст в фокусированное поле, воспроизводя переносы.
+     * Возвращает false, если редактор отказал, — вызывающий решает,
+     * что делать дальше.
+     */
+    insertMultiline: function (text) {
+      var lines = String(text).split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        if (i > 0) {
+          var broke = false;
+          try {
+            broke = document.execCommand('insertLineBreak');
+          } catch (e) {
+            broke = false;
+          }
+          if (!broke) {
+            try { document.execCommand('insertText', false, '\n'); } catch (e) {}
+          }
+        }
+        // Пустая строка — это сам разрыв, вставлять сверх него нечего.
+        if (!lines[i]) continue;
+        try {
+          if (!document.execCommand('insertText', false, lines[i])) return false;
+        } catch (e) {
+          return false;
+        }
+      }
+      return true;
+    },
+  };
+})();
+
+/* ============================================================
  * SESSION MOVER — перенос сессий чата между проектами Claude Code
  * ============================================================
  *
@@ -7017,8 +7085,10 @@
       sel.removeAllRanges();
       sel.addRange(range);
 
-      // Проверяем, есть ли уже текст в composer
-      var currentText = composer.textContent || '';
+      // Проверяем, есть ли уже текст в composer. Читаем через общий
+      // помощник: textContent склеил бы строки и пустым полем счёл бы
+      // только по-настоящему пустое.
+      var currentText = window.__claudeComposer.read(composer);
       var hasText = currentText.trim().length > 0;
       // Перевод строки в конце ставит каретку в начало следующей
       // строки — сразу под цитатой, готовой к набору ответа. Без него
@@ -7027,8 +7097,10 @@
       // свой текст к чужой цитате.
       var textToInsert = (hasText ? '\n' : '') + quote + '\n';
 
-      // Вставляем текст
-      var inserted = document.execCommand('insertText', false, textToInsert);
+      // Построчно, через общий помощник: один insertText со всем
+      // текстом склеил бы цитату из нескольких строк в одну — Chromium
+      // не делает разрыва из `\n` внутри вставляемой строки.
+      var inserted = window.__claudeComposer.insertMultiline(textToInsert);
 
       if (!inserted) {
         // Fallback: вставляем вручную. Каретку ставим сами — присвоение
@@ -7525,50 +7597,16 @@
     return container.querySelector('[role="textbox"][contenteditable]');
   }
 
-  /**
-   * Читает содержимое поля с сохранением переносов.
-   *
-   * `textContent` склеивает строки: он просто конкатенирует текст узлов
-   * и о разрывах не знает. `innerText` учитывает раскладку и отдаёт
-   * ровно то, что видит пользователь, — с `\n` на каждом переносе,
-   * независимо от того, хранит их поле как символы или как <br>.
-   */
+  /* Чтение и многострочная вставка — общие (см. COMPOSER TEXT).
+   * Обе функции жили здесь и были написаны по следам поломок с этим
+   * полем; цитирование наступило на ту же вставку повторно, поэтому
+   * они переехали в общий блок. */
   function readComposer(el) {
-    if (!el) return '';
-    return (typeof el.innerText === 'string' ? el.innerText : el.textContent) || '';
+    return window.__claudeComposer.read(el);
   }
 
-  /**
-   * Вставляет текст, воспроизводя переносы строк.
-   *
-   * Один `insertText` со всей строкой не годится: перенос внутри неё
-   * Chromium не превращает в разрыв, и многострочный черновик
-   * возвращался склеенным в одну строку. Поэтому вставляем построчно,
-   * а между строками просим редактор сделать разрыв — тем же
-   * действием, что и Shift+Enter.
-   */
   function insertMultiline(text) {
-    var lines = String(text).split('\n');
-    for (var i = 0; i < lines.length; i++) {
-      if (i > 0) {
-        var broke = false;
-        try {
-          broke = document.execCommand('insertLineBreak');
-        } catch (e) {
-          broke = false;
-        }
-        if (!broke) {
-          try { document.execCommand('insertText', false, '\n'); } catch (e) {}
-        }
-      }
-      if (!lines[i]) continue;
-      try {
-        if (!document.execCommand('insertText', false, lines[i])) return false;
-      } catch (e) {
-        return false;
-      }
-    }
-    return true;
+    return window.__claudeComposer.insertMultiline(text);
   }
 
   /**
