@@ -353,12 +353,19 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
         + state["output"] / 1e6 * out_rate
     )
 
-    gaps = state["miss_gaps"]
-    early = sum(1 for g in gaps if isinstance(g, (int, float)) and g < ttl_minutes)
+    # Ранние промахи и знаменатель считаются по размеченному ряду ходов
+    # — тому же, что уходит в историю Mood. Раньше здесь был отдельный
+    # счёт по `miss_gaps` и `requests`, и два источника могли разойтись:
+    # пауз хранится 500, ходов 3000. Теперь источник один.
+    marked = explain_turns(state.get("turns") or [], account_events(),
+                           ttl_minutes)
+    early = sum(1 for t in marked if t.get("early"))
     # Знаменатель — ходы, на которых кэш вообще мог сработать. Первый
     # запрос сессии не в счёт: читать ему ещё нечего, и промахом он
-    # не считается (verdict «старт»).
-    chances = max(state["requests"] - 1, 0)
+    # не считается (verdict «старт»). Ходы после смены модели или
+    # аккаунта тоже: у них шанса не было.
+    chances = sum(1 for t in marked if t.get("counts"))
+    explained = sum(1 for t in marked if t.get("miss") and t.get("explain"))
 
     last = state["last"]
     return {
@@ -375,6 +382,10 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
         # считает, насколько часто кэш теряется впустую.
         "early_misses": early,
         "early_chances": chances,
+        # Промахи, у которых нашлась причина: сменилась модель или
+        # аккаунт. В early они не идут — но знать, сколько их, полезно:
+        # это разница между «кэш течёт» и «я много переключался».
+        "explained_misses": explained,
         "ttl_minutes": ttl_minutes,
         "read": state["read"],
         "write": state["write"],
@@ -402,6 +413,95 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
     }
 
 
+def account_events() -> list:
+    """События переключения аккаунтов из журнала account_switcher.
+
+    Импорт ленивый и под try: этот модуль запускают и как CLI из
+    произвольного места, а без журнала разбор обязан работать —
+    просто без объяснений «сменили аккаунт».
+    """
+    try:
+        import account_switcher
+        return account_switcher.read_account_events()
+    except Exception:
+        return []
+
+
+def explain_turns(turns: list, events: list, ttl_minutes: float) -> list[dict]:
+    """Размечает ходы: чем объяснён промах и считается ли он ранним.
+
+    Промах бывает трёх сортов, и путать их нельзя.
+
+    * **Неизбежный по времени** — пауза длиннее TTL: кэш истёк бы сам,
+      платить за перезапись пришлось бы при любом раскладе.
+    * **Объяснённый** — между ходами сменилась модель или аккаунт.
+      Другая модель это другой префикс, другой аккаунт — вообще другой
+      провайдер; кэш в этот момент холодный по определению. Такой
+      промах не говорит ни о чём, кроме того, что пользователь
+      переключился, и записывать его в потери значило бы штрафовать
+      за собственное решение.
+    * **Ранний** — всё остальное: кэш был жив, но ход его не застал.
+      Только это и есть потеря на ровном месте.
+
+    Объяснённый ход выбывает и из знаменателя: шанса у него не было,
+    а оставить его там — значит занизить долю потерь ровно в тех
+    сессиях, где переключались чаще всего.
+
+    Приоритет у аккаунта: смена аккаунта обычно тянет за собой и смену
+    модели, и назвать причиной модель означало бы указать на следствие.
+
+    Разметка делается при выдаче, а не при разборе, — как и сравнение
+    с TTL. Поэтому и правка `cacheKeepaliveTtlMinutes`, и появление
+    новых записей в журнале аккаунтов пересчитывают уже накопленную
+    историю, а не только будущие ходы.
+    """
+    stamped = []
+    for ev in events or []:
+        when = parse_ts(ev.get("ts") or "")
+        if when:
+            stamped.append((when, ev))
+    stamped.sort(key=lambda pair: pair[0])
+
+    out = []
+    prev_ts = None
+    prev_model = ""
+    for turn in turns or []:
+        ts = parse_ts(turn.get("ts") or "")
+        model = turn.get("model") or ""
+        gap = turn.get("gap")
+        miss = bool(turn.get("miss"))
+
+        explain = None
+        event = None
+        if prev_ts and ts:
+            for when, ev in stamped:
+                if prev_ts < when <= ts:
+                    explain = "account"
+                    event = ev
+                    break
+        if explain is None and prev_model and model and model != prev_model:
+            explain = "model"
+
+        item = dict(turn)
+        item["explain"] = explain
+        item["prev_model"] = prev_model
+        item["event"] = event
+        # Ранний промах — необъяснённый и уложившийся в TTL. Промах без
+        # разобранной паузы в ранние не идёт: сравнить его не с чем,
+        # а записать вслепую — соврать.
+        item["early"] = bool(
+            miss and explain is None and gap is not None and gap < ttl_minutes
+        )
+        # Шанс был, если ход не первый и кэшу ничто не мешало заведомо.
+        item["counts"] = bool(turn.get("chance")) and explain is None
+        out.append(item)
+
+        prev_ts = ts or prev_ts
+        if model:
+            prev_model = model
+    return out
+
+
 def mood_series(state: dict, ttl_minutes: float) -> list[dict]:
     """История Mood по ходам: накопленные числа на момент каждого хода.
 
@@ -420,15 +520,16 @@ def mood_series(state: dict, ttl_minutes: float) -> list[dict]:
     early = 0
     chances = 0
     peak = 0
-    for turn in state.get("turns") or []:
+    # Разметка общая с `collect()` — та же функция, тот же журнал
+    # аккаунтов. Вторая копия правил однажды разошлась бы с первой,
+    # и кривая истории спорила бы со стрелкой об одном и том же ходе.
+    for turn in explain_turns(state.get("turns") or [],
+                              account_events(), ttl_minutes):
         ctx = turn.get("ctx") or 0
         peak = max(peak, ctx)
-        if turn.get("chance"):
+        if turn.get("counts"):
             chances += 1
-        gap = turn.get("gap")
-        # Промах без разобранной паузы в ранние не идёт: сравнить его
-        # с TTL не с чем, а записать вслепую — соврать.
-        if turn.get("miss") and gap is not None and gap < ttl_minutes:
+        if turn.get("early"):
             early += 1
         series.append({
             "ts": turn.get("ts") or "",
@@ -437,7 +538,10 @@ def mood_series(state: dict, ttl_minutes: float) -> list[dict]:
             "context_peak": peak,
             "context": ctx,
             "miss": bool(turn.get("miss")),
-            "gap": gap,
+            "gap": turn.get("gap"),
+            # Чем объяснён промах, если объяснён: по этому полю окно
+            # истории Mood отмечает точки переключений.
+            "explain": turn.get("explain"),
         })
     return series
 
