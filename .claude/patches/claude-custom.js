@@ -2541,18 +2541,37 @@
     } catch (e) {}
   }
 
+  /* Общий обход документа — один на проход вместо одного на модуль.
+   *
+   * Восемь сканов искали одни и те же узлы одним и тем же селектором,
+   * каждый своим `querySelectorAll` по всему документу. При 11 700
+   * узлах (список сообщений не виртуализирован) это была львиная доля
+   * их стоимости: в замере 2026-09-03 сканы стоили 56–99 мс каждый,
+   * и разброс между ними — шум, а не разница в работе.
+   *
+   * Контекст передаётся сканам аргументом. Модуль обязан принять его
+   * как необязательный: скан вызывают и вне прохода (при регистрации,
+   * из своих обработчиков), и тогда он ищет узлы сам. */
+  function buildContext() {
+    return {
+      inputs: document.querySelectorAll('[class*="inputContainer_"]'),
+      sessions: document.querySelectorAll('[class*="sessionItem_"]'),
+    };
+  }
+
   function runAll() {
     // Скан мутирует DOM, мутация будит наблюдателя. Без этого флага
     // получается тот самый цикл «скан → мутация → скан».
     if (running) return;
     running = true;
     try {
+      var ctx = buildContext();
       for (var i = 0; i < subs.length; i++) {
         var s = subs[i];
         if (s.disabled) continue;
         var t0 = performance.now();
         try {
-          s.fn();
+          s.fn(ctx);
         } catch (e) {
           // Падение одного скана не должно лишать вызова остальных.
           // Сообщаем один раз: если модуль падает, он падает на каждой
@@ -2803,8 +2822,12 @@
     sessionItem.setAttribute(INSTALLED_ATTR, '1');
   }
 
-  function scanSessionItems() {
-    var items = document.querySelectorAll('[class*="sessionItem_"]');
+  function scanSessionItems(ctx) {
+    // Узлы даёт общий обход (см. DOM WATCH) — один на все модули.
+    // Свой поиск остаётся для вызовов вне прохода: при регистрации
+    // и из обработчиков самого модуля.
+    var items = (ctx && ctx.sessions)
+      || document.querySelectorAll('[class*="sessionItem_"]');
     if (!window.__claudeMoverScanLogged && items.length > 0) {
       window.__claudeMoverScanLogged = true;
       var first = items[0];
@@ -4880,8 +4903,12 @@
     return true;
   }
 
-  function scanInputs() {
-    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+  function scanInputs(ctx) {
+    // Узлы даёт общий обход (см. DOM WATCH) — один на все модули.
+    // Свой поиск остаётся для вызовов вне прохода: при регистрации
+    // и из обработчиков самого модуля.
+    var containers = (ctx && ctx.inputs)
+      || document.querySelectorAll('[class*="inputContainer_"]');
     for (var i = 0; i < containers.length; i++) {
       var container = containers[i];
       // Футер и поле ввода лежат в одном fieldset.inputContainer_*,
@@ -6018,8 +6045,12 @@
     }
   }
 
-  function scan() {
-    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+  function scan(ctx) {
+    // Узлы даёт общий обход (см. DOM WATCH) — один на все модули.
+    // Свой поиск остаётся для вызовов вне прохода: при регистрации
+    // и из обработчиков самого модуля.
+    var containers = (ctx && ctx.inputs)
+      || document.querySelectorAll('[class*="inputContainer_"]');
     for (var i = 0; i < containers.length; i++) {
       var footer = containers[i].querySelector('[class*="inputFooter_"]');
       // Проверяем по наличию элемента, а не по флагу-атрибуту: React
@@ -6329,8 +6360,12 @@
     return true;
   }
 
-  function scan() {
-    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+  function scan(ctx) {
+    // Узлы даёт общий обход (см. DOM WATCH) — один на все модули.
+    // Свой поиск остаётся для вызовов вне прохода: при регистрации
+    // и из обработчиков самого модуля.
+    var containers = (ctx && ctx.inputs)
+      || document.querySelectorAll('[class*="inputContainer_"]');
     for (var i = 0; i < containers.length; i++) {
       if (containers[i].querySelector('.' + BTN_CLASS)) continue;
       if (!containers[i].querySelector('[role="textbox"][contenteditable]')) continue;
@@ -6717,11 +6752,15 @@
    * от `inputContainer_` и требуют внутри поле ввода; здесь тот же
    * фильтр.
    */
-  function scan() {
+  function scan(ctx) {
     if (scanning || disabled) return;
     scanning = true;
     try {
-      var containers = document.querySelectorAll('[class*="inputContainer_"]');
+      // Узлы даёт общий обход (см. DOM WATCH) — один на все модули.
+      // Свой поиск остаётся для вызовов вне прохода: при регистрации
+      // и из обработчиков самого модуля.
+      var containers = (ctx && ctx.inputs)
+        || document.querySelectorAll('[class*="inputContainer_"]');
       for (var i = 0; i < containers.length; i++) {
         if (!containers[i].querySelector('[role="textbox"][contenteditable]')) continue;
         var footer = containers[i].querySelector('[class*="inputFooter_"]');
@@ -7765,9 +7804,13 @@
     if (enabled) tick();
   }
 
-  function scan() {
+  function scan(ctx) {
     loadStateWhenReady();
-    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+    // Узлы даёт общий обход (см. DOM WATCH) — один на все модули.
+    // Свой поиск остаётся для вызовов вне прохода: при регистрации
+    // и из обработчиков самого модуля.
+    var containers = (ctx && ctx.inputs)
+      || document.querySelectorAll('[class*="inputContainer_"]');
     for (var i = 0; i < containers.length; i++) {
       // Страховка: если возврат черновика не удался с первого раза
       // (поле было занято, отправка сорвалась), подбираем его здесь.
@@ -9259,8 +9302,12 @@
     }
   }
 
-  function scan() {
-    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+  function scan(ctx) {
+    // Узлы даёт общий обход (см. DOM WATCH) — один на все модули.
+    // Свой поиск остаётся для вызовов вне прохода: при регистрации
+    // и из обработчиков самого модуля.
+    var containers = (ctx && ctx.inputs)
+      || document.querySelectorAll('[class*="inputContainer_"]');
     for (var i = 0; i < containers.length; i++) {
       var footer = containers[i].querySelector('[class*="inputFooter_"]');
       if (containers[i].querySelector('.' + BTN_CLASS)) {
@@ -10028,8 +10075,12 @@
     }
   }
 
-  function scan() {
-    var containers = document.querySelectorAll('[class*="inputContainer_"]');
+  function scan(ctx) {
+    // Узлы даёт общий обход (см. DOM WATCH) — один на все модули.
+    // Свой поиск остаётся для вызовов вне прохода: при регистрации
+    // и из обработчиков самого модуля.
+    var containers = (ctx && ctx.inputs)
+      || document.querySelectorAll('[class*="inputContainer_"]');
     for (var i = 0; i < containers.length; i++) {
       var footer = containers[i].querySelector('[class*="inputFooter_"]');
       if (containers[i].querySelector('.' + ROOT_CLASS)) {

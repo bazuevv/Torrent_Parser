@@ -68,9 +68,15 @@ global.MutationObserver = class {
   constructor(cb) { observerCb = cb; }
   observe() { this.observing = true; }
 };
+let queryCalls = 0;
 global.document = {
   body: {},
   addEventListener() {},
+  // Счётчик обходов документа: ради его сокращения и делалась 60.2.
+  querySelectorAll(sel) {
+    queryCalls++;
+    return [{ sel }];
+  },
 };
 global.window = {};
 
@@ -149,6 +155,25 @@ check('контейнер в addedNodes будит', a === aBeforeIrrelevant + 1
 mutate([irrelevant], [node({ holdsContainer: true })]);
 advance(250);
 check('контейнер внутри addedNodes будит', a === aBeforeIrrelevant + 2, `a=${a}`);
+
+/* --- общий контекст: документ обходится один раз на проход, а не
+ * один раз на модуль. Это вся суть 60.2 — при 11 700 узлах восемь
+ * одинаковых querySelectorAll и были львиной долей стоимости скана. */
+let seenCtx = null;
+watch.register('ctx-probe', (ctx) => { seenCtx = ctx; });
+queryCalls = 0;
+mutate([foreign]);
+advance(250);
+check('контекст доходит до скана',
+  seenCtx && Array.isArray(seenCtx.inputs) && Array.isArray(seenCtx.sessions),
+  JSON.stringify(seenCtx));
+check('обход документа один на проход, а не на модуль',
+  queryCalls === 2, `querySelectorAll вызван ${queryCalls} раз при 3 подписчиках`);
+
+// --- скан вне прохода получает undefined и ищет узлы сам
+let ctxOutside = 'не вызывался';
+watch.register('ctx-fallback', (ctx) => { ctxOutside = ctx; });
+check('вне прохода контекста нет', ctxOutside === undefined, String(ctxOutside));
 
 // --- периодический обход-подстраховка
 const beforeSweep = a;
