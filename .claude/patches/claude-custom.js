@@ -911,6 +911,22 @@
     textDiv.id = 'claude-custom-debug-text';
     overlay.appendChild(textDiv);
 
+    /* Метка «это наш узел» — по ней базовый наблюдатель отличает свои
+     * мутации от чужих (см. init). Оверлей живёт в том же body, что и
+     * приложение, и его записи иначе выглядели бы как активность
+     * страницы: обновляли бы отметку времени последней мутации, на
+     * которой держится детектор тишины, и запускали бы обход дерева.
+     * То есть патч будил бы сам себя.
+     *
+     * Помечаются ровно те узлы, в которые мы пишем: цель мутации —
+     * всегда один из них, а не корень оверлея. Проверка по свойству,
+     * а не через `contains`: она стоит одно сравнение на запись, а
+     * записей в шторме тысячи. */
+    overlay.__claudeOwnNode = true;
+    textDiv.__claudeOwnNode = true;
+    miniBar.__claudeOwnNode = true;
+    miniStatus.__claudeOwnNode = true;
+
     // Панель иконок (правый верхний угол, видна только в развёрнутом виде)
     var iconsBar = document.createElement('div');
     iconsBar.id = 'claude-custom-debug-icons';
@@ -2259,21 +2275,69 @@
     // подтверждение прежде, чем стирать текущий чат.
     document.addEventListener('click', clearClickInterceptor, true);
 
-    // Измеряется весь обработчик целиком, без вложенных замеров:
-    // вложенная обёртка учла бы одни и те же миллисекунды дважды,
-    // и сумма `ours_ms` перестала бы сходиться с лагом таймера.
-    new MutationObserver(perfWrap('base-observer', function (mutations) {
-      perfBump('mutation-records', mutations.length);
+    /* Наблюдатель разделён на две части, и это разделение — суть
+     * правки 59.3.
+     *
+     * СИНХРОННО, на каждую мутацию, остаётся только то, чему нужна
+     * точность момента: отметка времени последней ЧУЖОЙ мутации.
+     * На ней держится детектор тишины — 📡 и авто-пинг, — и загнать
+     * её под throttle значило бы врать про возраст последних данных.
+     * Никаких обращений к документу здесь нет: перебор записей стоит
+     * O(числа записей) и не зависит от размера переписки.
+     *
+     * ПОД THROTTLE уходит всё, что обходит дерево: покраска меток 📬
+     * (querySelectorAll по всем абзацам ответов) и разбор мутаций для
+     * locale-drift. Именно они стоили дорого — а стриминг ответа даёт
+     * тысячи мутаций в секунду, и делать этот обход на каждую из них
+     * было бессмысленно: результат один и тот же. Задержка в четверть
+     * секунды перед покраской метки времени незаметна глазу.
+     *
+     * `characterData` остаётся включённым. Соблазн убрать его велик —
+     * это самый шумный источник, — но именно им виден стриминг текста
+     * ответа: без него детектор тишины считал бы поток данных паузой
+     * и 📡 загорался бы посреди работающего ответа.
+     *
+     * Свои мутации не считаются чужими. Оверлей живёт в том же body,
+     * и его записи раньше и обновляли отметку времени, и запускали
+     * обход дерева — то есть патч будил сам себя. */
+    var BASE_THROTTLE_MS = 250;
+    // Потолок буфера. MutationRecord держит ссылки на узлы, поэтому
+    // расти без предела ему нельзя. Переполнение означает шторм
+    // мутаций (стриминг), а не открытие меню `/` — снимок меню
+    // соберётся при следующем его показе.
+    var BASE_BUFFER_MAX = 1000;
+    var baseBuffer = [];
+    var baseTimer = null;
+
+    var baseFlush = perfWrap('base-flush', function () {
+      baseTimer = null;
+      var batch = baseBuffer;
+      baseBuffer = [];
       tagTimestampLines();
-      lastDomMutationAt = Date.now();
       // Locale-drift detector — собираем snapshot ТОЛЬКО когда мутация
-      // относится к меню `/`. Иначе debug-overlay (тикает каждые 100мс)
-      // и стриминг ответов в чате постоянно сбрасывают debounce-таймер,
-      // и snapshot никогда не доходит до отправки.
-      if (isMenuRelatedMutation(mutations)) {
+      // относится к меню `/`. Иначе debug-overlay и стриминг ответов
+      // в чате постоянно сбрасывают debounce-таймер, и snapshot
+      // никогда не доходит до отправки.
+      if (isMenuRelatedMutation(batch)) {
         maybeCollectAndSend();
         maybeSaveModels();
       }
+    });
+
+    new MutationObserver(perfWrap('base-observer', function (mutations) {
+      perfBump('mutation-records', mutations.length);
+      var foreign = false;
+      for (var mi = 0; mi < mutations.length; mi++) {
+        var target = mutations[mi].target;
+        if (target && target.nodeType === 3) target = target.parentNode;
+        if (target && target.__claudeOwnNode) continue;
+        foreign = true;
+        if (baseBuffer.length < BASE_BUFFER_MAX) baseBuffer.push(mutations[mi]);
+      }
+      if (!foreign) return;
+      lastDomMutationAt = Date.now();
+      if (baseTimer) return;
+      baseTimer = setTimeout(baseFlush, BASE_THROTTLE_MS);
     })).observe(document.body, {
       childList: true,
       subtree: true,
