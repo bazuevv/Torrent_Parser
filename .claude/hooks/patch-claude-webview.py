@@ -214,6 +214,11 @@ REQUIRED_PARAMS = [
         "должен быть true или false",
     ),
     (
+        "perfProbe",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
+    (
         "moodGauge",
         lambda v: isinstance(v, bool),
         "должен быть true или false",

@@ -43,6 +43,195 @@
   var MAX_PINGS = typeof cfg.maxPingsPerProcessing === 'number' && cfg.maxPingsPerProcessing >= 0
     ? cfg.maxPingsPerProcessing : 0; // 0 = без ограничений
 
+  /* ============================================================
+   * PERF PROBE — прибор, а не функция
+   *
+   * Родился из отказа 2026-09-02: содержимое вкладки появлялось через
+   * 30–40 с после Reload Window, поле ввода моргало по контуру и не
+   * принимало ввод, потом всё проходило само. Бандл был цел, наш JS
+   * исполнялся, в webview-errors.log — ни одного исключения, и датчик
+   * пустой вкладки молчал (его setTimeout сам исполнился с
+   * опозданием, когда рисовать уже было что). То есть главный поток
+   * был ЗАНЯТ, а не сломан — но чем именно, сказать было нечем.
+   *
+   * Прибор мерит три вещи, и порядок здесь важен:
+   *
+   * 1. `lag` — насколько опаздывает секундный таймер. Это единственный
+   *    показатель, который НЕ зависит от нашего кода: он одинаково
+   *    ловит и наши сканы, и чужой рендер. Без него любая цифра ниже
+   *    остаётся уликой без состава преступления.
+   * 2. `ours` — сколько миллисекунд за интервал провели в наших
+   *    обработчиках, с разбивкой по именам. Вместе с `lag` даёт
+   *    главный ответ: наша это вина или чужая. Большой lag при
+   *    крошечном `ours` — значит виноват не патч.
+   * 3. `dom` — размер дерева и число ходов в нём. Проверяет
+   *    предположение, которое до сих пор проверить было нечем:
+   *    виртуализирует ли расширение список сообщений. Если нет, то
+   *    querySelectorAll по всему документу на каждую мутацию — это
+   *    O(размер переписки) десять раз в секунду.
+   *
+   * Отчёт уходит в hooks-runtime/webview-errors.log с `kind: "perf"`
+   * своим fetch'ем, а не через claudeReportError: у того лимит
+   * в 20 отправок на страницу, и регулярные сводки съели бы квоту,
+   * оставив настоящее исключение без канала.
+   *
+   * Молчит, пока всё в порядке (см. пороги), — иначе журнал
+   * заполнился бы ровными строками «всё хорошо», в которых
+   * настоящую аномалию пришлось бы искать глазами. Исключение —
+   * первый отчёт: он baseline, по нему видно норму этой машины.
+   *
+   * Диагностика, а не функция: safeMode прибор НЕ гасит. В
+   * безопасный режим уходят именно при поломке, и остаться там без
+   * измерений — ровно та ситуация, из которой прибор и родился.
+   *
+   * Управление: `perfProbe` в claude-custom-config.toml.
+   * ============================================================ */
+  var PERF_ENABLED = cfg.perfProbe !== false;
+  var PERF_INTERVAL_MS = 10000;
+
+  // Пороги отчёта. Бюджет наших обработчиков — 150 мс на 10 с, то есть
+  // 1.5% главного потока: выше этого патч уже заметен пользователю.
+  // Лаг таймера в 500 мс — та граница, за которой ввод в поле начинает
+  // «залипать»: кадр держится дольше трёх периодов отрисовки.
+  var PERF_BUDGET_MS = 150;
+  var PERF_LAG_MS = 500;
+
+  // Предел отчётов на страницу. Непрерывная проблема опишется первыми
+  // же сводками; дальше это дубликаты, а место в журнале общее
+  // со сборщиком исключений.
+  var PERF_MAX_REPORTS = 60;
+
+  var perfBuckets = {};   // имя → {calls, ms}
+  var perfCounters = {};  // имя → число событий (мутации, сканы)
+  var perfLagMax = 0;
+  var perfLagSum = 0;
+  var perfLagTicks = 0;
+  var perfReports = 0;
+  var perfLastTick = 0;
+
+  function perfAdd(name, ms) {
+    var b = perfBuckets[name];
+    if (!b) { b = perfBuckets[name] = { calls: 0, ms: 0 }; }
+    b.calls++;
+    b.ms += ms;
+  }
+
+  /**
+   * Обёртка-измеритель. Возвращает функцию с той же семантикой, что
+   * и переданная: прибор не имеет права менять поведение того, что
+   * измеряет, — включая исключения (finally, а не try/catch).
+   */
+  function perfWrap(name, fn) {
+    if (!PERF_ENABLED) return fn;
+    return function () {
+      var t0 = performance.now();
+      try {
+        return fn.apply(this, arguments);
+      } finally {
+        perfAdd(name, performance.now() - t0);
+      }
+    };
+  }
+
+  function perfBump(name, n) {
+    if (!PERF_ENABLED) return;
+    perfCounters[name] = (perfCounters[name] || 0) + (n || 1);
+  }
+
+  /** Снимок размера дерева. Считается раз в интервал, не на мутацию. */
+  function perfDom() {
+    try {
+      return {
+        nodes: document.getElementsByTagName('*').length,
+        messages: document.querySelectorAll('[data-testid="assistant-message"]').length,
+        // Именно эти узлы обходит tagTimestampLines на каждой мутации.
+        paragraphs: document.querySelectorAll('[data-testid="assistant-message"] p').length,
+        inputs: document.querySelectorAll('[class*="inputContainer_"]').length,
+      };
+    } catch (e) {
+      return { error: String(e && e.message || e) };
+    }
+  }
+
+  function perfFlush() {
+    var ticks = perfLagTicks;
+    var lagAvg = ticks ? Math.round(perfLagSum / ticks) : 0;
+    var oursMs = 0;
+    var ours = {};
+    for (var name in perfBuckets) {
+      if (!perfBuckets.hasOwnProperty(name)) continue;
+      var b = perfBuckets[name];
+      oursMs += b.ms;
+      ours[name] = { calls: b.calls, ms: Math.round(b.ms) };
+    }
+
+    var loud = perfReports === 0
+      || oursMs >= PERF_BUDGET_MS
+      || perfLagMax >= PERF_LAG_MS;
+
+    if (loud && perfReports < PERF_MAX_REPORTS) {
+      perfReports++;
+      try {
+        fetch('http://localhost:18923/webview-error', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            kind: 'perf',
+            message: 'ours ' + Math.round(oursMs) + ' мс / '
+              + (PERF_INTERVAL_MS / 1000) + ' с · лаг таймера макс '
+              + Math.round(perfLagMax) + ' мс'
+              + (perfReports === 1 ? ' · baseline' : ''),
+            interval_sec: PERF_INTERVAL_MS / 1000,
+            ours_ms: Math.round(oursMs),
+            ours: ours,
+            counters: perfCounters,
+            lag: { max: Math.round(perfLagMax), avg: lagAvg, ticks: ticks },
+            dom: perfDom(),
+            safe_mode: cfg.safeMode === true,
+            href: location.href.slice(0, 200),
+            ts: Date.now(),
+          }),
+          keepalive: true,
+        }).catch(function () {});
+      } catch (e) {}
+    }
+
+    perfBuckets = {};
+    perfCounters = {};
+    perfLagMax = 0;
+    perfLagSum = 0;
+    perfLagTicks = 0;
+  }
+
+  function perfInit() {
+    if (!PERF_ENABLED) return;
+    perfLastTick = performance.now();
+    // Лаг считается по секундному таймеру, а не по requestAnimationFrame:
+    // rAF в скрытой вкладке не вызывается вовсе, и фоновые панели
+    // рисовали бы картину «поток свободен» при любой загрузке.
+    setInterval(function () {
+      var now = performance.now();
+      var lag = now - perfLastTick - 1000;
+      perfLastTick = now;
+      if (lag < 0) lag = 0;
+      if (lag > perfLagMax) perfLagMax = lag;
+      perfLagSum += lag;
+      perfLagTicks++;
+    }, 1000);
+    setInterval(perfFlush, PERF_INTERVAL_MS);
+  }
+
+  // Наружу — чтобы модули футера мерили свои сканы тем же прибором:
+  // вторая реализация счётчика разошлась бы с первой, и сравнивать
+  // цифры из одного отчёта стало бы нельзя.
+  window.__claudePerf = {
+    wrap: perfWrap,
+    bump: perfBump,
+    enabled: PERF_ENABLED,
+    /** Внеочередная сводка — для отладки из консоли. */
+    flush: function () { perfFlush(); },
+  };
+
   // === Locale-drift detector ===
   // Когда в DOM появляется выпадашка меню `/` ([class*="menuPopup_"]),
   // collectMenuItems() пробегает по всем её пунктам и собирает тройки
@@ -2009,6 +2198,9 @@
     var cspMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
     if (cspMeta) logInfo('CSP:', cspMeta.content);
 
+    // Прибор запускается первым: всё, что происходит на загрузке
+    // страницы, должно попасть в baseline-отчёт.
+    perfInit();
     tagTimestampLines();
     refreshCustomCss();
 
@@ -2019,7 +2211,11 @@
     // подтверждение прежде, чем стирать текущий чат.
     document.addEventListener('click', clearClickInterceptor, true);
 
-    new MutationObserver(function (mutations) {
+    // Измеряется весь обработчик целиком, без вложенных замеров:
+    // вложенная обёртка учла бы одни и те же миллисекунды дважды,
+    // и сумма `ours_ms` перестала бы сходиться с лагом таймера.
+    new MutationObserver(perfWrap('base-observer', function (mutations) {
+      perfBump('mutation-records', mutations.length);
       tagTimestampLines();
       lastDomMutationAt = Date.now();
       // Locale-drift detector — собираем snapshot ТОЛЬКО когда мутация
@@ -2030,7 +2226,7 @@
         maybeCollectAndSend();
         maybeSaveModels();
       }
-    }).observe(document.body, {
+    })).observe(document.body, {
       childList: true,
       subtree: true,
       characterData: true,
@@ -2040,10 +2236,10 @@
     // refreshCustomCss сам выходит, если вкладка не visible.
     // lastPollAt тикается всегда, даже когда refresh — no-op (вкладка
     // скрыта), чтобы overlay-таймер был предсказуем.
-    setInterval(function () {
+    setInterval(perfWrap('css-poll', function () {
       refreshCustomCss();
       lastPollAt = Date.now();
-    }, POLL_MS);
+    }), POLL_MS);
 
     // Когда вкладка становится активной — делаем refresh, чтобы догнать
     // изменения CSS, накопленные за время неактивности. Задержка
@@ -2102,16 +2298,16 @@
     // никаких overlay-элементов не создаётся.
     if (DEBUG_OVERLAY_ENABLED) {
       ensureDebugOverlay();
-      setInterval(function () {
+      setInterval(perfWrap('overlay-tick', function () {
         updateDebugOverlay();
         updateInlinePingIndicator();
-      }, 100);
+      }), 100);
       updateDebugOverlay();
     } else {
       // Даже без overlay, inline-индикаторы должны работать
-      setInterval(function () {
+      setInterval(perfWrap('ping-indicator', function () {
         updateInlinePingIndicator();
-      }, 500);
+      }), 500);
     }
   }
 
