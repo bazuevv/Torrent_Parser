@@ -79,7 +79,7 @@ MAX_TRACKED_TURNS = 3000
 # набора полей: старое состояние тогда отбрасывается и транскрипт
 # перечитывается целиком. Без этого добавленное поле молча остаётся
 # пустым на всех сессиях, у которых состояние уже накоплено.
-STATE_VERSION = 5
+STATE_VERSION = 6
 
 
 def rate_for(model: str):
@@ -124,7 +124,7 @@ def blank_state() -> dict:
         "turns": [],
         "model": "",
         "started": "",
-        "prev": None,  # {"ts": iso, "rd": int, "wr": int, "sig": [...]}
+        "prev": None,  # {"ts": iso, "rd": int, "wr": int, "sig": [...], "model": str}
         "last": None,  # тот же ход + verdict/gap
     }
 
@@ -189,6 +189,14 @@ def consume(state: dict, path: str) -> None:
         if prev is not None and prev["sig"] == sig:
             continue  # дубль той же записи (стрим отдаёт её дважды)
 
+        # Модель этого хода. `<synthetic>` — служебная отметка самого
+        # CLI (сообщения об ошибках API), а не модель; сегодня такие
+        # записи и так отсеиваются нулевой usage выше, но принять их
+        # за смену модели было бы обидной ошибкой.
+        turn_model = msg.get("model")
+        if not isinstance(turn_model, str) or turn_model in ("", "<synthetic>"):
+            turn_model = state.get("model") or ""
+
         ts_raw = rec.get("timestamp") or ""
         verdict = "старт"
         gap_min = None
@@ -216,6 +224,10 @@ def consume(state: dict, path: str) -> None:
                     "read": rd,
                     "written": wr,
                     "verdict": verdict,
+                    # Модель хода и предыдущего: по их расхождению
+                    # история объясняет промах сменой модели.
+                    "model": turn_model,
+                    "prev_model": prev.get("model") or "",
                 })
                 del state["miss_log"][:-MAX_TRACKED_MISSES]
                 if gap_min is not None:
@@ -240,6 +252,12 @@ def consume(state: dict, path: str) -> None:
             "ctx": rd + wr,
             # Первый ход шанса не имел: кэшу неоткуда было взяться.
             "chance": prev is not None,
+            # Модель хода. Хранится у каждого хода, а не только
+            # последняя (state["model"]): смена модели рвёт префикс,
+            # и промах сразу после неё закономерен. Но решать, какой
+            # промах чем объяснён, положено при выдаче — здесь только
+            # сырьё, как с паузой и TTL.
+            "model": turn_model,
         })
         del state["turns"][:-MAX_TRACKED_TURNS]
         state["requests"] += 1
@@ -247,11 +265,11 @@ def consume(state: dict, path: str) -> None:
         state["write"] += wr
         state["fresh"] += fresh
         state["output"] += out
-        model = msg.get("model")
-        if isinstance(model, str) and model:
-            state["model"] = model
+        if turn_model:
+            state["model"] = turn_model
 
-        state["prev"] = {"ts": ts_raw, "rd": rd, "wr": wr, "sig": sig}
+        state["prev"] = {"ts": ts_raw, "rd": rd, "wr": wr, "sig": sig,
+                         "model": turn_model}
         state["last"] = {
             "ts": ts_raw,
             "read": rd,
