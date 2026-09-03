@@ -1277,6 +1277,11 @@
     expandBtn.addEventListener('mouseleave', function () { hoverOut(expandBtn); });
     expandBtn.addEventListener('click', function () {
       isMinimized = false;
+      // Пока панель была свёрнута, в текстовый блок не писали. Сбрасываем
+      // память о последней записи, иначе ближайший тик решит, что писать
+      // нечего, и развёрнутая панель покажет содержимое времён
+      // сворачивания.
+      lastOverlayText = null;
       textDiv.style.display = 'block';
       iconsBar.style.display = 'flex';
       miniBar.style.display = 'none';
@@ -1570,6 +1575,13 @@
     return sessionStore;
   }
 
+  // Последнее записанное в оверлей — чтобы не переписывать DOM тем же
+  // самым (см. хвост updateDebugOverlay). null, а не '': пустая строка
+  // тоже бывает значением, и её первая запись должна состояться.
+  var lastOverlayText = null;
+  var lastOverlayIcon = null;
+  var lastOverlayTitle = null;
+
   function updateDebugOverlay() {
     var overlay = ensureDebugOverlay();
     var now = Date.now();
@@ -1782,14 +1794,50 @@
       }
     }
 
+    /* Запись в DOM — единственное, что этот оверлей отдаёт наружу,
+     * и одновременно единственное, чем он вредит.
+     *
+     * Тик идёт каждые 100 мс, а присваивание textContent — мутация
+     * дерева независимо от того, изменился текст или нет. Раньше их
+     * было ровно десять в секунду, и каждая будила все наши
+     * MutationObserver'ы (базовый плюс по одному на модуль футера),
+     * а те обходят документ целиком. При большой переписке это
+     * постоянная фоновая работа, которой никто не заказывал:
+     * в свёрнутом виде полотно вообще никому не видно.
+     *
+     * Отсюда два правила. Скрытому текстовому блоку не пишем вовсе —
+     * его содержимое всё равно перечитается при разворачивании
+     * ближайшим тиком. И ничего не пишем, если строка не изменилась:
+     * значок статуса и подсказка меняются раз в секунды, а не десять
+     * раз в секунду.
+     *
+     * Вычисления выше остаются нетронутыми: из них берутся busyState
+     * и contentSilenceSec для авто-пинга и значка 📡, и пропуск
+     * расчёта сломал бы их вместе с оверлеем. */
     var textEl = document.getElementById('claude-custom-debug-text');
-    if (textEl) textEl.textContent = lines.join('\n');
+    if (textEl && textEl.style.display !== 'none') {
+      var text = lines.join('\n');
+      if (text !== lastOverlayText) {
+        lastOverlayText = text;
+        textEl.textContent = text;
+        perfBump('overlay-writes');
+      }
+    }
 
     // Обновляем миниатюрный статус-индикатор (видён в свёрнутом виде).
     var ms = document.getElementById('claude-custom-debug-mini-status');
-    if (ms) ms.textContent = statusIcon;
+    if (ms && statusIcon !== lastOverlayIcon) {
+      lastOverlayIcon = statusIcon;
+      ms.textContent = statusIcon;
+      perfBump('overlay-writes');
+    }
     var ov = document.getElementById('claude-custom-debug');
-    if (ov) ov.title = statusIcon + ' ' + statusText;
+    var titleText = statusIcon + ' ' + statusText;
+    if (ov && titleText !== lastOverlayTitle) {
+      lastOverlayTitle = titleText;
+      ov.title = titleText;
+      perfBump('overlay-writes');
+    }
   }
 
   /**
