@@ -435,6 +435,11 @@ def build_history(state: dict, marked: list, events: list) -> list[dict]:
 
     * промахи с нулевой перезаписью — это частичные попадания, кэш
       сработал и терять было нечего; в ленте они только шумят;
+    * объяснённые промахи — сразу после смены модели или аккаунта кэш
+      переписывается ГАРАНТИРОВАННО, это не наблюдение, а следствие
+      самого переключения. Отдельная строка о нём не сообщает ничего
+      сверх того, что уже сказано строкой события, только дублирует
+      её тем же временем. Строка события остаётся, строка промаха — нет;
     * откаты переключения — их отфильтровал `read_account_events()`:
       для пользователя такого переключения не было.
 
@@ -449,15 +454,16 @@ def build_history(state: dict, marked: list, events: list) -> list[dict]:
         if (miss.get("written") or 0) <= 0:
             continue
         turn = by_ts.get(miss.get("ts")) or {}
+        if turn.get("explain"):
+            # Гарантированное следствие переключения — не наблюдение.
+            # Само переключение уже добавится ниже отдельной строкой.
+            continue
         items.append({
             "kind": "miss",
             "ts": miss.get("ts") or "",
             "gap": miss.get("gap"),
             "written": miss.get("written") or 0,
             "verdict": miss.get("verdict") or "",
-            # Причина, если нашлась: по ней панель отличает потерю
-            # на ровном месте от неизбежного следствия переключения.
-            "explain": turn.get("explain"),
         })
 
     seen_events = set()
@@ -500,7 +506,12 @@ def build_history(state: dict, marked: list, events: list) -> list[dict]:
             "pending": True,
         })
 
-    items.sort(key=lambda it: it.get("ts") or "")
+    # Событие (model/account) сортируется раньше всего остального с той
+    # же меткой времени: у переключения и хода, который его вызвал,
+    # секунда обычно совпадает, и порядок «причина, потом остальное»
+    # не должен зависеть от порядка вставки в items.
+    items.sort(key=lambda it: (it.get("ts") or "",
+                               0 if it.get("kind") in ("model", "account") else 1))
     return items[-MAX_HISTORY_ITEMS:]
 
 
