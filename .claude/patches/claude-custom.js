@@ -6903,22 +6903,33 @@
  * QUOTE FROM SELECTION — контекстная кнопка цитирования
  * ============================================================
  *
- * При выделении текста на странице в конце выделения появляется
- * значок цитаты (❯). По клику на него текст преобразуется в цитату
- * (добавляется `> ` перед каждой строкой) и вставляется в composer
- * как новая строка.
+ * Когда выделение текста ЗАВЕРШЕНО, у его конца появляется значок
+ * цитаты (❝). По клику текст преобразуется в цитату (`> ` перед
+ * каждой строкой) и вставляется в composer с новой строки.
  *
  * Работает с выделением в:
  *   - переписке Claude (сообщения, промеки)
  *   - коде и форматированном тексте
  *
- * Примеры вставки:
- *   "hello\nworld"     → "\n> hello\n> world"
- *   "one"              → "\n> one"
+ * Примеры вставки (composer не пуст):
+ *   "hello\nworld"     → "\n> hello\n> world\n"
+ *   "one"              → "\n> one\n"
+ *
+ * Перевод строки в конце обязателен: он оставляет каретку в начале
+ * следующей строки, сразу под цитатой. Иначе набор ответа начинался
+ * бы с нажатия Enter, чтобы не дописывать свой текст к чужой цитате.
+ *
+ * Момент появления. Кнопка ждёт конца выделения — отпускания мыши,
+ * а для клавиатурного выделения паузы в изменениях. Показывать её
+ * по `selectionchange` нельзя: событие приходит на каждый сдвиг
+ * границы, и кнопка прыгала бы за курсором через весь фрагмент,
+ * мешая целиться, — а нажать её во время протаскивания всё равно
+ * невозможно.
  *
  * Кнопка исчезает, когда:
- *   - выделение снято (mousedown вне кнопки)
- *   - был выполнен клик (вставка произошла)
+ *   - началось новое выделение или был клик мимо (mousedown)
+ *   - выделение снято
+ *   - был выполнен клик по ней (вставка произошла)
  *
  * Управление: `quoteFromSelection` в claude-custom-config.toml.
  * ============================================================ */
@@ -6931,6 +6942,19 @@
 
   var quoteButton = null;    // текущая кнопка (или null)
   var currentSelection = null; // сохранённое выделение
+
+  // Идёт ли выделение прямо сейчас (зажата кнопка мыши). Пока идёт,
+  // кнопки быть не должно: `selectionchange` прилетает на каждый
+  // сдвиг курсора, и кнопка прыгала бы за ним, мешая целиться в конец
+  // фрагмента — а попасть по ней в этот момент всё равно нельзя.
+  var selecting = false;
+
+  // У выделения с клавиатуры (Shift+стрелки) нет момента «отпустили
+  // кнопку», поэтому концом считаем паузу в изменениях. Полсекунды —
+  // заметно дольше интервала автоповтора клавиши, так что при
+  // удержании Shift+→ кнопка не мигает на каждом символе.
+  var KEYBOARD_SETTLE_MS = 500;
+  var settleTimer = null;
 
   function logInfo() {
     if (!cfg.logs) return;
@@ -6996,14 +7020,25 @@
       // Проверяем, есть ли уже текст в composer
       var currentText = composer.textContent || '';
       var hasText = currentText.trim().length > 0;
-      var textToInsert = hasText ? '\n' + quote : quote;
+      // Перевод строки в конце ставит каретку в начало следующей
+      // строки — сразу под цитатой, готовой к набору ответа. Без него
+      // каретка оставалась в конце последней процитированной строки,
+      // и первое, что приходилось делать, — жать Enter, дописывая
+      // свой текст к чужой цитате.
+      var textToInsert = (hasText ? '\n' : '') + quote + '\n';
 
       // Вставляем текст
       var inserted = document.execCommand('insertText', false, textToInsert);
 
       if (!inserted) {
-        // Fallback: вставляем вручную
+        // Fallback: вставляем вручную. Каретку ставим сами — присвоение
+        // textContent пересоздаёт узлы и позицию не сохраняет.
         composer.textContent = currentText + textToInsert;
+        var endRange = document.createRange();
+        endRange.selectNodeContents(composer);
+        endRange.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(endRange);
         composer.dispatchEvent(new InputEvent('input', {
           bubbles: true, cancelable: true, inputType: 'insertText', data: textToInsert,
         }));
@@ -7087,34 +7122,80 @@
     currentSelection = null;
   }
 
-  /**
-   * Обработчик выделения текста.
-   */
-  function handleSelection() {
-    var hasSelection = window.getSelection().toString().length > 0;
-    if (hasSelection) {
-      showQuoteButton();
-    } else {
-      hideQuoteButton();
+  function cancelSettle() {
+    if (settleTimer) {
+      clearTimeout(settleTimer);
+      settleTimer = null;
     }
   }
 
+  /** Показ после паузы — для выделения с клавиатуры. */
+  function scheduleSettledShow() {
+    cancelSettle();
+    settleTimer = setTimeout(function () {
+      settleTimer = null;
+      if (selecting) return;  // мышь снова в деле, ждём mouseup
+      if (window.getSelection().toString().length > 0) showQuoteButton();
+    }, KEYBOARD_SETTLE_MS);
+  }
+
+  /** Показывает кнопку немедленно, если есть что цитировать. */
+  function showIfSelected() {
+    cancelSettle();
+    if (window.getSelection().toString().length > 0) showQuoteButton();
+    else hideQuoteButton();
+  }
+
   /**
-   * Скрывает кнопку при mousedown вне неё.
+   * Изменение выделения. Само по себе поводом показать кнопку не
+   * является: событие прилетает на каждый сдвиг границы, то есть
+   * десятки раз за одно протаскивание мышью. Здесь только гасим
+   * кнопку и, для клавиатурного выделения, заводим таймер паузы.
    */
-  function handleMouseDown(e) {
-    if (quoteButton && e.target !== quoteButton && !quoteButton.contains(e.target)) {
+  function handleSelectionChange() {
+    if (window.getSelection().toString().length === 0) {
+      cancelSettle();
       hideQuoteButton();
+      return;
     }
+    // Выделение мышью ещё идёт — момент показа наступит на mouseup.
+    if (selecting) {
+      cancelSettle();
+      hideQuoteButton();
+      return;
+    }
+    scheduleSettledShow();
+  }
+
+  /** Начало выделения мышью; клик по самой кнопке им не считается. */
+  function handleMouseDown(e) {
+    if (quoteButton && (e.target === quoteButton || quoteButton.contains(e.target))) {
+      return;
+    }
+    selecting = true;
+    cancelSettle();
+    hideQuoteButton();
+  }
+
+  /** Конец выделения мышью — единственный момент, когда кнопка нужна. */
+  function handleMouseUp(e) {
+    // Отпускание на самой кнопке — это её нажатие, а не конец
+    // выделения: показывать нечего, клик сейчас всё уберёт сам.
+    if (quoteButton && e && (e.target === quoteButton || quoteButton.contains(e.target))) {
+      return;
+    }
+    selecting = false;
+    showIfSelected();
   }
 
   function init() {
-    // Слушаем события выделения
-    document.addEventListener('mouseup', handleSelection);
-    document.addEventListener('touchend', handleSelection);
-    document.addEventListener('selectionchange', handleSelection);
+    // Показ — только по завершению выделения: отпустили мышь либо
+    // клавиатурное выделение перестало меняться.
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('touchend', handleMouseUp);
+    document.addEventListener('selectionchange', handleSelectionChange);
 
-    // Скрываем кнопку при клике в другое место
+    // Начало протаскивания и клик мимо — оба гасят кнопку.
     document.addEventListener('mousedown', handleMouseDown);
 
     logInfo('контекстная кнопка цитирования активирована');
