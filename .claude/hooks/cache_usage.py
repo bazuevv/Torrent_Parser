@@ -64,6 +64,12 @@ CACHE_READ_MULT = 0.1
 
 MAX_TRACKED_MISSES = 20  # хвост промахов, который отдаём в UI
 
+# Длина ленты истории для панели. Больше промахов, потому что к ним
+# добавляются переключения модели и аккаунта: при двадцати промахах
+# и десятке переключений хвост в сорок записей показывает всё
+# и не заставляет панель расти без конца.
+MAX_HISTORY_ITEMS = 40
+
 # Паузы перед промахами храним отдельно и дольше: по ним считается
 # доля ранних потерь кэша (индикатор Mood). Двадцати записей miss_log
 # для этого мало — в длинной сессии доля вышла бы заниженной, а по
@@ -357,8 +363,8 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
     # — тому же, что уходит в историю Mood. Раньше здесь был отдельный
     # счёт по `miss_gaps` и `requests`, и два источника могли разойтись:
     # пауз хранится 500, ходов 3000. Теперь источник один.
-    marked = explain_turns(state.get("turns") or [], account_events(),
-                           ttl_minutes)
+    events = account_events()
+    marked = explain_turns(state.get("turns") or [], events, ttl_minutes)
     early = sum(1 for t in marked if t.get("early"))
     # Знаменатель — ходы, на которых кэш вообще мог сработать. Первый
     # запрос сессии не в счёт: читать ему ещё нечего, и промахом он
@@ -393,7 +399,11 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
         "output": state["output"],
         "misses": state["misses"],
         "rewritten": state["rewritten"],
+        # miss_log остаётся ради webview, загруженных до этой правки:
+        # bootstrap перечитывается только при Reload Window, и такое
+        # окно живёт до ближайшей перезагрузки. Новый UI читает history.
         "miss_log": state["miss_log"],
+        "history": build_history(state, marked, events),
         "cost": round(cost, 2),
         "cost_naive": round(naive, 2),
         "ratio": round(naive / cost, 1) if cost > 0 else 0.0,
@@ -411,6 +421,87 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
             "read_mult": CACHE_READ_MULT,
         },
     }
+
+
+def build_history(state: dict, marked: list, events: list) -> list[dict]:
+    """Лента событий сессии: промахи вперемешку с переключениями.
+
+    Раньше панель показывала только промахи, и они выглядели
+    беспричинными: «переписано 900k» без единого намёка, что за минуту
+    до этого сменили аккаунт. Причина и следствие теперь стоят рядом
+    в одной ленте, отсортированной по времени.
+
+    Что сюда НЕ попадает:
+
+    * промахи с нулевой перезаписью — это частичные попадания, кэш
+      сработал и терять было нечего; в ленте они только шумят;
+    * откаты переключения — их отфильтровал `read_account_events()`:
+      для пользователя такого переключения не было.
+
+    Событие переключения, случившееся после последнего хода, всё равно
+    показывается: переключились, открыли панель — и увидели, что это
+    зафиксировано, не дожидаясь следующего запроса к модели.
+    """
+    items = []
+    by_ts = {t.get("ts"): t for t in marked if t.get("ts")}
+
+    for miss in state.get("miss_log") or []:
+        if (miss.get("written") or 0) <= 0:
+            continue
+        turn = by_ts.get(miss.get("ts")) or {}
+        items.append({
+            "kind": "miss",
+            "ts": miss.get("ts") or "",
+            "gap": miss.get("gap"),
+            "written": miss.get("written") or 0,
+            "verdict": miss.get("verdict") or "",
+            # Причина, если нашлась: по ней панель отличает потерю
+            # на ровном месте от неизбежного следствия переключения.
+            "explain": turn.get("explain"),
+        })
+
+    seen_events = set()
+    for turn in marked:
+        if turn.get("explain") == "model":
+            items.append({
+                "kind": "model",
+                "ts": turn.get("ts") or "",
+                "from": turn.get("prev_model") or "",
+                "to": turn.get("model") or "",
+            })
+        elif turn.get("explain") == "account" and turn.get("event"):
+            ev = turn["event"]
+            seen_events.add(ev.get("ts"))
+            items.append({
+                "kind": "account",
+                "ts": ev.get("ts") or "",
+                "from": ev.get("from_name") or ev.get("from") or "",
+                "to": ev.get("to_name") or ev.get("to") or "",
+            })
+
+    # Переключения, до которых ход ещё не дошёл. Ограничиваем началом
+    # сессии: журнал общий на проект, и события чужих сессий здесь
+    # были бы враньём.
+    started = parse_ts(state.get("started") or "")
+    for ev in events or []:
+        if ev.get("ts") in seen_events:
+            continue
+        when = parse_ts(ev.get("ts") or "")
+        if not when or (started and when < started):
+            continue
+        items.append({
+            "kind": "account",
+            "ts": ev.get("ts") or "",
+            "from": ev.get("from_name") or ev.get("from") or "",
+            "to": ev.get("to_name") or ev.get("to") or "",
+            # Ход после переключения ещё не сделан — кэш пока не
+            # проверялся. Панель показывает это отдельной пометкой,
+            # иначе событие выглядело бы как обошедшееся без промаха.
+            "pending": True,
+        })
+
+    items.sort(key=lambda it: it.get("ts") or "")
+    return items[-MAX_HISTORY_ITEMS:]
 
 
 def account_events() -> list:
