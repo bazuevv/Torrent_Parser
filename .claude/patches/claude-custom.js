@@ -2431,6 +2431,211 @@
 })();
 
 /* ============================================================
+ * DOM WATCH — один наблюдатель на все модули
+ *
+ * Каждый модуль, которому нужно доставить свою кнопку в футер или
+ * в строку сессии, заводил собственный MutationObserver на
+ * document.body с `subtree: true` и вызывал из него полный скан
+ * документа. К этапу 58 таких наблюдателей стало семь, и только
+ * у одного (FIND IN PAGE) стоял throttle — там его поставили после
+ * того, как скан на каждую мутацию подвесил webview.
+ *
+ * Чем это плохо, видно из арифметики. Стриминг ответа даёт тысячи
+ * мутаций в секунду; браузер вызывает каждый из семи обработчиков
+ * отдельно; каждый обработчик обходит документ целиком. Работа
+ * растёт как «мутации × модули × размер переписки», причём почти вся
+ * она бесполезна: между двумя соседними мутациями футер не меняется.
+ *
+ * Здесь один наблюдатель, один throttle и один периодический
+ * обход-подстраховка на всех. Модуль вместо своего observer'а
+ * регистрирует функцию скана:
+ *
+ *     window.__claudeDomWatch.register('mood', scan);
+ *
+ * Что даёт регистрация, кроме экономии:
+ *
+ * - **Чужие падения не мешают.** Скан каждого модуля вызывается
+ *   в своём try/catch: исключение в одном раньше оборвало бы цикл
+ *   и оставило остальных без вызова (тот же урок, что с обёрткой
+ *   вокруг инлайн-JS в bootstrap).
+ * - **Реентерабельности нет.** Сканы вставляют узлы, вставка рождает
+ *   мутации, мутации будят наблюдателя — цикл «скан → мутация →
+ *   скан» уже подвешивал окно однажды. Пока идёт проход, новый
+ *   не начинается.
+ * - **Свои мутации не считаются.** Оверлей и наши панели живут в том
+ *   же body; без фильтра патч будил бы сам себя.
+ * - **Есть предохранитель.** Если скан модуля съедает больше своего
+ *   бюджета за минуту, он отключается насовсем и об этом уходит
+ *   запись в журнал. Кнопка исчезнет при ближайшем ре-рендере —
+ *   но это лучше подвешенного окна, а запись в журнале назовёт
+ *   виновника без дознания.
+ *
+ * Время каждого скана идёт в прибор (`scan:<имя>` в отчёте perf) —
+ * поэтому в сводке видно не только «наши обработчики съели столько-то»,
+ * но и кто именно.
+ * ============================================================ */
+(function () {
+  if (window.__claudeDomWatchInstalled) return;
+  window.__claudeDomWatchInstalled = true;
+
+  /* Регистратор публикуется ПЕРВЫМ делом, до всей настройки ниже.
+   *
+   * Модули обращаются к нему из своих init(), и если бы объекта не
+   * оказалось, вызов бросил бы TypeError. Инлайн-JS обёрнут в общий
+   * try/catch на уровне bootstrap, так что одно такое исключение
+   * оборвало бы установку ВСЕХ последующих модулей — ровно та
+   * поломка, ради которой этот этап и затевался.
+   *
+   * Функции ниже объявлены через `function`, поэтому уже видны;
+   * переменные состояния получат значения строкой ниже, а методы
+   * вызовут их сильно позже — из init() модулей. */
+  window.__claudeDomWatch = {
+    /**
+     * Зарегистрировать скан модуля. Вызывается на мутациях (с общим
+     * throttle) и раз в SWEEP_MS. Первый вызов — сразу, чтобы кнопка
+     * появлялась без ожидания.
+     */
+    register: function (name, fn) {
+      var wrapped = perf ? perf.wrap('scan:' + name, fn) : fn;
+      subs.push({ name: name, fn: wrapped, spent: 0, disabled: false, failed: false });
+      // Первый скан идёт через ту же обёртку, что и последующие: иначе
+      // самый дорогой вызов — по неотрисованному ещё дереву — не попал
+      // бы в отчёт прибора.
+      try { wrapped(); } catch (e) {}
+    },
+    /** Внеочередной обход — например после действия, меняющего футер. */
+    kick: function () { schedule(); },
+  };
+
+  // Пауза между обходами. Меньше — незаметно быстрее (кнопка и так
+  // появляется в пределах кадра-двух), больше — заметно позже при
+  // пересоздании футера React'ом.
+  var THROTTLE_MS = 200;
+
+  // Подстраховочный обход: observer пропускает узлы, отрисованные до
+  // его подключения, а также случаи, когда мутация пришла в момент,
+  // когда проход уже шёл.
+  var SWEEP_MS = 3000;
+
+  // Бюджет одного модуля — 4 секунды на минуту, то есть около 7%
+  // главного потока. Столько скан кнопки не может стоить ни при
+  // каком размере переписки; если стоит — он в цикле.
+  var GUARD_WINDOW_MS = 60000;
+  var GUARD_BUDGET_MS = 4000;
+
+  var perf = window.__claudePerf || null;
+  var subs = [];
+  var timer = null;
+  var running = false;
+
+  function report(payload) {
+    try {
+      payload.href = location.href.slice(0, 200);
+      payload.ts = Date.now();
+      fetch('http://localhost:18923/webview-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function runAll() {
+    // Скан мутирует DOM, мутация будит наблюдателя. Без этого флага
+    // получается тот самый цикл «скан → мутация → скан».
+    if (running) return;
+    running = true;
+    try {
+      for (var i = 0; i < subs.length; i++) {
+        var s = subs[i];
+        if (s.disabled) continue;
+        var t0 = performance.now();
+        try {
+          s.fn();
+        } catch (e) {
+          // Падение одного скана не должно лишать вызова остальных.
+          // Сообщаем один раз: если модуль падает, он падает на каждой
+          // мутации, и журнал заполнился бы одной строкой.
+          if (!s.failed) {
+            s.failed = true;
+            report({
+              kind: 'scan-error',
+              message: 'скан модуля «' + s.name + '» упал: '
+                + String(e && e.message || e),
+              module: s.name,
+              stack: String(e && e.stack || '').slice(0, 1500),
+            });
+          }
+        }
+        s.spent += performance.now() - t0;
+      }
+    } finally {
+      running = false;
+    }
+  }
+
+  function guard() {
+    for (var i = 0; i < subs.length; i++) {
+      var s = subs[i];
+      if (s.disabled) continue;
+      if (s.spent > GUARD_BUDGET_MS) {
+        s.disabled = true;
+        report({
+          kind: 'scan-guard',
+          message: 'скан модуля «' + s.name + '» съел '
+            + Math.round(s.spent) + ' мс за минуту — модуль отключён',
+          module: s.name,
+          spent_ms: Math.round(s.spent),
+        });
+      }
+      s.spent = 0;
+    }
+  }
+
+  function schedule() {
+    if (timer) return;
+    timer = setTimeout(function () {
+      timer = null;
+      runAll();
+    }, THROTTLE_MS);
+  }
+
+  function onMutations(mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      var target = mutations[i].target;
+      if (target && target.nodeType === 3) target = target.parentNode;
+      // Наши собственные узлы (оверлей, панели) — не повод для скана.
+      if (target && target.__claudeOwnNode) continue;
+      schedule();
+      return;
+    }
+  }
+
+  function observeBody() {
+    try {
+      // characterData здесь не нужен: модули следят за появлением и
+      // порядком узлов, а не за текстом внутри них. Это заодно снимает
+      // самый шумный источник — стриминг ответа.
+      new MutationObserver(
+        perf ? perf.wrap('dom-watch', onMutations) : onMutations
+      ).observe(document.body, { childList: true, subtree: true });
+    } catch (e) {}
+  }
+
+  // Этот блок — не модуль, а инфраструктура: он исполняется сразу при
+  // загрузке файла, а не по DOMContentLoaded, потому что модули ниже
+  // регистрируются у него. На этот момент body может ещё не
+  // существовать, и observe(null) бросил бы исключение — молча, внутри
+  // catch, оставив всех подписчиков без наблюдателя вообще.
+  if (document.body) observeBody();
+  else document.addEventListener('DOMContentLoaded', observeBody);
+
+  setInterval(runAll, SWEEP_MS);
+  setInterval(guard, GUARD_WINDOW_MS);
+})();
+
+/* ============================================================
  * SESSION MOVER — перенос сессий чата между проектами Claude Code
  * ============================================================
  *
@@ -3367,12 +3572,9 @@
 
   function init() {
     sendDiag('init', { readyState: document.readyState, hasBody: !!document.body });
-    scanSessionItems();
-    var observer = new MutationObserver(function () { scanSessionItems(); });
-    observer.observe(document.body, { childList: true, subtree: true });
-    // Подстраховочный таймер — на случай если observer пропустил
-    // sessionItem, отрендеренный до его подключения.
-    setInterval(scanSessionItems, 3000);
+    // Свой наблюдатель и свой таймер-подстраховка заменены общими —
+    // см. DOM WATCH. Первый скан делает сама регистрация.
+    window.__claudeDomWatch.register('session-mover', scanSessionItems);
     logInfo('installed');
   }
 
@@ -4080,7 +4282,8 @@
  *     (например, в поле поиска панели).
  *
  * React перерисовывает поле ввода, поэтому кнопка переустанавливается
- * MutationObserver'ом + подстраховочным таймером (как в SESSION MOVER).
+ * по мутациям DOM и периодическим обходом — оба даёт общий
+ * наблюдатель (см. DOM WATCH), у модуля своего больше нет.
  *
  * Управление: `emojiPicker` и `emojiRecentLimit` в
  * .claude/patches/claude-custom-config.toml, расположение кнопки —
@@ -4103,7 +4306,6 @@
   var RECENT_KEY = 'claudeCustomEmojiRecent';
   var BTN_CLASS = 'claude-emoji-btn';
   var PANEL_ID = 'claude-emoji-panel';
-  var SCAN_INTERVAL_MS = 3000;
 
   // Расположение кнопки: 'mic' | 'footer'. Значение приходит из
   // VSCode Settings UI (claudeCode.emojiButtonPlacement) — хук
@@ -4694,10 +4896,8 @@
   }
 
   function init() {
-    scanInputs();
-    new MutationObserver(function () { scanInputs(); })
-      .observe(document.body, { childList: true, subtree: true });
-    setInterval(scanInputs, SCAN_INTERVAL_MS);
+    // Наблюдатель и подстраховочный таймер — общие (см. DOM WATCH).
+    window.__claudeDomWatch.register('emoji-picker', scanInputs);
     pollPlacement();
     setInterval(pollPlacement, PLACEMENT_POLL_MS);
     // Каретку запоминаем всегда, а не только при открытой панели:
@@ -5208,7 +5408,6 @@
   var BTN_CLASS = 'claude-usage-btn';
   var BARE_CLASS = 'claude-usage-btn-bare';  // без донора стиля
   var PANEL_ID = 'claude-cache-panel';
-  var SCAN_INTERVAL_MS = 3000;
 
   // Соседний контрол, слева от которого встаём. Лейбл локализуется,
   // поэтому ищем оба варианта; при промахе есть запасные якоря.
@@ -5796,14 +5995,8 @@
   }
 
   function init() {
-    scan();
-    try {
-      new MutationObserver(function () { scan(); }).observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-    } catch (e) {}
-    setInterval(scan, SCAN_INTERVAL_MS);
+    // Наблюдатель и подстраховочный таймер — общие (см. DOM WATCH).
+    window.__claudeDomWatch.register('usage', scan);
     logInfo('installed');
   }
 
@@ -5847,7 +6040,6 @@
   var BTN_CLASS = 'claude-bypass-btn';
   var BARE_CLASS = 'claude-bypass-btn-bare';
   var ON_CLASS = 'claude-bypass-on';
-  var SCAN_INTERVAL_MS = 3000;
   var BYPASS_POLL_MS = 5000;
   var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
   var STORAGE_KEY = 'claudeCustomBypass';
@@ -6105,15 +6297,9 @@
   }
 
   function init() {
-    scan();
     refresh();
-    try {
-      new MutationObserver(function () { scan(); }).observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-    } catch (e) {}
-    setInterval(scan, SCAN_INTERVAL_MS);
+    // Наблюдатель и подстраховочный таймер — общие (см. DOM WATCH).
+    window.__claudeDomWatch.register('bypass', scan);
     setInterval(refresh, BYPASS_POLL_MS);
     logInfo('installed');
   }
@@ -6161,15 +6347,12 @@
   var BTN_CLASS = 'claude-find-btn';
   var BARE_CLASS = 'claude-find-btn-bare';  // без донора стиля
   var BAR_ID = 'claude-find-bar';
-  var OBSERVER_THROTTLE_MS = 200;
 
   var scanning = false;      // защита от повторного входа
   var disabled = false;      // выключено предохранителем
   var mounts = 0;            // вставок с прошлой проверки
-  var observerTimer = null;
   var HL_ALL = 'claude-find';
   var HL_ACTIVE = 'claude-find-active';
-  var SCAN_INTERVAL_MS = 3000;
   var DEBOUNCE_MS = 150;
 
   var bar = null;
@@ -6546,20 +6729,12 @@
   }
 
   function init() {
-    scan();
-    try {
-      // Throttle обязателен: во время стриминга ответа мутации идут
-      // непрерывно, и скан на каждую из них — это лишняя работа
-      // в главном потоке при любом раскладе.
-      new MutationObserver(function () {
-        if (observerTimer) return;
-        observerTimer = setTimeout(function () {
-          observerTimer = null;
-          scan();
-        }, OBSERVER_THROTTLE_MS);
-      }).observe(document.body, { childList: true, subtree: true });
-    } catch (e) {}
-    setInterval(scan, SCAN_INTERVAL_MS);
+    // Наблюдатель, его throttle и подстраховочный таймер — общие
+    // (см. DOM WATCH). Свой throttle этот модуль завёл первым, после
+    // того как скан на каждую мутацию подвесил webview; теперь он
+    // распространён на всех, а здесь остаётся только счётчик вставок:
+    // он ловит не дороговизну скана, а цикл «вставили — снесли».
+    window.__claudeDomWatch.register('find-in-page', scan);
     setInterval(guard, 60000);
     document.addEventListener('keydown', onHotkey, true);
     window.addEventListener('resize', placeBar);
@@ -6844,7 +7019,6 @@
   var ON_CLASS = 'claude-keepalive-on';
   var STORAGE_KEY = 'claudeCustomCacheKeepalive';
   var LAST_KEY = '__last';
-  var SCAN_INTERVAL_MS = 3000;
   var TICK_MS = 60000;
   var CARRY_MS = (typeof cfg.buttonStateCarrySec === 'number'
     && cfg.buttonStateCarrySec >= 0 ? cfg.buttonStateCarrySec : 600) * 1000;
@@ -7572,16 +7746,12 @@
     // Этим занимается loadStateWhenReady() из scan(), как только
     // id станет доступен.
     normalizeWindow();
-    scan();
+    // Наблюдатель и подстраховочный таймер — общие (см. DOM WATCH).
+    // Регистрация делает первый скан сама, до applyStateAll: порядок
+    // здесь тот же, что был у явного вызова.
+    window.__claudeDomWatch.register('keepalive', scan);
     applyStateAll();
     pollConfig();
-    try {
-      new MutationObserver(function () { scan(); }).observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-    } catch (e) {}
-    setInterval(scan, SCAN_INTERVAL_MS);
     setInterval(tick, TICK_MS);
     setInterval(pollConfig, CONFIG_POLL_MS);
     logInfo('installed, порог', IDLE_MINUTES, 'мин');
@@ -7636,7 +7806,6 @@
   // Список известных имён настроек для автодополнения в форме.
   // Панель открыта одна на окно, поэтому id фиксированный.
   var SET_LIST_ID = 'claude-accs-setting-names';
-  var SCAN_INTERVAL_MS = 3000;
   var AUTO_EDIT_RE = /Править автоматически|Edit automatically/i;
 
   // Сколько ждём подтверждения от расширения. Наблюдатель в extension.js
@@ -9062,14 +9231,8 @@
   }
 
   function init() {
-    scan();
-    try {
-      new MutationObserver(function () { scan(); }).observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-    } catch (e) {}
-    setInterval(scan, SCAN_INTERVAL_MS);
+    // Наблюдатель и подстраховочный таймер — общие (см. DOM WATCH).
+    window.__claudeDomWatch.register('accounts', scan);
     logInfo('installed');
   }
 
@@ -9139,7 +9302,6 @@
   var ROOT_CLASS = 'claude-mood';
   var NEEDLE_CLASS = 'claude-mood-needle';
   var NODATA_CLASS = 'claude-mood-nodata';
-  var SCAN_INTERVAL_MS = 3000;
 
   var USAGE_URL = 'http://localhost:18923/cache-usage';
   var POLL_MS = (typeof cfg.moodPollSec === 'number' && cfg.moodPollSec > 0
@@ -9838,14 +10000,8 @@
   }
 
   function init() {
-    scan();
-    try {
-      new MutationObserver(function () { scan(); }).observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-    } catch (e) {}
-    setInterval(scan, SCAN_INTERVAL_MS);
+    // Наблюдатель и подстраховочный таймер — общие (см. DOM WATCH).
+    window.__claudeDomWatch.register('mood', scan);
     // Первый опрос сразу: до него шкала серая, и задержка на целый
     // период читалась бы как «индикатор не работает».
     tick();
