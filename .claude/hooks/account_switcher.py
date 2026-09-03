@@ -46,6 +46,31 @@ SETTINGS_FILE = os.path.join(CLAUDE_DIR, "settings.json")
 BACKUP_FILE = SETTINGS_FILE + ".bak"
 ACTIVE_MARKER = os.path.join(CLAUDE_DIR, ".active-account")
 
+# Журнал переключений — JSONL в hooks-runtime проекта.
+#
+# Зачем отдельный файл, когда о переключении и так пишет http-server.log:
+# тот журнал человеческий и ротируется по размеру, а это данные, по
+# которым панель Usage объясняет промахи кэша. Смена аккаунта означает
+# другой провайдер, другой префикс и гарантированно холодный кэш —
+# промах на следующем ходу закономерен, и винить за него сессию нельзя.
+# Разбирать ради этого текстовые строки чужого журнала значило бы
+# завязаться на его формат.
+#
+# Путь — рядом с состоянием разбора транскриптов, потому что читает
+# журнал именно cache_usage.py. Каталог проекта берётся из переменной
+# окружения (её ставит http-server.py), с запасным вариантом от
+# расположения самого файла: скрипт запускают и напрямую.
+_PROJECT_DIR = os.environ.get("CLAUDE_PROJECT_DIR") or os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
+ACCOUNT_EVENTS_LOG = os.path.join(
+    _PROJECT_DIR, ".claude", "hooks-runtime", "account-events.jsonl"
+)
+
+# Сколько событий держим. Одно событие — десятки байт, но файл живёт
+# вечно, а истории панели хватает последних.
+MAX_ACCOUNT_EVENTS = 500
+
 # Глобальное состояние самого Claude Code — не настройки, а его рабочий
 # файл. Нам оттуда нужен кэш лимитов подписки claude.ai
 # (`cachedUsageUtilization`, см. anthropic_usage()) и почта логина.
@@ -774,8 +799,71 @@ def _copy_atomic(src: str, dst: str) -> None:
         raise
 
 
-def switch_account(target: str) -> tuple[bool, str]:
+def log_account_event(from_file: str, to_file: str, revert: bool = False) -> None:
+    """Записывает переключение аккаунта в журнал событий.
+
+    `revert=True` — это возврат прежнего аккаунта после отказа от
+    перезапуска расширения. Такое событие пишется тоже, но помечается:
+    для пользователя переключения не было, процесс CLI как работал на
+    старом аккаунте, так и работает, и кэш ничего не терял. Показывать
+    такую пару в истории значило бы объяснять промахи тем, чего не
+    происходило. А не писать вовсе — потерять след, когда откат
+    сорвался и на диске остался чужой аккаунт.
+    """
+    record = {
+        "ts": datetime.datetime.now(datetime.timezone.utc)
+        .isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "kind": "account",
+        "from": from_file,
+        "to": to_file,
+        "from_name": _display_name(from_file) if from_file else "",
+        "to_name": _display_name(to_file) if to_file else "",
+        "revert": bool(revert),
+    }
+    try:
+        os.makedirs(os.path.dirname(ACCOUNT_EVENTS_LOG), exist_ok=True)
+        lines = []
+        if os.path.isfile(ACCOUNT_EVENTS_LOG):
+            with open(ACCOUNT_EVENTS_LOG, encoding="utf-8") as fh:
+                lines = fh.readlines()[-(MAX_ACCOUNT_EVENTS - 1):]
+        lines.append(json.dumps(record, ensure_ascii=False) + "\n")
+        tmp = ACCOUNT_EVENTS_LOG + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.writelines(lines)
+        os.replace(tmp, ACCOUNT_EVENTS_LOG)
+    except OSError:
+        # Журнал — вспомогательный: без него панель просто не объяснит
+        # промах, а переключение всё равно должно состояться.
+        pass
+
+
+def read_account_events(limit: int = MAX_ACCOUNT_EVENTS) -> list[dict]:
+    """Читает журнал переключений. Откаты отбрасывает — см. выше."""
+    try:
+        with open(ACCOUNT_EVENTS_LOG, encoding="utf-8") as fh:
+            lines = fh.readlines()[-limit:]
+    except OSError:
+        return []
+    events = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(rec, dict) and not rec.get("revert"):
+            events.append(rec)
+    return events
+
+
+def switch_account(target: str, revert: bool = False) -> tuple[bool, str]:
     """Делает `target` активным settings.json.
+
+    `revert` — признак того, что это возврат после отказа от
+    перезапуска; уходит в журнал событий и там означает «переключения
+    для пользователя не было».
 
     Возвращает (успех, сообщение для пользователя).
     """
@@ -812,6 +900,10 @@ def switch_account(target: str) -> tuple[bool, str]:
                 fh.write(target)
     except OSError as exc:
         return False, f"Ошибка переключения: {exc}"
+
+    # Пишем только состоявшуюся подмену: неудачная ветка выходит выше,
+    # а «уже активен» — вообще не событие.
+    log_account_event(current, target, revert=revert)
 
     return True, (f"Активен {_display_name(target)}. "
                   "Применится после перезапуска расширения")

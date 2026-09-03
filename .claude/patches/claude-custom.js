@@ -9018,7 +9018,11 @@
       fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file: prevFile }),
+        // revert говорит серверу, что переключения для пользователя не
+        // было: процесс CLI как работал на прежнем аккаунте, так и
+        // работает. Без этого признака история панели Usage объясняла
+        // бы промахи кэша двумя переключениями, которых не случилось.
+        body: JSON.stringify({ file: prevFile, revert: true }),
       })
         .then(function (res) { return res.json(); })
         .then(function (d) {

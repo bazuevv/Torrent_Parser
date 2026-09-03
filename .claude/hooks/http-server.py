@@ -507,13 +507,20 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         target = str(payload.get("file") or "")
+        # revert — возврат прежнего аккаунта после отказа от перезапуска.
+        # Отличить его от обычного переключения сервер сам не может:
+        # запрос тот же самый. Знает об этом только модалка, она и
+        # сообщает — иначе в истории панели Usage каждый отказ выглядел
+        # бы как два переключения подряд.
+        revert = bool(payload.get("revert"))
         try:
-            ok, message = account_switcher.switch_account(target)
+            ok, message = account_switcher.switch_account(target, revert=revert)
         except Exception as exc:  # noqa: BLE001
             self._json_response(500, {"ok": False, "error": str(exc)})
             return
 
-        _log(f"переключение аккаунта на {target!r}: {message}")
+        _log(f"переключение аккаунта на {target!r}"
+             f"{' (откат)' if revert else ''}: {message}")
         self._json_response(200 if ok else 400, {
             "ok": ok,
             "message": message,
