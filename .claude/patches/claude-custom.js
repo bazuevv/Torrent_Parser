@@ -10597,9 +10597,10 @@
   /* ---------- элементы управления ---------- */
 
   /**
-   * Строка параметра. Тип решает вид: булев — переключатель, число и
-   * строка — поле ввода. Ключ показывается как есть: он же стоит в
-   * TOML, и по нему пользователь найдёт параметр в файле.
+   * Строка параметра. Тип решает вид: булев — переключатель, строка
+   * с перечнем значений — список, остальное — поле ввода. Ключ
+   * показывается как есть: он же стоит в TOML, и по нему пользователь
+   * найдёт параметр в файле.
    */
   function paramRow(item) {
     var row = document.createElement('div');
@@ -10636,6 +10637,22 @@
       box.className = 'claude-settings-check';
       wrap.appendChild(box);
       controls[item.key] = function () { return box.checked; };
+    } else if (item.options && item.options.length) {
+      // Перечень значений сервер достаёт из строки `Варианты: a | b`
+      // в комментарии параметра. Список, а не поле ввода: значение вне
+      // перечня модуль не поймёт и молча откатится на своё поведение —
+      // настройка выглядела бы заданной, ничего не делая.
+      var select = document.createElement('select');
+      select.className = 'claude-settings-select';
+      for (var oi = 0; oi < item.options.length; oi++) {
+        var opt = document.createElement('option');
+        opt.value = item.options[oi];
+        opt.textContent = item.options[oi];
+        select.appendChild(opt);
+      }
+      select.value = String(item.value);
+      wrap.appendChild(select);
+      controls[item.key] = function () { return select.value; };
     } else {
       var input = document.createElement('input');
       input.type = item.type === 'number' ? 'number' : 'text';

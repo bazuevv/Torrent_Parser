@@ -509,6 +509,13 @@ class Handler(BaseHTTPRequestHandler):
     # начинающийся со знака равенства, случайно не стал разделом.
     _SECTION_RE = re.compile(r"^={3,}\s*(.+?)\s*=*$")
 
+    # Перечень допустимых значений строкового параметра: строка вида
+    # `Варианты: mode | mood` в его комментарии. Держать список там же,
+    # где объяснение, — то же правило, что и с разделами: панель
+    # получает выбор сама, а человек, читающий TOML руками, видит
+    # варианты рядом с описанием, а не в чужом файле.
+    _OPTIONS_RE = re.compile(r"^Варианты\s*:\s*(.+)$", re.IGNORECASE)
+
     @staticmethod
     def _config_lines() -> list:
         with open(CONFIG_FILE, encoding="utf-8") as fh:
@@ -562,6 +569,22 @@ class Handler(BaseHTTPRequestHandler):
             comment = []
         return items
 
+    @classmethod
+    def _parse_options(cls, hint: str) -> list:
+        """Достаёт перечень значений из строки `Варианты: a | b` в hint.
+
+        Пустой список означает «параметр свободный»: панель нарисует
+        обычное поле ввода. Разделитель именно `|` — запятая встречается
+        в обычном тексте комментария, а вертикальная черта нет.
+        """
+        for line in str(hint or "").split("\n"):
+            match = cls._OPTIONS_RE.match(line.strip())
+            if not match:
+                continue
+            values = [v.strip() for v in match.group(1).split("|")]
+            return [v for v in values if v]
+        return []
+
     def _handle_config_schema(self) -> None:
         """Отдаёт параметры конфига вместе с описаниями и значениями.
 
@@ -598,7 +621,7 @@ class Handler(BaseHTTPRequestHandler):
             # тот же принцип, что в форме настроек аккаунта.
             if not isinstance(value, (bool, int, float, str)):
                 continue
-            items.append({
+            entry = {
                 "key": key,
                 "value": value,
                 "type": ("bool" if isinstance(value, bool)
@@ -606,7 +629,17 @@ class Handler(BaseHTTPRequestHandler):
                          else "string"),
                 "hint": item["hint"],
                 "section": item.get("section") or "Прочее",
-            })
+            }
+            options = self._parse_options(item["hint"])
+            if options and entry["type"] == "string":
+                # Значение из файла попадает в список, даже если его там
+                # нет: показать неизвестное значение как первый вариант
+                # значило бы соврать про файл — ровно та ловушка, что
+                # была с `effortLevel: "max"` в настройках аккаунта.
+                if value not in options:
+                    options = [value] + options
+                entry["options"] = options
+            items.append(entry)
 
         self._json_response(200, {
             "ok": True,
@@ -643,6 +676,23 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as exc:
             self._json_response(500, {"ok": False, "error": str(exc)})
             return
+
+        # Значение вне перечня из комментария не записываем: модуль его
+        # не поймёт и молча откатится на своё поведение по умолчанию,
+        # а в файле останется настройка, которая выглядит заданной и
+        # не действует. Молчаливое бездействие хуже отказа.
+        for item in self._describe_config(lines):
+            key = item["key"]
+            if key not in values:
+                continue
+            options = self._parse_options(item["hint"])
+            if options and values[key] not in options:
+                self._json_response(400, {
+                    "ok": False,
+                    "error": (f"{key}: значение {values[key]!r} не из перечня "
+                              + " | ".join(options)),
+                })
+                return
 
         changed = []
         remaining = dict(values)

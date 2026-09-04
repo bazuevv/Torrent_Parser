@@ -2140,6 +2140,22 @@
   font-family: var(--vscode-editor-font-family, monospace);
 }
 
+/* Список вариантов — та же геометрия, что у поля ввода: в колонке
+ * управления они стоят вперемешку, и разная ширина читалась бы как
+ * разный вид настройки. Выпадающую часть рисует оболочка VSCode
+ * своими цветами — приводить её к нашим нечем и незачем. */
+.claude-settings-select {
+  width: 130px;
+  padding: 3px 6px;
+  background: var(--vscode-input-background, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  font-family: var(--vscode-editor-font-family, monospace);
+  cursor: pointer;
+}
+
 .claude-settings-check {
   width: 16px;
   height: 16px;
