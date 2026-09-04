@@ -360,6 +360,7 @@ class TextTurn:
     message_id: str
     model: str
     chunks: Iterator[Any]
+    usage: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -386,6 +387,39 @@ class BridgeSession:
     active_turn_id: str | None = None
     pending_tools: dict[str, DynamicToolCall] = field(default_factory=dict)
     response_lock: threading.Lock = field(default_factory=threading.Lock)
+    last_usage: dict[str, int] = field(default_factory=dict)
+    total_usage: dict[str, int] = field(default_factory=dict)
+    context_window: int | None = None
+
+
+TOKEN_USAGE_FIELDS = {
+    "inputTokens": "input_tokens",
+    "cachedInputTokens": "cached_input_tokens",
+    "cacheWriteInputTokens": "cache_write_input_tokens",
+    "outputTokens": "output_tokens",
+    "reasoningOutputTokens": "reasoning_output_tokens",
+    "totalTokens": "total_tokens",
+}
+
+
+def _normalized_usage(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, int] = {}
+    for source, target in TOKEN_USAGE_FIELDS.items():
+        amount = value.get(source, 0)
+        if isinstance(amount, int) and amount >= 0:
+            result[target] = amount
+    return result
+
+
+def _anthropic_usage(usage: dict[str, int]) -> dict[str, int]:
+    return {
+        "input_tokens": usage.get("input_tokens", 0),
+        "cache_read_input_tokens": usage.get("cached_input_tokens", 0),
+        "cache_creation_input_tokens": usage.get("cache_write_input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+    }
 
 
 class CodexTextBackend:
@@ -396,10 +430,12 @@ class CodexTextBackend:
         self.router = EventRouter()
         self._tool_lock = threading.Lock()
         self._sessions_lock = threading.Lock()
+        self._usage_lock = threading.Lock()
         self._sessions: dict[str, BridgeSession] = {}
         self._tool_queues: dict[str, BridgeSession] = {}
+        self._latest_usage: dict[str, Any] = {}
         self.client = CodexAppServerClient(
-            notification_handler=self.router.dispatch,
+            notification_handler=self._handle_notification,
             server_request_handler=self._handle_server_request,
         )
 
@@ -412,7 +448,37 @@ class CodexTextBackend:
 
     def snapshot(self) -> dict[str, Any]:
         """Safe account/model/limit data; never exposes OAuth credentials."""
-        return _safe_probe(self.client.snapshot())
+        result = _safe_probe(self.client.snapshot())
+        with self._usage_lock:
+            result["bridgeUsage"] = dict(self._latest_usage)
+        return result
+
+    def _handle_notification(self, message: dict[str, Any]) -> None:
+        if message.get("method") == "thread/tokenUsage/updated":
+            params = message.get("params")
+            thread_id = params.get("threadId") if isinstance(params, dict) else None
+            token_usage = params.get("tokenUsage") if isinstance(params, dict) else None
+            with self._tool_lock:
+                session = self._tool_queues.get(thread_id)
+            if session is not None and isinstance(token_usage, dict):
+                last = _normalized_usage(token_usage.get("last"))
+                total = _normalized_usage(token_usage.get("total"))
+                context_window = token_usage.get("modelContextWindow")
+                session.last_usage.clear()
+                session.last_usage.update(last)
+                session.total_usage = total
+                session.context_window = (
+                    context_window if isinstance(context_window, int) else None
+                )
+                with self._usage_lock:
+                    self._latest_usage = {
+                        "model": session.model,
+                        "last": dict(last),
+                        "total": dict(total),
+                        "model_context_window": session.context_window,
+                        "updated_at": int(time.time()),
+                    }
+        self.router.dispatch(message)
 
     def begin(self, payload: dict[str, Any]) -> TextTurn:
         stable_key = claude_session_key(payload)
@@ -529,6 +595,7 @@ class CodexTextBackend:
         prompt: str,
         image_inputs: list[dict[str, Any]],
     ) -> None:
+        session.last_usage.clear()
         turn = self.client.request("turn/start", {
             "threadId": session.thread_id,
             "input": [{"type": "text", "text": prompt}] + image_inputs,
@@ -544,6 +611,7 @@ class CodexTextBackend:
             message_id="msg_" + uuid.uuid4().hex,
             model=session.model,
             chunks=self._locked_chunks(session),
+            usage=session.last_usage,
         )
 
     def _locked_chunks(self, session: BridgeSession) -> Iterator[Any]:
@@ -663,6 +731,7 @@ def message_object(
     *,
     content: list[dict[str, Any]] | None = None,
     stop_reason: str = "end_turn",
+    usage: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     return {
         "id": message_id,
@@ -672,7 +741,7 @@ def message_object(
         "model": model,
         "stop_reason": stop_reason,
         "stop_sequence": None,
-        "usage": {"input_tokens": 0, "output_tokens": 0},
+        "usage": _anthropic_usage(usage or {}),
     }
 
 
@@ -737,7 +806,7 @@ def stream_events(turn: TextTurn) -> Iterator[tuple[str, dict[str, Any]]]:
     yield "message_delta", {
         "type": "message_delta",
         "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-        "usage": {"output_tokens": 0},
+        "usage": {"output_tokens": turn.usage.get("output_tokens", 0)},
     }
     yield "message_stop", {"type": "message_stop"}
 
@@ -766,6 +835,7 @@ def collect_message(turn: TextTurn) -> dict[str, Any]:
         content.append({"type": "text", "text": "".join(text)})
     return message_object(
         turn.message_id, turn.model, content=content, stop_reason=stop_reason,
+        usage=turn.usage,
     )
 
 

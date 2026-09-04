@@ -18,6 +18,7 @@ from codex_anthropic_bridge import (
     dynamic_tools,
     _dynamic_result,
     _followup_payload,
+    _normalized_usage,
     message_object,
     prepare_dynamic_tools,
     stream_events,
@@ -25,6 +26,23 @@ from codex_anthropic_bridge import (
 
 
 class PromptConversionTests(unittest.TestCase):
+    def test_codex_token_usage_fields_are_preserved(self):
+        self.assertEqual(_normalized_usage({
+            "inputTokens": 120,
+            "cachedInputTokens": 80,
+            "cacheWriteInputTokens": 20,
+            "outputTokens": 10,
+            "reasoningOutputTokens": 7,
+            "totalTokens": 130,
+        }), {
+            "input_tokens": 120,
+            "cached_input_tokens": 80,
+            "cache_write_input_tokens": 20,
+            "output_tokens": 10,
+            "reasoning_output_tokens": 7,
+            "total_tokens": 130,
+        })
+
     def test_claude_session_id_is_extracted_from_metadata_user_id(self):
         self.assertEqual(claude_session_key({"metadata": {"user_id": json.dumps({
             "device_id": "device-1", "session_id": "session-42",
@@ -181,6 +199,17 @@ class AnthropicResponseTests(unittest.TestCase):
         self.assertEqual(message["content"][0]["text"], "hello")
         self.assertEqual(message["stop_reason"], "end_turn")
 
+    def test_non_streaming_message_reports_real_usage(self):
+        turn = TextTurn("msg_1", "gpt-test", iter(["ok"]), {
+            "input_tokens": 120, "cached_input_tokens": 80,
+            "cache_write_input_tokens": 20, "output_tokens": 10,
+        })
+        usage = collect_message(turn)["usage"]
+        self.assertEqual(usage["input_tokens"], 120)
+        self.assertEqual(usage["cache_read_input_tokens"], 80)
+        self.assertEqual(usage["cache_creation_input_tokens"], 20)
+        self.assertEqual(usage["output_tokens"], 10)
+
     def test_stream_has_required_order_and_text(self):
         turn = TextTurn("msg_1", "gpt-test", iter(["hel", "lo"]))
         events = list(stream_events(turn))
@@ -240,6 +269,9 @@ class PersistentSessionTests(unittest.TestCase):
             if method == "turn/start":
                 self.turn_number += 1
                 return {"turn": {"id": f"turn-{self.turn_number}"}}
+            return {}
+
+        def snapshot(self):
             return {}
 
     @staticmethod
@@ -318,6 +350,43 @@ class PersistentSessionTests(unittest.TestCase):
                        "turn": {"status": "completed"}},
         })
         collect_message(third)
+
+    def test_usage_notification_updates_turn_and_safe_snapshot(self):
+        backend = CodexTextBackend(timeout=1)
+        backend.client = self.FakeClient()
+        turn = backend.begin(self.payload([{"role": "user", "content": "hello"}]))
+        backend._handle_notification({
+            "method": "thread/tokenUsage/updated",
+            "params": {
+                "threadId": "thread-1", "turnId": "turn-1",
+                "tokenUsage": {
+                    "last": {
+                        "inputTokens": 100, "cachedInputTokens": 75,
+                        "cacheWriteInputTokens": 5, "outputTokens": 12,
+                        "reasoningOutputTokens": 8, "totalTokens": 112,
+                    },
+                    "total": {
+                        "inputTokens": 100, "cachedInputTokens": 75,
+                        "cacheWriteInputTokens": 5, "outputTokens": 12,
+                        "reasoningOutputTokens": 8, "totalTokens": 112,
+                    },
+                    "modelContextWindow": 258400,
+                },
+            },
+        })
+        session = backend._sessions["claude-1"]
+        session.events.put({
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turnId": "turn-1",
+                       "turn": {"status": "completed"}},
+        })
+        message = collect_message(turn)
+        self.assertEqual(message["usage"]["input_tokens"], 100)
+        self.assertEqual(message["usage"]["cache_read_input_tokens"], 75)
+        with mock.patch("codex_anthropic_bridge._safe_probe", return_value={"account": {}}):
+            snapshot = backend.snapshot()
+        self.assertEqual(snapshot["bridgeUsage"]["last"]["total_tokens"], 112)
+        self.assertEqual(snapshot["bridgeUsage"]["model_context_window"], 258400)
 
 
 if __name__ == "__main__":
