@@ -19,8 +19,11 @@
 окна — принято, состояние на диск не пишется.
 
 Заполненность окна = максимум наблюдённого процента в рамках одного
-resets_at; на новом окне счёт начинается заново. Если активен сторонний
-провайдер — монитор молчит: окно claude.ai в этот момент не тратится.
+resets_at; на новом окне счёт начинается заново. Наблюдение и сигнал
+работают на любом активном аккаунте: сброса окна claude.ai ждут как
+раз работая на стороннем провайдере (упёрся — переключился — ждёшь
+звука). Провайдер гасит только повторы: кэш claude.ai на нём не
+обновляется, и повтор звучал бы вечно.
 
 Модуль читает claude-custom-config.toml сам (как hook_log), а не через
 http-server: сервер импортирует limit_alert ради старта потока, и
@@ -169,13 +172,14 @@ def decide(state: dict, snap: dict | None, cfg: dict, now: float) -> tuple[str, 
             return ("play", "reset-threshold")
         return ("quiet", "below-threshold")
 
-    # Этот сброс уже прозвучал. Повтор — если просят и пора: пока кэш
-    # не обновился новым активным окном, «окно свободно, а работы нет»
-    # остаётся правдой. Прекращение повторов наступает само, как только
-    # resets_at станет будущим (пользователь начал работать).
+    # Этот сброс уже прозвучал. Повтор — если просят, пора и разрешено:
+    # на стороннем провайдере кэш claude.ai не обновится никогда, окно
+    # «свободно» не сменится на «тратится», и повтор звучал бы вечно —
+    # потому run_monitor ставит allowRepeat только на OAuth-логине.
     repeat_min = cfg.get("repeatMin", 0)
     last_play = state.get("lastPlayAt")
-    if repeat_min > 0 and last_play is not None and now - last_play >= repeat_min * 60:
+    if (repeat_min > 0 and cfg.get("allowRepeat", True)
+            and last_play is not None and now - last_play >= repeat_min * 60):
         state["lastPlayAt"] = now
         return ("repeat", "repeat")
     return ("quiet", "already-signaled")
@@ -272,7 +276,7 @@ _MONITOR = {
     "snap": None,
     "state": {},
     "lastReason": None,
-    "providerPause": False,
+    "providerActive": False,
 }
 
 
@@ -297,7 +301,7 @@ def status() -> dict:
             state["window"] = dict(window)
         return {
             "enabled": _MONITOR["enabled"],
-            "providerPause": _MONITOR["providerPause"],
+            "providerActive": _MONITOR["providerActive"],
             "cfg": dict(_MONITOR["cfg"]) if _MONITOR["cfg"] else None,
             "snap": snap,
             "state": state,
@@ -329,15 +333,20 @@ def run_monitor() -> None:
             reap_if_done()
             cfg = _monitor_config()
             poll = max(1, cfg["pollSec"])
-            with _STATUS_LOCK:
-                _MONITOR["cfg"] = cfg
-                _MONITOR["enabled"] = cfg["enabled"]
 
-            if cfg["enabled"] and account_switcher.active_account_is_oauth():
+            if cfg["enabled"]:
+                # Наблюдение — на любом активном аккаунте: сброса окна
+                # claude.ai ждут как раз работая на стороннем провайдере
+                # (упёрся — переключился — ждёшь звука). Провайдер гасит
+                # только повторы: кэш claude.ai на нём не обновляется, и
+                # «окно свободно» не сменится на «тратится» само.
+                cfg["allowRepeat"] = account_switcher.active_account_is_oauth()
                 snap = account_switcher.anthropic_usage_raw()
                 now = time.time()
                 with _STATUS_LOCK:
-                    _MONITOR["providerPause"] = False
+                    _MONITOR["cfg"] = cfg
+                    _MONITOR["enabled"] = True
+                    _MONITOR["providerActive"] = not cfg["allowRepeat"]
                     _MONITOR["snap"] = snap
                     action, reason = decide(_MONITOR["state"], snap, cfg, now)
                     if reason != _MONITOR["lastReason"]:
@@ -347,13 +356,11 @@ def run_monitor() -> None:
                     play(cfg["playSec"], reason=reason)
             else:
                 with _STATUS_LOCK:
-                    _MONITOR["providerPause"] = cfg["enabled"]  # пауза только если включён
-                    if cfg["enabled"]:
-                        _MONITOR["snap"] = account_switcher.anthropic_usage_raw()
-                    reason = "disabled" if not cfg["enabled"] else "provider"
-                    if reason != _MONITOR["lastReason"]:
-                        hook_log.log("limit-alert", f"состояние: {reason}")
-                        _MONITOR["lastReason"] = reason
+                    _MONITOR["cfg"] = cfg
+                    _MONITOR["enabled"] = False
+                    if _MONITOR["lastReason"] != "disabled":
+                        hook_log.log("limit-alert", "состояние: disabled")
+                        _MONITOR["lastReason"] = "disabled"
         except Exception as exc:
             hook_log.log("limit-alert", f"ошибка цикла мониторинга: {exc!r}")
         time.sleep(poll)

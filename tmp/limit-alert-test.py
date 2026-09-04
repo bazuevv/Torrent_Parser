@@ -29,9 +29,10 @@ def check(name, cond, details=""):
         FAILURES.append(name)
 
 
-def cfg(mode="threshold", percent=95, repeatMin=0, playSec=0):
+def cfg(mode="threshold", percent=95, repeatMin=0, playSec=0, allowRepeat=True):
     return {"mode": mode, "percent": percent, "repeatMin": repeatMin,
-            "playSec": playSec, "pollSec": 30, "enabled": True}
+            "playSec": playSec, "pollSec": 30, "enabled": True,
+            "allowRepeat": allowRepeat}
 
 
 def snap(reset_at, percent=100, uuid="uuid-A", age_sec=60):
@@ -148,7 +149,23 @@ act, why = limit_alert.decide(state, snap(RESET1, percent=None),
 check("any при unknown percent — звук (заполненность не важна)",
       act == "play" and why == "reset-any", (act, why))
 
-print("12. конфиг: битый/отсутствующий TOML — монитор выключен")
+print("12. провайдер: сигнал звучит, повторы погашены (allowRepeat=False)")
+state = {}
+limit_alert.decide(state, snap(RESET1, percent=100),
+                   cfg(repeatMin=10, allowRepeat=False), T0)
+act, why = limit_alert.decide(state, snap(RESET1, percent=100),
+                              cfg(repeatMin=10, allowRepeat=False), RESET1 + 5)
+check("первичный звук на провайдере — есть",
+      act == "play" and why == "reset-threshold", (act, why))
+act, why = limit_alert.decide(state, snap(RESET1, percent=100),
+                              cfg(repeatMin=10, allowRepeat=False), RESET1 + 1200)
+check("повтор на провайдере — нет", act == "quiet", (act, why))
+act, why = limit_alert.decide(state, snap(RESET1, percent=100),
+                              cfg(repeatMin=10, allowRepeat=True), RESET1 + 1200)
+check("на OAuth тот же срок — повтор есть",
+      act == "repeat" and why == "repeat", (act, why))
+
+print("13. конфиг: битый/отсутствующий TOML — монитор выключен")
 saved = limit_alert.CONFIG_PATH
 limit_alert.CONFIG_PATH = os.path.join(os.path.dirname(saved), "нет-такого.toml")
 c = limit_alert._monitor_config()
