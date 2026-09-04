@@ -92,6 +92,38 @@ class PromptConversionTests(unittest.TestCase):
         self.assertIn('<image attachment="1" />', prompt)
         self.assertEqual(images[0]["url"], "https://example.test/image.png")
 
+    def test_server_tool_use_is_preserved_as_history(self):
+        _, prompt, _ = build_request({
+            "messages": [{"role": "assistant", "content": [{
+                "type": "server_tool_use", "id": "call_1",
+                "name": "analyze_image", "input": {},
+            }]}],
+        })
+        self.assertIn('<server_tool_use id="call_1" name="analyze_image">', prompt)
+        self.assertIn("</server_tool_use>", prompt)
+
+    def test_private_thinking_is_omitted_without_rejecting_history(self):
+        _, prompt, _ = build_request({
+            "messages": [{"role": "assistant", "content": [{
+                "type": "thinking", "thinking": "private chain",
+                "signature": "opaque-signature",
+            }]}],
+        })
+        self.assertIn('type="thinking" omitted="true"', prompt)
+        self.assertNotIn("private chain", prompt)
+        self.assertNotIn("opaque-signature", prompt)
+
+    def test_unknown_future_block_is_quoted_instead_of_rejected(self):
+        _, prompt, _ = build_request({
+            "messages": [{"role": "assistant", "content": [{
+                "type": "future_server_result", "value": "kept",
+                "signature": "secret-opaque-value",
+            }]}],
+        })
+        self.assertIn("future_server_result", prompt)
+        self.assertIn("kept", prompt)
+        self.assertNotIn("secret-opaque-value", prompt)
+
     def test_dynamic_tool_schema_conversion(self):
         result = dynamic_tools({"tools": [{
             "name": "Read", "description": "Read a file",

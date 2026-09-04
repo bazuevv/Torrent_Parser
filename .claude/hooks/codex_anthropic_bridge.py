@@ -102,12 +102,13 @@ def _render_content(
                 raise BridgeError("image collection is not initialized")
             image_inputs.append(_image_input(block))
             rendered.append(f'<image attachment="{len(image_inputs)}" />')
-        elif block_type == "tool_use":
+        elif block_type in ("tool_use", "server_tool_use"):
+            tag = str(block_type)
             rendered.append(
-                f'<tool_use id="{block.get("id", "")}" '
+                f'<{tag} id="{block.get("id", "")}" '
                 f'name="{block.get("name", "")}">\n'
                 f'{json.dumps(block.get("input", {}), ensure_ascii=False)}\n'
-                "</tool_use>"
+                f"</{tag}>"
             )
         elif block_type == "tool_result":
             content = _render_content(block.get("content"), image_inputs)
@@ -116,8 +117,23 @@ def _render_content(
                 f'is_error="{str(bool(block.get("is_error"))).lower()}">\n'
                 f"{content}\n</tool_result>"
             )
+        elif block_type in ("thinking", "redacted_thinking"):
+            # Previous providers may persist private reasoning in the
+            # transcript. It is neither needed nor appropriate as input to
+            # another model; retain only the fact that a block existed.
+            rendered.append(f'<content_block type="{block_type}" omitted="true" />')
         else:
-            raise BridgeError(f"unsupported content block: {block_type!r}")
+            # Claude Code adds new server-side result blocks over time. A
+            # historical block must not make the whole conversation unusable:
+            # preserve its public JSON as quoted context. Known binary image
+            # blocks still take the native path above.
+            public = {key: item for key, item in block.items()
+                      if key not in ("signature", "data")}
+            rendered.append(
+                f"<content_block type={json.dumps(str(block_type))}>\n"
+                f"{json.dumps(public, ensure_ascii=False)}\n"
+                "</content_block>"
+            )
     return "\n".join(rendered)
 
 
