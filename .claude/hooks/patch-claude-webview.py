@@ -233,6 +233,11 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
         "должен быть положительным целым числом (токенов)",
     ),
+    (
+        "inputRingColor",
+        lambda v: v in ("mode", "mood"),
+        "должен быть \"mode\" (цвет по режиму разрешений) или \"mood\"",
+    ),
 ]
 
 # Маркеры берём из общей таблицы ext_patch: эталонный снимок бандла
@@ -257,6 +262,14 @@ MODULE_FLAGS = (
     "quoteFromSelection",
 )
 
+# То же самое для модулей, выключатель которых не булев: ключ → его
+# «штатное» значение, то есть поведение расширения без нашего участия.
+# Ставить им False нельзя — модуль читает строку, и любое незнакомое
+# значение он трактовал бы по-своему, а не как «выключено».
+MODULE_CHOICES = {
+    "inputRingColor": "mode",
+}
+
 
 def _apply_safe_mode(config: dict) -> dict:
     """safeMode = true — оставить только базовый модуль.
@@ -273,6 +286,8 @@ def _apply_safe_mode(config: dict) -> dict:
         return config
     for flag in MODULE_FLAGS:
         config[flag] = False
+    for key, plain in MODULE_CHOICES.items():
+        config[key] = plain
     return config
 
 # Настройки, которые пользователь меняет не в TOML, а в VSCode Settings UI

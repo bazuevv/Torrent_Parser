@@ -63,8 +63,9 @@ _CONFIG_CACHE = {"mtime": 0.0, "data": {}}
 _CONFIG_LOCK = threading.Lock()
 
 # Параметры, которые подтягиваются на лету и перезапуска НЕ требуют:
-# первые три обновляет applyLiveConfig() в claude-custom.js через
-# /custom-config, serverLog* перечитывает hook_log на каждой записи,
+# cacheKeepalive* обновляет applyLiveConfig() в claude-custom.js через
+# /custom-config, inputRingColor — модуль INPUT RING оттуда же,
+# serverLog* перечитывает hook_log на каждой записи,
 # serverConfigWatchSec читает сам наблюдатель на каждом цикле.
 # Список обязан совпадать с тем, что там реально обновляется, иначе
 # сервер будет либо зря перезапускаться, либо не перезапускаться,
@@ -74,6 +75,7 @@ HOT_KEYS = frozenset({
     "cacheKeepaliveMessage",
     "cacheKeepaliveMinContext",
     "cacheKeepaliveTtlMinutes",
+    "inputRingColor",
     "serverLog",
     "serverLogMaxBytes",
     "serverConfigWatchSec",
