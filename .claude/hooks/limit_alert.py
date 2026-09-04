@@ -209,6 +209,21 @@ def _stop_player() -> None:
     _PLAYER["proc"] = None
 
 
+def reap_if_done() -> None:
+    """Подбирает закончившийся ffplay, чтобы зомби не копился.
+
+    Popen держит процесс до первого wait; если звук оборван извне
+    (ручной pkill, завершение по -autoexit), без этой проверки
+    defunct провисит до следующего сигнала. poll() и есть waitpid
+    в режиме WNOHANG — вызов дешёвый, цикл может звать его каждые
+    pollSec.
+    """
+    with _PLAY_LOCK:
+        proc = _PLAYER["proc"]
+        if proc is not None and proc.poll() is not None:
+            _PLAYER["proc"] = None
+
+
 def play(play_sec: int = 0, reason: str = "manual") -> bool:
     """Проигрывает notification.mp3; True — звук запущен.
 
@@ -311,6 +326,7 @@ def run_monitor() -> None:
     poll = DEFAULT_POLL_SEC
     while True:
         try:
+            reap_if_done()
             cfg = _monitor_config()
             poll = max(1, cfg["pollSec"])
             with _STATUS_LOCK:
