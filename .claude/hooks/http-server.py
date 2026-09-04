@@ -33,6 +33,10 @@ Endpoints:
                         перемещает .jsonl сессии между папками проектов
   POST /create-project— тело = JSON {path}, создаёт папку для проекта в ~/.claude/projects/
                         с кодированием пути (не-alphanum → '-')
+  GET  /limit-reset-alert — состояние монитора сброса 5-часового окна лимита
+                        (включён ли, снимок кэша, окно-свидетель, последний сигнал)
+  POST /limit-reset-alert-test — немедленно проигрывает notification.mp3
+                        (проверка звука руками; реальный сброс ждать нельзя)
 """
 
 import json
@@ -66,7 +70,9 @@ _CONFIG_LOCK = threading.Lock()
 # cacheKeepalive* обновляет applyLiveConfig() в claude-custom.js через
 # /custom-config, inputRingColor — модуль INPUT RING оттуда же,
 # serverLog* перечитывает hook_log на каждой записи,
-# serverConfigWatchSec читает сам наблюдатель на каждом цикле.
+# serverConfigWatchSec читает сам наблюдатель на каждом цикле,
+# limitResetAlert* перечитывает монитор сброса лимита (limit_alert.py)
+# на каждом цикле — рестарт на правке этих ключей терял бы окно-свидетель.
 # Список обязан совпадать с тем, что там реально обновляется, иначе
 # сервер будет либо зря перезапускаться, либо не перезапускаться,
 # когда надо.
@@ -79,6 +85,12 @@ HOT_KEYS = frozenset({
     "serverLog",
     "serverLogMaxBytes",
     "serverConfigWatchSec",
+    "limitResetAlert",
+    "limitResetAlertMode",
+    "limitResetAlertPercent",
+    "limitResetAlertPollSec",
+    "limitResetAlertRepeatMin",
+    "limitResetAlertPlaySec",
 })
 
 DEFAULT_CONFIG_WATCH_SEC = 10
@@ -93,6 +105,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_usage  # noqa: E402
 import hook_log  # noqa: E402
 import account_switcher  # noqa: E402
+import limit_alert  # noqa: E402
 
 
 def _log(message: str) -> None:
@@ -111,7 +124,7 @@ PORT = int(os.environ.get("CLAUDE_HTTP_PORT", "18923"))
 # они обязаны совпадать. Конфиг тоже здесь: правка serverLog должна
 # доезжать до сервера без ручного перезапуска.
 SOURCE_FILES = ("http-server.py", "cache_usage.py", "hook_log.py",
-                "account_switcher.py")
+                "account_switcher.py", "limit_alert.py")
 CONFIG_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "patches", "claude-custom-config.toml",
@@ -441,6 +454,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_restart_exthost_get()
             return
 
+        if self.path.split("?", 1)[0] == "/limit-reset-alert":
+            self._handle_limit_reset_alert()
+            return
+
         self.send_response(404)
         self.end_headers()
 
@@ -745,6 +762,20 @@ class Handler(BaseHTTPRequestHandler):
         _log("панель настроек: " + ", ".join(
             f"{k}={values[k]}" for k in changed) or "нечего менять")
         self._json_response(200, {"ok": True, "changed": changed})
+
+    # --- сигнал сброса 5-часового лимита ----------------------------------
+    #
+    # Автомат свидетеля, проигрыватель и цикл мониторинга живут в
+    # limit_alert.py и крутятся собственным daemon-потоком (см. main);
+    # здесь только транспорт для диагностики и проверки звука.
+
+    def _handle_limit_reset_alert(self) -> None:
+        """Состояние монитора: включён ли, снимок кэша, окно-свидетель."""
+        self._json_response(200, {"ok": True, **limit_alert.status()})
+
+    def _handle_limit_reset_alert_test(self) -> None:
+        """Немедленно проигрывает notification.mp3 — проверка руками."""
+        self._json_response(200, limit_alert.test_play())
 
     # --- переключение аккаунтов ------------------------------------------
     #
@@ -1325,6 +1356,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/custom-config":
             self._handle_config_post()
+            return
+
+        if self.path == "/limit-reset-alert-test":
+            self._handle_limit_reset_alert_test()
             return
 
         if self.path == "/webview-error":
@@ -2037,6 +2072,9 @@ def main():
             pass
 
     threading.Thread(target=_watch_config, args=(server,), daemon=True).start()
+    # Сигнал сброса 5-часового окна лимита — независимый цикл (limit_alert):
+    # живёт своей логикой и не делит состояние с наблюдателем конфига.
+    threading.Thread(target=limit_alert.run_monitor, daemon=True).start()
 
     _log(
         f"старт: порт {PORT}, project_dir={PROJECT_DIR}, "
