@@ -2019,6 +2019,66 @@
   min-height: 0;
 }
 
+/* Раздел — <details>: разворачивается без единой строки JS, доступен
+ * с клавиатуры и попадает под штатный Ctrl+F браузера. Все свёрнуты
+ * при открытии окна: тридцать пять параметров подряд — стена, в
+ * которой ничего не найти, а тринадцать заголовков обозримы целиком. */
+.claude-settings-group {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.claude-settings-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;  /* убираем стандартный треугольник, рисуем свой */
+}
+
+.claude-settings-group-head::-webkit-details-marker { display: none; }
+
+/* Свой треугольник — стандартный маркер <details> в этом webview
+ * рисуется мелким и не наследует цвет темы. */
+.claude-settings-group-head::before {
+  content: '▸';
+  flex: 0 0 auto;
+  opacity: 0.6;
+  transition: transform 0.12s ease;
+}
+
+.claude-settings-group[open] > .claude-settings-group-head::before {
+  transform: rotate(90deg);
+}
+
+.claude-settings-group-head:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.06));
+}
+
+/* Название занимает всё свободное место, счётчик прижат вправо. */
+.claude-settings-group-head > span:first-of-type { flex: 1; }
+
+/* Счётчик параметров в разделе: при поиске превращается в «нашли /
+ * всего», чтобы было видно, где искать дальше. */
+.claude-settings-group-count {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+/* Строки внутри раздела с отступом — видно, что они ему принадлежат. */
+.claude-settings-group .claude-settings-row {
+  padding-left: 14px;
+}
+
 .claude-settings-row {
   display: flex;
   align-items: flex-start;

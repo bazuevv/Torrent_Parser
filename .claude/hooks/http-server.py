@@ -502,6 +502,11 @@ class Handler(BaseHTTPRequestHandler):
     # раз описывать параметры в JS значило бы завести два расходящихся
     # источника правды о том, что делает флаг.
 
+    # Заголовок раздела в конфиге: `# ==== Название ====`. Хвост из
+    # `=` необязателен — важно только начало, чтобы обычный комментарий,
+    # начинающийся со знака равенства, случайно не стал разделом.
+    _SECTION_RE = re.compile(r"^={3,}\s*(.+?)\s*=*$")
+
     @staticmethod
     def _config_lines() -> list:
         with open(CONFIG_FILE, encoding="utf-8") as fh:
@@ -514,13 +519,26 @@ class Handler(BaseHTTPRequestHandler):
         Комментарий параметра — непрерывный блок строк `#` прямо над
         ним. Пустая строка блок обрывает: она отделяет абзац про один
         параметр от абзаца про другой.
+
+        Разделы задаются в самом файле строками вида
+        `# ==== Название ====`. Держать их там, а не списком в коде —
+        то же правило, что и с подсказками: новый параметр попадает
+        в раздел сам, по своему месту в файле, и человеку, читающему
+        TOML руками, разделы видны так же, как в панели.
         """
         items = []
         comment: list[str] = []
+        section = ""
         for raw in lines:
             line = raw.strip()
             if line.startswith("#"):
-                comment.append(line.lstrip("#").strip())
+                text = line.lstrip("#").strip()
+                marker = cls._SECTION_RE.match(text)
+                if marker:
+                    section = marker.group(1).strip()
+                    comment = []
+                    continue
+                comment.append(text)
                 continue
             if not line:
                 comment = []
@@ -537,6 +555,7 @@ class Handler(BaseHTTPRequestHandler):
                 "key": key,
                 "hint": "\n".join(comment).strip(),
                 "raw": value_text,
+                "section": section,
             })
             comment = []
         return items
@@ -584,6 +603,7 @@ class Handler(BaseHTTPRequestHandler):
                          else "number" if isinstance(value, (int, float))
                          else "string"),
                 "hint": item["hint"],
+                "section": item.get("section") or "Прочее",
             })
 
         self._json_response(200, {

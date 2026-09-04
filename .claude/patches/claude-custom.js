@@ -10560,11 +10560,48 @@
     list.className = 'claude-settings-list';
     body.appendChild(list);
 
+    /* Раскладка по разделам. Разделы заданы в самом TOML строками
+     * `# ==== Название ====` и приходят с сервера у каждого параметра —
+     * поэтому новый флаг попадает в свой раздел сам, а человеку,
+     * читающему файл руками, видна та же структура.
+     *
+     * Все свёрнуты при открытии: тридцать пять параметров подряд —
+     * это стена, в которой ничего не найти, а свёрнутый список из
+     * тринадцати заголовков обозрим целиком.
+     *
+     * `<details>` вместо своей раскрывашки: он умеет разворачиваться
+     * без единой строки JS, доступен с клавиатуры и ищется штатным
+     * Ctrl+F браузера. */
     var rows = [];
+    var groups = [];
+    var byName = {};
     for (var i = 0; i < items.length; i++) {
-      var row = paramRow(items[i]);
-      rows.push({ row: row, item: items[i] });
-      list.appendChild(row);
+      var item = items[i];
+      var name = item.section || 'Прочее';
+      var group = byName[name];
+      if (!group) {
+        var box = document.createElement('details');
+        box.className = 'claude-settings-group';
+        var summary = document.createElement('summary');
+        summary.className = 'claude-settings-group-head';
+        var label = document.createElement('span');
+        label.textContent = name;
+        summary.appendChild(label);
+        var count = document.createElement('span');
+        count.className = 'claude-settings-group-count';
+        summary.appendChild(count);
+        box.appendChild(summary);
+        list.appendChild(box);
+        group = byName[name] = { box: box, count: count, total: 0 };
+        groups.push(group);
+      }
+      group.total++;
+      var row = paramRow(item);
+      rows.push({ row: row, item: item, group: group });
+      group.box.appendChild(row);
+    }
+    for (var g = 0; g < groups.length; g++) {
+      groups[g].count.textContent = String(groups[g].total);
     }
 
     /* Пометка о несохранённых правках.
@@ -10590,18 +10627,41 @@
         + ' — «Отмена» их отбросит.', 'wait');
     }
 
-    // Поиск по ключу и по описанию: половину параметров помнишь не по
-    // имени, а по тому, что они делают.
+    /* Поиск по ключу и по описанию: половину параметров помнишь не по
+     * имени, а по тому, что они делают.
+     *
+     * Найденное показывается сразу: раздел с совпадениями
+     * разворачивается сам, а пустой прячется целиком. Иначе поиск в
+     * свёрнутом списке выглядел бы как «ничего не найдено» — совпадения
+     * есть, но спрятаны за закрытым заголовком.
+     *
+     * При очистке строки поиска разделы снова сворачиваются: это
+     * исходное состояние окна, и оставлять после поиска развёрнутую
+     * стену значило бы менять его молча. */
     search.addEventListener('input', function () {
       var q = search.value.trim().toLowerCase();
+      var k;
+      for (k = 0; k < groups.length; k++) groups[k].hits = 0;
+
       for (var j = 0; j < rows.length; j++) {
         var it = rows[j].item;
         var hit = !q
           || it.key.toLowerCase().indexOf(q) !== -1
           || String(it.hint || '').toLowerCase().indexOf(q) !== -1;
         rows[j].row.style.display = hit ? '' : 'none';
+        if (hit) rows[j].group.hits++;
+      }
+
+      for (k = 0; k < groups.length; k++) {
+        var group = groups[k];
+        group.box.style.display = (!q || group.hits) ? '' : 'none';
+        group.box.open = !!q && !!group.hits;
+        group.count.textContent = q
+          ? group.hits + ' / ' + group.total
+          : String(group.total);
       }
     });
+
     search.focus();
   }
 
@@ -10657,8 +10717,7 @@
     status.className = 'claude-settings-status';
     footer.appendChild(status);
 
-    // Порядок «Отмена → Сохранить»: действие по умолчанию стоит
-    // правым и выделено цветом, отказ — слева от него.
+    // Порядок «Сохранить → Отмена».
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'claude-settings-btn';
@@ -10672,8 +10731,8 @@
     saveBtn.textContent = 'Сохранить';
     saveBtn.addEventListener('click', function () { save(status, saveBtn); });
 
-    footer.appendChild(cancelBtn);
     footer.appendChild(saveBtn);
+    footer.appendChild(cancelBtn);
     win.appendChild(footer);
 
     document.body.appendChild(panel);
