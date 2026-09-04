@@ -429,12 +429,12 @@ def anthropic_identity() -> dict:
     return identity
 
 
-def _resets_in_sec(value) -> int | None:
-    """Секунды до сброса окна; отрицательное — момент уже прошёл.
+def _reset_moment(value) -> float | None:
+    """Абсолютный момент сброса окна (epoch); None — не разобрать.
 
-    Знак здесь значим, поэтому к нулю НЕ прижимаем: прошедшее время
-    сброса означает, что окно уже перевалило, и показывать по нему
-    старые проценты нельзя (см. anthropic_usage).
+    Живой кэш отдаёт ISO-строку со смещением `+00:00`. Наивная строка
+    без смещения считается UTC: время в кэше всегда про UTC, смещения
+    локальной зоны у него не бывает.
     """
     if not isinstance(value, str) or not value:
         return None
@@ -444,27 +444,28 @@ def _resets_in_sec(value) -> int | None:
         return None
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=datetime.timezone.utc)
-    left = (moment - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
-    return int(left)
+    return moment.timestamp()
 
 
-def anthropic_usage() -> dict | None:
-    """Загрузка лимитов подписки claude.ai (пятичасовое окно и недельное).
+def _resets_in_sec(value) -> int | None:
+    """Секунды до сброса окна; отрицательное — момент уже прошёл.
 
-    Данные берутся из кэша, который ведёт сам Claude Code: он ходит
-    в `api.anthropic.com/api/oauth/usage` и кладёт ответ в
-    `~/.claude.json` под ключом `cachedUsageUtilization`. Свой запрос
-    к API мы не делаем сознательно: для него нужен OAuth-токен из
-    `~/.claude/.credentials.json`, а он живёт часами и требует
-    обновления — заниматься этим параллельно с CLI значит соперничать
-    с ним за один и тот же файл ради чисел, которые он и так сохранил.
+    Знак здесь значим, поэтому к нулю НЕ прижимаем: прошедшее время
+    сброса означает, что окно уже перевалило, и показывать по нему
+    старые проценты нельзя (см. anthropic_usage).
+    """
+    moment = _reset_moment(value)
+    if moment is None:
+        return None
+    return int(moment - time.time())
 
-    Обратная сторона — данные ровно настолько свежие, насколько давно
-    CLI их обновлял. Поэтому наружу уходит и возраст записи: показать
-    вчерашние проценты как сегодняшние нельзя.
 
-    None означает «показывать нечего» (нет файла, нет кэша, чужой
-    аккаунт) — панель в этом случае просто не рисует полоски.
+def _read_usage_cache() -> dict | None:
+    """Кэш лимитов из ~/.claude.json, если он принадлежит текущему логину.
+
+    Общая часть anthropic_usage() и anthropic_usage_raw(): вычитка файла
+    и сверка подписи. None — нет файла, нет кэша или в нём проценты
+    чужого аккаунта.
     """
     try:
         with open(CONFIG_JSON, "r", encoding="utf-8") as fh:
@@ -488,6 +489,31 @@ def anthropic_usage() -> dict | None:
     got = cached.get("accountUuid")
     if expected and got and expected != got:
         return None
+    return cached
+
+
+def anthropic_usage() -> dict | None:
+    """Загрузка лимитов подписки claude.ai (пятичасовое окно и недельное).
+
+    Данные берутся из кэша, который ведёт сам Claude Code: он ходит
+    в `api.anthropic.com/api/oauth/usage` и кладёт ответ в
+    `~/.claude.json` под ключом `cachedUsageUtilization`. Свой запрос
+    к API мы не делаем сознательно: для него нужен OAuth-токен из
+    `~/.claude/.credentials.json`, а он живёт часами и требует
+    обновления — заниматься этим параллельно с CLI значит соперничать
+    с ним за один и тот же файл ради чисел, которые он и так сохранил.
+
+    Обратная сторона — данные ровно настолько свежие, насколько давно
+    CLI их обновлял. Поэтому наружу уходит и возраст записи: показать
+    вчерашние проценты как сегодняшние нельзя.
+
+    None означает «показывать нечего» (нет файла, нет кэша, чужой
+    аккаунт) — панель в этом случае просто не рисует полоски.
+    """
+    cached = _read_usage_cache()
+    if cached is None:
+        return None
+    util = cached["utilization"]
 
     windows = []
     for key, label, title in USAGE_WINDOWS:
@@ -531,6 +557,44 @@ def anthropic_usage() -> dict | None:
     return {"windows": windows, "ageSec": age}
 
 
+def anthropic_usage_raw() -> dict | None:
+    """Сырое пятичасовое окно — для монитора сигнала сброса лимита.
+
+    anthropic_usage() прячет окно с прошедшим resets_at (percent=0,
+    resetsInSec=None): панели так правильно, но монитору нужны именно
+    «процент, который был в окне до сброса» и «абсолютный момент
+    сброса». Момент абсолютен, поэтому сигнал работает даже по
+    замёрзшему кэшу: CLI, не работающий на OAuth-логине, кэш не
+    обновляет, а resets_at в нём всё равно называет, когда окно
+    жило до.
+
+    None — показывать нечего (нет файла/кэша, чужой аккаунт, окна
+    five_hour в кэше нет).
+    """
+    cached = _read_usage_cache()
+    if cached is None:
+        return None
+    window = cached["utilization"].get("five_hour")
+    if not isinstance(window, dict):
+        return None
+
+    percent = window.get("utilization")
+    if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+        percent = None
+    account = cached.get("accountUuid")
+
+    fetched = cached.get("fetchedAtMs")
+    age = None
+    if isinstance(fetched, (int, float)) and not isinstance(fetched, bool):
+        age = max(0, int(time.time() - fetched / 1000))
+    return {
+        "percent": percent,
+        "resetAt": _reset_moment(window.get("resets_at")),
+        "accountUuid": account if isinstance(account, str) else None,
+        "ageSec": age,
+    }
+
+
 def get_current_account() -> str:
     """Имя активного settings-файла.
 
@@ -564,6 +628,16 @@ def source_path(filename: str) -> str:
     if get_current_account() != BASE_NAME and os.path.isfile(BACKUP_FILE):
         return BACKUP_FILE
     return SETTINGS_FILE
+
+
+def active_account_is_oauth() -> bool:
+    """Работает ли текущая сессия на OAuth-логине claude.ai.
+
+    Монитору сброса лимитов этого достаточно, чтобы молчать на стороннем
+    провайдере: окно claude.ai в этот момент не тратится, а кэш лимитов
+    не обновляется — сигнал сброса был бы рассказом о чужой паузе.
+    """
+    return _describe(source_path(get_current_account()))["oauth"]
 
 
 def list_accounts() -> list[dict]:
