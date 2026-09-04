@@ -56,7 +56,36 @@ def _text_blocks(value: Any) -> str:
     return "\n".join(chunks)
 
 
-def _render_content(value: Any) -> str:
+def _image_input(block: dict[str, Any]) -> dict[str, Any]:
+    source = block.get("source")
+    if not isinstance(source, dict):
+        raise BridgeError("image block has no source")
+    source_type = source.get("type")
+    if source_type == "base64":
+        media_type = source.get("media_type")
+        data = source.get("data")
+        if not isinstance(media_type, str) or not media_type.startswith("image/"):
+            raise BridgeError("base64 image has an invalid media_type")
+        if not isinstance(data, str) or not data:
+            raise BridgeError("base64 image has no data")
+        url = f"data:{media_type};base64,{data}"
+    elif source_type == "url":
+        url = source.get("url")
+        if not isinstance(url, str) or not url.startswith(("https://", "http://")):
+            raise BridgeError("image URL must use http or https")
+    else:
+        raise BridgeError(f"unsupported image source: {source_type!r}")
+    detail = block.get("detail")
+    result: dict[str, Any] = {"type": "image", "url": url}
+    if detail in ("auto", "low", "high", "original"):
+        result["detail"] = detail
+    return result
+
+
+def _render_content(
+    value: Any,
+    image_inputs: list[dict[str, Any]] | None = None,
+) -> str:
     if isinstance(value, str):
         return value
     if not isinstance(value, list):
@@ -68,6 +97,11 @@ def _render_content(value: Any) -> str:
         block_type = block.get("type")
         if block_type == "text" and isinstance(block.get("text"), str):
             rendered.append(block["text"])
+        elif block_type == "image":
+            if image_inputs is None:
+                raise BridgeError("image collection is not initialized")
+            image_inputs.append(_image_input(block))
+            rendered.append(f'<image attachment="{len(image_inputs)}" />')
         elif block_type == "tool_use":
             rendered.append(
                 f'<tool_use id="{block.get("id", "")}" '
@@ -76,7 +110,7 @@ def _render_content(value: Any) -> str:
                 "</tool_use>"
             )
         elif block_type == "tool_result":
-            content = _text_blocks(block.get("content"))
+            content = _render_content(block.get("content"), image_inputs)
             rendered.append(
                 f'<tool_result id="{block.get("tool_use_id", "")}" '
                 f'is_error="{str(bool(block.get("is_error"))).lower()}">\n'
@@ -87,8 +121,11 @@ def _render_content(value: Any) -> str:
     return "\n".join(rendered)
 
 
-def build_prompt(payload: dict[str, Any]) -> tuple[str, str]:
-    """Convert an Anthropic conversation to Codex instructions and input."""
+def build_request(
+    payload: dict[str, Any],
+) -> tuple[str, str, list[dict[str, Any]]]:
+    """Convert an Anthropic conversation to Codex instructions and inputs."""
+    image_inputs: list[dict[str, Any]] = []
     system = _text_blocks(payload.get("system"))
     developer = BRIDGE_INSTRUCTIONS
     if system:
@@ -106,7 +143,7 @@ def build_prompt(payload: dict[str, Any]) -> tuple[str, str]:
         if role not in ("system", "developer", "user", "assistant"):
             raise BridgeError(f"unsupported message role: {role!r}")
         content = message.get("content")
-        text = _render_content(content)
+        text = _render_content(content, image_inputs)
         # Claude Code 2.1.220 may put additional privileged context in
         # `messages` instead of the top-level Anthropic `system` field.
         # Keep its precedence: it belongs in developerInstructions, not
@@ -117,8 +154,19 @@ def build_prompt(payload: dict[str, Any]) -> tuple[str, str]:
         rendered.append(f"<{role}>\n{text}\n</{role}>")
     for role, text in privileged:
         developer += f"\n\n{role.upper()} MESSAGE FROM CLAUDE CODE:\n{text}"
+    if image_inputs:
+        developer += (
+            "\n\nIMAGE ATTACHMENTS: Markers in the conversation refer to the "
+            "attached image inputs in ascending order."
+        )
     rendered.append("<assistant>\n")
-    return developer, "\n\n".join(rendered)
+    return developer, "\n\n".join(rendered), image_inputs
+
+
+def build_prompt(payload: dict[str, Any]) -> tuple[str, str]:
+    """Compatibility helper for tests and text-only callers."""
+    developer, prompt, _images = build_request(payload)
+    return developer, prompt
 
 
 def select_model(payload: dict[str, Any]) -> str | None:
@@ -251,7 +299,7 @@ class CodexTextBackend:
         return _safe_probe(self.client.snapshot())
 
     def begin(self, payload: dict[str, Any]) -> TextTurn:
-        developer, prompt = build_prompt(payload)
+        developer, prompt, image_inputs = build_request(payload)
         model = select_model(payload)
         params: dict[str, Any] = {
             "approvalPolicy": "never",
@@ -279,7 +327,7 @@ class CodexTextBackend:
         try:
             turn = self.client.request("turn/start", {
                 "threadId": thread_id,
-                "input": [{"type": "text", "text": prompt}],
+                "input": [{"type": "text", "text": prompt}] + image_inputs,
             })
         except Exception:
             self.router.unregister(thread_id)

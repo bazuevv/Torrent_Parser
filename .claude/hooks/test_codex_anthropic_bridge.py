@@ -10,6 +10,7 @@ from codex_anthropic_bridge import (
     DynamicToolCall,
     TextTurn,
     build_prompt,
+    build_request,
     collect_message,
     dynamic_tools,
     message_object,
@@ -62,6 +63,34 @@ class PromptConversionTests(unittest.TestCase):
         })
         self.assertIn('<tool_use id="call_1" name="Read">', prompt)
         self.assertIn('<tool_result id="call_1" is_error="false">', prompt)
+
+    def test_base64_image_becomes_codex_image_input(self):
+        developer, prompt, images = build_request({
+            "messages": [{"role": "user", "content": [
+                {"type": "image", "source": {
+                    "type": "base64", "media_type": "image/png",
+                    "data": "aGVsbG8=",
+                }},
+                {"type": "text", "text": "Describe it"},
+            ]}],
+        })
+        self.assertIn('<image attachment="1" />', prompt)
+        self.assertIn("IMAGE ATTACHMENTS", developer)
+        self.assertEqual(images, [{
+            "type": "image", "url": "data:image/png;base64,aGVsbG8=",
+        }])
+
+    def test_image_inside_tool_result_is_preserved(self):
+        _, prompt, images = build_request({
+            "messages": [{"role": "user", "content": [{
+                "type": "tool_result", "tool_use_id": "call_1",
+                "content": [{"type": "image", "source": {
+                    "type": "url", "url": "https://example.test/image.png",
+                }}],
+            }]}],
+        })
+        self.assertIn('<image attachment="1" />', prompt)
+        self.assertEqual(images[0]["url"], "https://example.test/image.png")
 
     def test_dynamic_tool_schema_conversion(self):
         result = dynamic_tools({"tools": [{
