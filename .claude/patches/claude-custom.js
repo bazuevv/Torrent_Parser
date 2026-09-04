@@ -10567,6 +10567,29 @@
       list.appendChild(row);
     }
 
+    /* Пометка о несохранённых правках.
+     *
+     * «Отмена» и крестик закрывают окно, ничего не записывая, — и это
+     * правильно, но молча потерять десяток переключённых флагов
+     * обидно. Поэтому строка статуса говорит, что правки есть и они
+     * пока только в окне.
+     *
+     * Слушатель один на весь список (события всплывают), а не по
+     * одному на каждый из тридцати пяти элементов управления. */
+    list.addEventListener('input', markDirty, true);
+    list.addEventListener('change', markDirty, true);
+
+    function markDirty() {
+      var pending = Object.keys(changedValues()).length;
+      if (!pending) {
+        setStatus(status, '', '');
+        return;
+      }
+      setStatus(status, 'Не сохранено: ' + pending + ' '
+        + (pending === 1 ? 'изменение' : 'изменений')
+        + ' — «Отмена» их отбросит.', 'wait');
+    }
+
     // Поиск по ключу и по описанию: половину параметров помнишь не по
     // имени, а по тому, что они делают.
     search.addEventListener('input', function () {
@@ -10600,7 +10623,22 @@
 
     var head = document.createElement('div');
     head.className = 'claude-settings-head';
-    head.textContent = '⚙ Настройки патча';
+    var title = document.createElement('span');
+    title.textContent = '⚙ Настройки патча';
+    head.appendChild(title);
+
+    // Крестик — третий способ закрыть окно, вдобавок к «Отмене» и
+    // Escape. Своя кнопка нужна потому, что у окна нет рамки VSCode
+    // с системным крестиком: это div на подложке, а не диалог
+    // оболочки, и закрывать его нечем, кроме того, что нарисуем сами.
+    var closeX = document.createElement('button');
+    closeX.type = 'button';
+    closeX.className = 'claude-settings-x';
+    closeX.textContent = '✕';
+    closeX.title = 'Закрыть без сохранения (Esc)';
+    closeX.setAttribute('aria-label', 'Закрыть');
+    closeX.addEventListener('click', closePanel);
+    head.appendChild(closeX);
     win.appendChild(head);
 
     var sub = document.createElement('div');
@@ -10619,18 +10657,23 @@
     status.className = 'claude-settings-status';
     footer.appendChild(status);
 
+    // Порядок «Отмена → Сохранить»: действие по умолчанию стоит
+    // правым и выделено цветом, отказ — слева от него.
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'claude-settings-btn';
+    cancelBtn.textContent = 'Отмена';
+    cancelBtn.title = 'Закрыть, не записывая правки в файл';
+    cancelBtn.addEventListener('click', closePanel);
+
     var saveBtn = document.createElement('button');
     saveBtn.type = 'button';
     saveBtn.className = 'claude-settings-btn claude-settings-btn-primary';
     saveBtn.textContent = 'Сохранить';
     saveBtn.addEventListener('click', function () { save(status, saveBtn); });
-    var closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'claude-settings-btn';
-    closeBtn.textContent = 'Закрыть';
-    closeBtn.addEventListener('click', closePanel);
+
+    footer.appendChild(cancelBtn);
     footer.appendChild(saveBtn);
-    footer.appendChild(closeBtn);
     win.appendChild(footer);
 
     document.body.appendChild(panel);
