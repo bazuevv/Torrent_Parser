@@ -1,12 +1,13 @@
 /*
  * Стенд для модуля LIMIT ALERT STOP BUTTON из claude-custom.js.
  *
- * Проверяется то, ради чего модуль писался: кнопка существует только
- * пока поле playing истинно, не дублируется при повторных опросах,
- * уходит после клика по «Стоп» и после трёх промахов сервера,
- * возвращается в пересозданный React'ом футер, а её узлы помечены
- * __claudeOwnNode. Блок вырезается из живого файла — иначе стенд
- * проверял бы копию, а не то, что едет в webview.
+ * Проверяется то, ради чего модуль писался: плавающая плашка «стоп»
+ * существует только пока поле playing истинно, висит по центру НАД
+ * панелью ввода (позиция пересчитывается при пересоздании панели и
+ * ресайзе окна), не плодит копий, уходит после клика и после трёх
+ * промахов сервера, а её узлы помечены __claudeOwnNode. Блок
+ * вырезается из живого файла — иначе стенд проверял бы копию, а не
+ * то, что едет в webview.
  *
  * Запуск: node tmp/limit-stop-button-test.js
  */
@@ -66,30 +67,18 @@ function advance(ms) {
 
 /* ---------- фейковый DOM ---------- */
 
-function matchesSel(el, sel) {
-  if (sel === 'button') return el.tagName === 'BUTTON';
-  let m = /^\.([\w-]+)$/.exec(sel);
-  if (m) return el.classList.contains(m[1]);
-  m = /^\[class\*="([^"]*)"\]$/.exec(sel);
-  if (m) return String(el.className).indexOf(m[1]) >= 0;
-  if (sel === '[role="textbox"][contenteditable]') {
-    return el.attrs['role'] === 'textbox' && 'contenteditable' in el.attrs;
-  }
-  // Незнакомый селектор — ошибка, а не «не совпало»: модуль сменил
-  // запрос к DOM, и стенд обязан это поймать, а не проглотить.
-  throw new Error('стенд не умеет селектор: ' + sel);
-}
-
-function makeElement(tag, cls, attrs) {
+function makeElement(tag, cls) {
   const classes = new Set(cls ? cls.split(/\s+/).filter(Boolean) : []);
+  const attrs = {};
   const el = {
     tagName: String(tag).toUpperCase(),
-    attrs: attrs || {},
+    attrs,
     children: [],
     parentNode: null,
     textContent: '',
     title: '',
     type: '',
+    style: {},
     __claudeOwnNode: false,
     handlers: {},
     classList: {
@@ -99,13 +88,9 @@ function makeElement(tag, cls, attrs) {
     },
     get className() { return Array.from(classes).join(' '); },
     set className(v) { classes.clear(); String(v).split(/\s+/).filter(Boolean).forEach((c) => classes.add(c)); },
+    setAttribute(name, value) { attrs[name] = String(value); },
+    getAttribute: (name) => (name in attrs ? attrs[name] : null),
     appendChild(child) { el.children.push(child); child.parentNode = el; return child; },
-    insertBefore(child, ref) {
-      const i = el.children.indexOf(ref);
-      if (i >= 0) el.children.splice(i, 0, child); else el.children.push(child);
-      child.parentNode = el;
-      return child;
-    },
     removeChild(child) {
       const i = el.children.indexOf(child);
       if (i >= 0) el.children.splice(i, 1);
@@ -114,59 +99,53 @@ function makeElement(tag, cls, attrs) {
     },
     addEventListener(type, fn) { el.handlers[type] = fn; },
     removeEventListener() {},
+    // Геометрию назначает тест (контейнерам), по умолчанию её нет.
+    getBoundingClientRect: () => null,
     click() {
-      const e = { preventDefault() { e.defaulted = true; }, stopPropagation() {} };
+      const e = { preventDefault() {}, stopPropagation() {} };
       if (el.handlers.click) el.handlers.click(e);
-      return e;
-    },
-    matches: (sel) => matchesSel(el, sel),
-    querySelector(sel) {
-      for (const child of el.children) {
-        if (matchesSel(child, sel)) return child;
-        const deep = child.querySelector(sel);
-        if (deep) return deep;
-      }
-      return null;
     },
   };
-  el.querySelectorAll = () => { throw new Error('модуль не должен звутить querySelectorAll'); };
   return el;
 }
 
-/** Живой контейнер поля ввода: футер с кнопкой-донором + textarea. */
-function makeContainer() {
-  const container = makeElement('div', 'inputContainer_abc123');
-  const footer = makeElement('div', 'inputFooter_def456');
-  const donor = makeElement('button', 'footerButton_ghi789');
-  footer.appendChild(donor);
-  const textbox = makeElement('div', '', { role: 'textbox', contenteditable: 'plaintext-only' });
-  container.appendChild(footer);
-  container.appendChild(textbox);
-  return container;
+/** Контейнер поля ввода с заданной геометрией (rect). */
+function makeContainer(rect) {
+  const c = makeElement('div', 'inputContainer_abc123');
+  c.getBoundingClientRect = () => rect;
+  return c;
 }
 
-const containers = [makeContainer()];
-
-global.document = {
-  readyState: 'complete',
-  addEventListener() {},
-  createElement: (tag) => makeElement(tag, ''),
-  querySelectorAll(sel) {
-    if (sel.indexOf('inputContainer_') >= 0) return containers;
-    throw new Error('стенд не умеет селектор: ' + sel);
-  },
-};
-
-// Общий наблюдатель заменён фейком: сканы зовём руками, DOM WATCH
-// проверяет свой стенд (domwatch-test.js).
+const innerHeight = 700;
+let resizeHandler = null;
 const scans = {};
+
 global.window = {
+  innerHeight,
+  addEventListener(type, fn) { if (type === 'resize') resizeHandler = fn; },
+  removeEventListener() {},
   __CLAUDE_CUSTOM_CONFIG__: {},
   __claudeDomWatch: {
     register(name, fn) { scans[name] = fn; },
     kick() {},
   },
 };
+
+global.document = {
+  readyState: 'complete',
+  addEventListener() {},
+  body: makeElement('body'),
+  createElement: (tag) => makeElement(tag, ''),
+  createElementNS: (ns, tag) => makeElement(tag, ''),
+  querySelectorAll(sel) {
+    // Модуль ищет только контейнеры поля ввода; всё прочее — смена
+    // контракта, которую стенд обязан поймать, а не проглотить.
+    if (sel.indexOf('inputContainer_') >= 0) return containers;
+    throw new Error('стенд не умеет селектор: ' + sel);
+  },
+};
+
+const containers = [makeContainer({ top: 600, bottom: 660, left: 100, width: 400, height: 60 })];
 
 /* ---------- фейковый сервер ---------- */
 
@@ -177,7 +156,7 @@ let stopRequests = 0;
 global.fetch = (url, opts) => {
   if (fetchBroken) return Promise.reject(new Error('сервер недоступен'));
   const u = String(url);
-  if (u.indexOf('/limit-reset-alert') >= 0 && opts && opts.method === 'POST') {
+  if (u.indexOf('/limit-reset-alert-stop') >= 0) {
     stopRequests++;
     const was = serverPlaying;
     serverPlaying = false;
@@ -201,80 +180,96 @@ function check(name, cond, detail) {
 
 eval(block);
 
-const BTN_CLASS = 'claude-limit-stop-btn';
-const btnIn = (c) => c.querySelector('.' + BTN_CLASS);
+const BTN_CLASS = 'claude-limit-stop-float';
+const badge = () => document.body.children.find((c) => c.classList.contains(BTN_CLASS)) || null;
 
 async function run() {
   check('скан зарегистрирован под своим именем',
     typeof scans['limit-stop'] === 'function');
 
-  /* --- покой: звука нет, кнопки нет (и после первого опроса) */
+  /* --- покой: звука нет, плашки нет (и после первого опроса) */
   await flush();
-  check('без звука кнопки нет', !btnIn(containers[0]));
+  check('без звука плашки нет', !badge());
 
-  /* --- звук начался: кнопка появилась, помечена и одна */
+  /* --- звук начался: плашка в body, помечена, с иконкой */
   serverPlaying = true;
   advance(1000);
   await flush();
-  const btn = btnIn(containers[0]);
-  check('звук играет — кнопка появилась', !!btn);
-  check('кнопка в футере',
-    !!btn && btn.parentNode.classList.contains('inputFooter_def456'));
-  check('кнопка помечена __claudeOwnNode', !!btn && btn.__claudeOwnNode === true);
-  check('кнопка взяла класс донора',
-    !!btn && /footerButton_/.test(btn.className) && btn.classList.contains(BTN_CLASS));
+  const b = badge();
+  check('звук играет — плашка появилась', !!b);
+  check('плашка в body (fixed, не в футере)',
+    !!b && b.parentNode === document.body);
+  check('плашка помечена __claudeOwnNode', !!b && b.__claudeOwnNode === true);
+  check('иконка — SVG, а не текст',
+    !!b && b.children.length === 1 && b.children[0].tagName === 'SVG');
+
+  /* --- позиция: центр панели, чуть выше её верхнего края */
+  check('позиция: по центру панели',
+    !!b && b.style.left === '300px', `left=${b && b.style.left}`);
+  check('позиция: над панелью',
+    !!b && b.style.bottom === '110px', `bottom=${b && b.style.bottom}`);
 
   /* --- повторные опросы не плодят копий */
   advance(1000);
   advance(1000);
   await flush();
-  let count = 0;
-  containers[0].children.forEach((child) => {
-    child.children && child.children.forEach((g) => { if (g.classList && g.classList.contains(BTN_CLASS)) count++; });
-  });
-  check('повторные опросы не дублируют кнопку', count === 1, `найдено ${count}`);
+  const count = document.body.children.filter((c) => c.classList.contains(BTN_CLASS)).length;
+  check('повторные опросы не дублируют плашку', count === 1, `найдено ${count}`);
 
-  /* --- клик: POST ушёл, звук погашен, кнопка ушла сама */
-  btn.click();
+  /* --- клик: POST ушёл, звук погашен, плашка ушла сама */
+  b.click();
+  await flush();
   await flush();
   check('клик отправил POST /limit-reset-alert-stop', stopRequests === 1,
     `запросов ${stopRequests}`);
-  check('после клика кнопка исчезла', !btnIn(containers[0]));
+  check('после клика плашка исчезла', !badge());
 
-  /* --- звук кончился сам (длинный файл доиграл): кнопка уходит */
+  /* --- звук кончился сам: плашка уходит */
   serverPlaying = true;
   advance(1000);
   await flush();
-  check('новый звук — кнопка вернулась', !!btnIn(containers[0]));
+  check('новый звук — плашка вернулась', !!badge());
   serverPlaying = false;
   advance(1000);
   await flush();
-  check('звук кончился — кнопка ушла сама', !btnIn(containers[0]));
+  check('звук кончился — плашка ушла сама', !badge());
 
-  /* --- React пересоздал футер во время звука: скан вставит кнопку */
+  /* --- панель пересоздалась ниже и шире: позиция пересчиталась */
   serverPlaying = true;
   advance(1000);
   await flush();
-  containers[0] = makeContainer(); // старый контейнер выброшен
-  scans['limit-stop']();           // подстраховочный обход наблюдателя
-  check('пересозданный футер получил кнопку', !!btnIn(containers[0]));
+  containers[0] = makeContainer({ top: 500, bottom: 560, left: 200, width: 600, height: 60 });
+  scans['limit-stop'](); // подстраховочный обход общего наблюдателя
+  const moved = badge();
+  check('пересозданная панель: центр пересчитан',
+    !!moved && moved.style.left === '500px', `left=${moved && moved.style.left}`);
+  check('пересозданная панель: отступ сверху пересчитан',
+    !!moved && moved.style.bottom === '210px', `bottom=${moved && moved.style.bottom}`);
 
-  /* --- сервер замолчал: три промаха убирают кнопку */
+  /* --- ресайз окна двигает плашку к новой геометрии */
+  containers[0] = makeContainer({ top: 620, bottom: 680, left: 40, width: 200, height: 60 });
+  resizeHandler();
+  const resized = badge();
+  check('resize пересчитал позицию',
+    !!resized && resized.style.left === '140px' && resized.style.bottom === '90px',
+    `left=${resized && resized.style.left} bottom=${resized && resized.style.bottom}`);
+
+  /* --- сервер замолчал: три промаха убирают плашку */
   fetchBroken = true;
   advance(1000);
   advance(1000);
   await flush();
-  check('после двух промахов кнопка ещё есть (не мигает)', !!btnIn(containers[0]));
+  check('после двух промахов плашка ещё есть (не мигает)', !!badge());
   advance(1000);
   await flush();
-  check('третий промах — кнопка убрана', !btnIn(containers[0]));
+  check('третий промах — плашка убрана', !badge());
 
   /* --- возврат сервера: всё работает снова */
   fetchBroken = false;
   serverPlaying = true;
   advance(1000);
   await flush();
-  check('сервер ожил — кнопка вернулась', !!btnIn(containers[0]));
+  check('сервер ожил — плашка вернулась', !!badge());
 
   const failed = results.filter((r) => !r.ok);
   results.forEach((r) => console.log((r.ok ? '  ok  ' : ' FAIL ') + r.name + (r.detail ? ' — ' + r.detail : '')));
