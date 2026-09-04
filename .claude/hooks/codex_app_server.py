@@ -104,9 +104,11 @@ class CodexAppServerClient:
         command: Sequence[str] | None = None,
         timeout: float = DEFAULT_TIMEOUT,
         notification_handler: Callable[[dict[str, Any]], None] | None = None,
+        server_request_handler: Callable[[dict[str, Any]], Any] | None = None,
     ) -> None:
         self.timeout = timeout
         self.notification_handler = notification_handler
+        self.server_request_handler = server_request_handler
         self.command = list(command) if command else [
             find_codex_binary(codex_bin), "app-server", "--listen", "stdio://",
         ]
@@ -217,12 +219,17 @@ class CodexAppServerClient:
             return
 
         if request_id is not None and isinstance(method, str):
-            # Phase 1 does not expose model tools yet.  Never leave an
-            # unexpected server request hanging: answer it explicitly.
-            self._send({
-                "id": request_id,
-                "error": {"code": -32601, "message": f"unsupported: {method}"},
-            })
+            if self.server_request_handler is None:
+                self.respond_error(request_id, -32601, f"unsupported: {method}")
+            else:
+                # A handler may wait for an outer protocol round-trip. Never
+                # block the stdout reader which dispatches the matching events.
+                threading.Thread(
+                    target=self._handle_server_request,
+                    args=(message,),
+                    name=f"codex-server-request-{request_id}",
+                    daemon=True,
+                ).start()
             return
 
         if isinstance(method, str) and self.notification_handler is not None:
@@ -230,6 +237,15 @@ class CodexAppServerClient:
                 self.notification_handler(message)
             except Exception as exc:  # callback errors must not kill transport
                 self._stderr_tail.append(f"notification handler failed: {exc}")
+
+    def _handle_server_request(self, message: dict[str, Any]) -> None:
+        request_id = message["id"]
+        method = message["method"]
+        try:
+            result = self.server_request_handler(message)
+            self.respond(request_id, result)
+        except Exception as exc:
+            self.respond_error(request_id, -32000, f"{method} failed: {exc}")
 
     def _fail_pending(self, error: CodexAppServerError) -> None:
         with self._state_lock:
@@ -254,6 +270,12 @@ class CodexAppServerClient:
 
     def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
         self._send({"method": method, "params": params or {}})
+
+    def respond(self, request_id: Any, result: Any) -> None:
+        self._send({"id": request_id, "result": result})
+
+    def respond_error(self, request_id: Any, code: int, message: str) -> None:
+        self._send({"id": request_id, "error": {"code": code, "message": message}})
 
     def request(
         self,
