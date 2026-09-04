@@ -238,6 +238,36 @@ REQUIRED_PARAMS = [
         lambda v: v in ("mode", "mood"),
         "должен быть \"mode\" (цвет по режиму разрешений) или \"mood\"",
     ),
+    (
+        "limitResetAlert",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
+    (
+        "limitResetAlertMode",
+        lambda v: v in ("any", "threshold"),
+        "должен быть \"any\" (каждый сброс) или \"threshold\" (по порогу)",
+    ),
+    (
+        "limitResetAlertPercent",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 100,
+        "должен быть целым числом от 1 до 100 (проценты)",
+    ),
+    (
+        "limitResetAlertPollSec",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
+        "должен быть положительным целым числом (сек)",
+    ),
+    (
+        "limitResetAlertRepeatMin",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
+        "должен быть неотрицательным целым числом (мин), 0 — без повторов",
+    ),
+    (
+        "limitResetAlertPlaySec",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
+        "должен быть неотрицательным целым числом (сек), 0 — играть целиком",
+    ),
 ]
 
 # Маркеры берём из общей таблицы ext_patch: эталонный снимок бандла
