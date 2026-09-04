@@ -17,7 +17,7 @@ const path = require('path');
 // Путь выводим от самого стенда, а не пишем абсолютным: проект уже
 // однажды переезжал (на NVMe), и зашитый путь пережил бы переезд
 // молча — стенд читал бы старую копию файла либо падал.
-const SRC = path.join(__dirname, '..', 'patches', 'claude-custom.js');
+const SRC = path.join(__dirname, '..', '.claude', 'patches', 'claude-custom.js');
 const lines = fs.readFileSync(SRC, 'utf8').split('\n');
 
 /** Вырезает IIFE-блок, следующий за заголовком с указанным текстом. */
