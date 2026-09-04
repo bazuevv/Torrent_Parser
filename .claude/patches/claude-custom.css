@@ -1313,10 +1313,10 @@
  * Границы четвертей считает JS (`data-level` = 0..3): порог живёт в
  * одном месте, а не четырьмя числами в селекторах. Отдельного правила
  * «лимит близко» больше нет — последняя четверть и есть красная. */
-.claude-accs-usage-row[data-level="0"] { --claude-usage-color: #3fb950; }
-.claude-accs-usage-row[data-level="1"] { --claude-usage-color: #e3b341; }
-.claude-accs-usage-row[data-level="2"] { --claude-usage-color: #f0883e; }
-.claude-accs-usage-row[data-level="3"] { --claude-usage-color: #f85149; }
+.claude-accs-usage-row[data-level="0"] { --claude-usage-color: var(--claude-mood-4); }
+.claude-accs-usage-row[data-level="1"] { --claude-usage-color: var(--claude-mood-3); }
+.claude-accs-usage-row[data-level="2"] { --claude-usage-color: var(--claude-mood-2); }
+.claude-accs-usage-row[data-level="3"] { --claude-usage-color: var(--claude-mood-1); }
 
 /* Табличные цифры: без них «9%» и «21%» дают разную ширину, и правый
  * край колонки дёргается при каждом обновлении. */
@@ -1711,6 +1711,21 @@
  * поэтому цвета и толщину можно подбирать без Reload Window.
  * ============================================================ */
 
+/* Палитра тревоги: от «всё плохо» (1) до «всё хорошо» (4). Одни и те
+ * же четыре оттенка носят секторы шкалы, зоны графика истории,
+ * полоски расхода лимитов в панели Accs и обводка поля ввода в режиме
+ * inputRingColor = "mood". Четыре копии одних значений однажды
+ * разошлись бы, и «одна и та же тревога» стала бы выглядеть в разных
+ * местах по-разному — ровно то, чего требует комментарий у полосок.
+ *
+ * Значения читаемы и на тёмной, и на светлой теме. */
+:root {
+  --claude-mood-1: #f85149;
+  --claude-mood-2: #f0883e;
+  --claude-mood-3: #e3b341;
+  --claude-mood-4: #3fb950;
+}
+
 /* Не кнопка, а индикатор: класс штатной footerButton_ не копируется,
  * hover-подсветки и указателя мыши нет — кликать тут нечего.
  * Отступы повторяют .claude-*-btn-bare, чтобы в ряду футера
@@ -1778,12 +1793,11 @@
 
 /* Слева направо: тревожно → спокойно. Нумерация классов идёт по
  * ходу шкалы (1 — крайний левый сектор), поэтому порядок цветов
- * меняется здесь и только здесь — JS о палитре ничего не знает.
- * Значения из палитры, читаемой и на тёмной, и на светлой теме. */
-.claude-mood-arc-1 { stroke: #f85149; }
-.claude-mood-arc-2 { stroke: #f0883e; }
-.claude-mood-arc-3 { stroke: #e3b341; }
-.claude-mood-arc-4 { stroke: #3fb950; }
+ * меняется здесь и только здесь — JS о палитре ничего не знает. */
+.claude-mood-arc-1 { stroke: var(--claude-mood-1); }
+.claude-mood-arc-2 { stroke: var(--claude-mood-2); }
+.claude-mood-arc-3 { stroke: var(--claude-mood-3); }
+.claude-mood-arc-4 { stroke: var(--claude-mood-4); }
 
 /* Стрелка нарисована в положении «0» (остриём влево), значение —
  * это поворот вокруг центра шкалы. transform-box: view-box нужен,
@@ -1870,10 +1884,10 @@
 /* Зоны фона — те же четыре цвета, что у секторов шкалы, но сильно
  * приглушённые: они разметка, а не сообщение. Яркие полосы спорили бы
  * с самой кривой за внимание. */
-.claude-mood-zone-1 { fill: #f85149; fill-opacity: 0.16; }
-.claude-mood-zone-2 { fill: #f0883e; fill-opacity: 0.16; }
-.claude-mood-zone-3 { fill: #e3b341; fill-opacity: 0.16; }
-.claude-mood-zone-4 { fill: #3fb950; fill-opacity: 0.16; }
+.claude-mood-zone-1 { fill: var(--claude-mood-1); fill-opacity: 0.16; }
+.claude-mood-zone-2 { fill: var(--claude-mood-2); fill-opacity: 0.16; }
+.claude-mood-zone-3 { fill: var(--claude-mood-3); fill-opacity: 0.16; }
+.claude-mood-zone-4 { fill: var(--claude-mood-4); fill-opacity: 0.16; }
 
 .claude-mood-grid {
   stroke: rgba(255, 255, 255, 0.14);
@@ -2180,4 +2194,41 @@
 .claude-settings-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ============================================================
+ * INPUT RING — обводка поля ввода цветом индикатора Mood.
+ * Модуль INPUT RING в claude-custom.js, параметр inputRingColor
+ * в claude-custom-config.toml.
+ *
+ * Штатно рамка при фокусе окрашена по режиму разрешений: расширение
+ * держит цвет в переменной --focus-ring-color и меняет её правилами
+ * вида `.inputContainer_*[data-permission-mode=plan]:focus-within`.
+ * Отсюда и способ: подменяется та же переменная, а border-color и
+ * box-shadow расширение выведет из неё само — второй набор правил
+ * про саму рамку разошёлся бы с оригиналом на первом же обновлении.
+ *
+ * Уровень (0..3) ставит JS атрибутом, палитра остаётся здесь: цвет
+ * рамки правится горячо вместе с секторами шкалы, из которых он и
+ * взят. JS о значениях цвета по-прежнему не знает ничего.
+ *
+ * Класс продублирован в селекторе намеренно. У правил расширения
+ * специфичность (0,3,0) — класс, атрибут и :focus-within; дубль даёт
+ * (0,4,0) и выигрывает у них не по порядку подключения файлов, а по
+ * весу. Полагаться на порядок нельзя: наш <link> пересоздаётся
+ * cache-bust'ом раз в pollIntervalMs и после этого встаёт последним,
+ * но так будет не при любом способе загрузки страницы.
+ * ============================================================ */
+
+.claude-ring-mood.claude-ring-mood[data-claude-mood-level="0"]:focus-within {
+  --focus-ring-color: var(--claude-mood-1);
+}
+.claude-ring-mood.claude-ring-mood[data-claude-mood-level="1"]:focus-within {
+  --focus-ring-color: var(--claude-mood-2);
+}
+.claude-ring-mood.claude-ring-mood[data-claude-mood-level="2"]:focus-within {
+  --focus-ring-color: var(--claude-mood-3);
+}
+.claude-ring-mood.claude-ring-mood[data-claude-mood-level="3"]:focus-within {
+  --focus-ring-color: var(--claude-mood-4);
 }

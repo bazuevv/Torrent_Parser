@@ -9842,9 +9842,23 @@
       : 'Mood: нет данных · ' + detail;
   }
 
+  // Слушатели значения — сейчас это INPUT RING, красящий обводку поля
+  // ввода. Подписка, а не опрос: значение меняется раз в moodPollSec,
+  // и таймер у подписчика почти всегда заставал бы его прежним.
+  var listeners = [];
+
+  function notify() {
+    for (var i = 0; i < listeners.length; i++) {
+      // Падение подписчика не должно ронять обновление самой шкалы:
+      // здесь мы уже посреди её отрисовки.
+      try { listeners[i](); } catch (e) {}
+    }
+  }
+
   function applyAll() {
     var roots = document.querySelectorAll('.' + ROOT_CLASS);
     for (var i = 0; i < roots.length; i++) applyTo(roots[i]);
+    notify();
   }
 
   window.__claudeMood = {
@@ -9863,6 +9877,21 @@
       return value;
     },
     get: function () { return value; },
+    /**
+     * Номер сектора шкалы под стрелкой: 0 — красный, 3 — зелёный.
+     * null означает «данных ещё нет» — тот же случай, в котором сама
+     * шкала обесцвечивается. Отдаём номер, а не цвет: палитра живёт
+     * в CSS и правится горячо, а вторая её копия в JS разошлась бы
+     * с первой на ближайшей правке.
+     */
+    level: function () {
+      if (!haveData) return null;
+      return Math.max(0, Math.min(SECTORS - 1, Math.floor(value / (100 / SECTORS))));
+    },
+    /** Подписка на смену значения; вызывается после отрисовки шкалы. */
+    onChange: function (fn) {
+      if (typeof fn === 'function') listeners.push(fn);
+    },
     /** Внеочередной опрос — например после правки TTL в конфиге. */
     refresh: function () { tick(); },
   };
@@ -10351,6 +10380,144 @@
     tick();
     setInterval(tick, POLL_MS);
     logInfo('installed, опрос раз в', POLL_MS / 1000, 'с');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+
+/* ============================================================
+ * INPUT RING — обводка поля ввода цветом индикатора Mood
+ *
+ * Расширение окрашивает рамку поля ввода при фокусе по режиму
+ * разрешений: оранжевый — обычный, синий — план, красный — bypass.
+ * Модуль умеет заменить этот признак другим — цветом сектора, в
+ * который сейчас смотрит стрелка Mood.
+ *
+ * Зачем: индикатор в футере занимает 27×16 точек, а рамка обрамляет
+ * всё поле ввода — то место, куда смотришь, когда пишешь сообщение.
+ * Состояние кэша при этом замечаешь, не отводя взгляда.
+ *
+ * КАК. Цвет рамки расширение держит в переменной --focus-ring-color
+ * и меняет её правилами по `data-permission-mode`. Мы подменяем ту же
+ * переменную: border-color, box-shadow и всё остальное расширение
+ * выведет из неё само. Свои правила про саму рамку разошлись бы с
+ * оригиналом на первом же обновлении расширения.
+ *
+ * Модуль ставит только класс и номер сектора (0..3) атрибутом —
+ * цвета живут в CSS рядом с секторами шкалы, откуда и взяты.
+ * О палитре JS не знает ничего, как и в самом MOOD GAUGE.
+ *
+ * Значение берётся у него же через `window.__claudeMood.level()`, а
+ * обновления приходят подпиской: опрос своим таймером почти всегда
+ * заставал бы значение прежним — оно меняется раз в moodPollSec.
+ * Выключенный moodGauge не публикует этот объект вовсе, и тогда
+ * красить нечем: рамка остаётся штатной.
+ *
+ * «Данных ещё нет» (сессия не определилась, сервер молчит) — тоже
+ * штатная рамка, а не зелёная: шкала в этот момент обесцвечивается
+ * ровно потому, что утверждать «всё хорошо» ещё рано.
+ *
+ * Управление: `inputRingColor` в claude-custom-config.toml. Параметр
+ * горячий — опрашивается через /custom-config, как cacheKeepalive*.
+ * ============================================================ */
+(function () {
+  if (window.__claudeInputRingInstalled) return;
+  window.__claudeInputRingInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+
+  var RING_CLASS = 'claude-ring-mood';
+  var LEVEL_ATTR = 'data-claude-mood-level';
+
+  var CONFIG_URL = 'http://localhost:18923/custom-config';
+  var CONFIG_POLL_MS = 5000;
+
+  // "mood" — красить по индикатору, всё остальное — не вмешиваться.
+  // Незнакомое значение трактуется как штатное поведение: это
+  // безопасная сторона, рамка остаётся такой, какой её задумало
+  // расширение.
+  var mode = cfg.inputRingColor === 'mood' ? 'mood' : 'mode';
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[input-ring]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  /** Сектор шкалы под стрелкой либо null, если красить не по чему. */
+  function currentLevel() {
+    if (mode !== 'mood') return null;
+    var api = window.__claudeMood;
+    if (!api || typeof api.level !== 'function') return null;
+    return api.level();
+  }
+
+  function applyTo(el, level) {
+    if (level === null) {
+      if (el.classList.contains(RING_CLASS)) {
+        el.classList.remove(RING_CLASS);
+        el.removeAttribute(LEVEL_ATTR);
+      }
+      return;
+    }
+    // Пишем только при изменении: присваивание мутирует DOM даже когда
+    // значение то же, а каждая мутация будит общий наблюдатель — то
+    // самое, из-за чего debug-оверлей однажды будил патч сам собой.
+    var text = String(level);
+    if (el.getAttribute(LEVEL_ATTR) !== text) el.setAttribute(LEVEL_ATTR, text);
+    if (!el.classList.contains(RING_CLASS)) el.classList.add(RING_CLASS);
+  }
+
+  function scan(ctx) {
+    // Узлы даёт общий обход (см. DOM WATCH); свой поиск — для вызовов
+    // вне прохода: при регистрации и из подписки на значение Mood.
+    var containers = (ctx && ctx.inputs)
+      || document.querySelectorAll('[class*="inputContainer_"]');
+    var level = currentLevel();
+    for (var i = 0; i < containers.length; i++) {
+      // Рамку рисует тот из двух контейнеров, которому расширение
+      // ставит режим разрешений; внешний — только позиционирование,
+      // и переменная на нём ничего бы не изменила: у внутреннего
+      // при фокусе своё правило, оно перебило бы унаследованное.
+      if (!containers[i].hasAttribute('data-permission-mode')) continue;
+      applyTo(containers[i], level);
+    }
+  }
+
+  function applyLiveConfig(c) {
+    if (!c || typeof c !== 'object') return;
+    var next = c.inputRingColor === 'mood' ? 'mood' : 'mode';
+    if (next === mode) return;
+    mode = next;
+    logInfo('режим обводки:', mode);
+    // Сразу, не дожидаясь ближайшей мутации: смена настройки — это
+    // действие пользователя, и отклик на него должен быть виден.
+    scan();
+  }
+
+  function pollConfig() {
+    fetch(CONFIG_URL, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (d && d.ok) applyLiveConfig(d.config); })
+      .catch(function () {});
+  }
+
+  function init() {
+    // Наблюдатель и подстраховочный таймер — общие (см. DOM WATCH).
+    // Якорный класс `inputContainer_` уже в RELEVANT, отдельной
+    // записи фильтру не нужно.
+    window.__claudeDomWatch.register('input-ring', scan);
+    var api = window.__claudeMood;
+    if (api && typeof api.onChange === 'function') api.onChange(scan);
+    else logInfo('индикатор Mood выключен — обводка остаётся штатной');
+    pollConfig();
+    setInterval(pollConfig, CONFIG_POLL_MS);
+    logInfo('installed, режим обводки:', mode);
   }
 
   if (document.readyState === 'loading') {
