@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Стенд подбора цветов кнопки «Стоп»</title>
+<!--
+  Автономная страница для подбора пары «фон круга / цвет квадрата»
+  плавающей кнопки «Стоп» (.claude-limit-stop-float в
+  claude-custom.css). Никаких внешних зависимостей — открывается
+  двойным кликом.
+
+  Что здесь есть:
+  - HSV-колесо (canvas) + слайдер яркости; цель выбирается
+    переключателем: «фон круга» или «квадрат»;
+  - живое превью в реальном размере (круг 93px, квадрат 47px) на
+    фоне чата; фон чата переключается тёмный/светлый;
+  - контраст WCAG для обеих пар: квадрат ↔ фон кнопки (главное
+    число) и фон кнопки ↔ фон чата; порог для графики — 3:1,
+    отличным считается 4.5:1;
+  - пресеты готовых пар, включая «белый квадрат + обводку» —
+    обводка решает исходную проблему (белый на жёлтом), не меняя
+    сам квадрат;
+  - итоговый CSS со кнопкой копирования.
+
+  Прецедент по духу — tmp/usage-text-picker.html: подбор «на глаз»
+  в живой панели стоит перезагрузки окна на каждый вариант.
+-->
+<style>
+  :root {
+    --bg: #141414;
+    --panel: #1f1f1f;
+    --border: rgba(255, 255, 255, 0.14);
+    --fg: #ddd;
+    --dim: #888;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 var(--vscode-font-family, system-ui, sans-serif);
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 20px; }
+  .cols { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card h2 { font-size: 13px; margin: 0 0 12px; color: var(--dim);
+             text-transform: uppercase; letter-spacing: 0.06em; }
+
+  /* превью */
+  .chatbg {
+    display: flex; align-items: center; justify-content: center;
+    height: 220px; border-radius: 6px; transition: background 0.2s;
+    position: relative;
+  }
+  .chatbg .fakeinput {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    width: 70%; height: 34px; border-radius: 8px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  }
+  .stop {
+    position: relative;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+    cursor: default;
+  }
+  .stop.big { width: 140px; height: 140px; }
+  .stop.real { width: 93px; height: 93px; position: absolute;
+               bottom: 58px; left: 50%; transform: translateX(-50%); }
+  .stop .sq { width: 50.5%; height: 50.5%; border-radius: 8%; }
+
+  .chips { display: flex; gap: 6px; margin-top: 10px; }
+  .chip {
+    padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border);
+    background: none; color: var(--fg); cursor: pointer; font: inherit;
+  }
+  .chip.on { background: #2a2d2e; border-color: rgba(255,255,255,0.35); }
+
+  /* контрасты */
+  .ratio { display: flex; align-items: baseline; gap: 10px; margin: 8px 0; }
+  .ratio b { font-size: 22px; font-variant-numeric: tabular-nums; }
+  .ratio span { color: var(--dim); }
+  .verdict { padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+  .v-good { background: #1b3a1b; color: #7bd88f; }
+  .v-ok   { background: #3a331b; color: #d8c98f; }
+  .v-bad  { background: #3a1b1b; color: #d88f8f; }
+  .pairsw { display: flex; gap: 12px; align-items: center; margin: 4px 0; }
+  .sw { width: 18px; height: 18px; border-radius: 4px;
+        border: 1px solid var(--border); display: inline-block; }
+
+  /* css-вывод */
+  pre {
+    background: #141414; border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; font: 12px/1.6 ui-monospace, monospace;
+    white-space: pre-wrap; margin: 0;
+  }
+  button.copy {
+    margin-top: 8px; padding: 5px 14px; border-radius: 6px;
+    border: 1px solid var(--border); background: #2a2d2e; color: var(--fg);
+    cursor: pointer; font: inherit;
+  }
+  button.copy:active { transform: scale(0.97); }
+
+  /* колесо */
+  #wheel { border-radius: 50%; cursor: crosshair; display: block; }
+  .target { display: flex; gap: 6px; margin-bottom: 10px; }
+  .vrow { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  input[type=range] { width: 180px; }
+  input[type=color] { width: 34px; height: 26px; border: none;
+                      background: none; padding: 0; cursor: pointer; }
+  .hex { width: 84px; padding: 3px 6px; border-radius: 4px;
+         border: 1px solid var(--border); background: #141414;
+         color: var(--fg); font: 12px ui-monospace, monospace; }
+
+  /* пресеты */
+  .presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .preset {
+    display: flex; align-items: center; justify-content: center;
+    height: 74px; border-radius: 6px; border: 1px solid var(--border);
+    cursor: pointer; background: var(--panel);
+  }
+  .preset:hover { border-color: rgba(255,255,255,0.4); }
+  .preset.on { outline: 2px solid #58a6ff; }
+  .preset .stop { width: 46px; height: 46px; position: static; }
+</style>
+</head>
+<body>
+<h1>Стенд подбора цветов кнопки «Стоп»</h1>
+<p class="sub">Круг 93 px, квадрат 47 px — реальные размеры плашки из claude-custom.css.
+Главное число — контраст «квадрат ↔ фон кнопки»: для графики порог WCAG 3:1.</p>
+
+<div class="cols">
+  <div class="card" style="min-width: 300px">
+    <h2>Превью на фоне чата</h2>
+    <div class="chatbg" id="chatbg">
+      <div class="fakeinput"></div>
+      <div class="stop real" id="stopReal"><div class="sq" id="sqReal"></div></div>
+      <div class="stop big" id="stopBig" style="position:static; margin-bottom: 120px">
+        <div class="sq" id="sqBig"></div>
+      </div>
+    </div>
+    <div class="chips">
+      <button class="chip on" id="bgDark">тёмный чат</button>
+      <button class="chip" id="bgLight">светлый чат</button>
+    </div>
+
+    <h2 style="margin-top:18px">Контрасты</h2>
+    <div class="ratio">
+      <span class="sw" id="swA"></span><span class="sw" id="swB"></span>
+      <b id="ratioFg">—</b><span>квадрат ↔ кнопка</span>
+      <span class="verdict v-bad" id="verdictFg">—</span>
+    </div>
+    <div class="ratio">
+      <span class="sw" id="swC"></span><span class="sw" id="swD"></span>
+      <b id="ratioBg">—</b><span>кнопка ↔ фон чата</span>
+      <span class="verdict v-bad" id="verdictBg">—</span>
+    </div>
+
+    <h2 style="margin-top:18px">CSS для claude-custom.css</h2>
+    <pre id="cssOut"></pre>
+    <button class="copy" id="copyBtn">Скопировать</button>
+  </div>
+
+  <div class="card" style="min-width: 300px">
+    <h2>Цвет — колесо HSV</h2>
+    <div class="target">
+      <button class="chip on" id="tgtBg">фон круга</button>
+      <button class="chip" id="tgtFg">квадрат</button>
+    </div>
+    <canvas id="wheel" width="220" height="220"></canvas>
+    <div class="vrow">
+      <span style="width:24px">V</span>
+      <input type="range" id="vslider" min="0" max="100" value="100">
+      <input type="color" id="colorInput">
+      <input class="hex" id="hexInput" value="#ffcc00">
+    </div>
+
+    <h2 style="margin-top:18px">Пресеты</h2>
+    <div class="presets" id="presets"></div>
+    <p class="sub" style="margin-top:12px">
+      «Обводка» — тонкая рамка вокруг белого квадрата: квадрат остаётся
+      белым, но отделяется от жёлтого. В CSS это
+      stroke у rect (см. вывод слева при включённом пресете).
+    </p>
+  </div>
+</div>
+
+<script>
+'use strict';
+// --- состояние -----------------------------------------------------------
+var state = {
+  bg: '#ffcc00',   // фон круга
+  fg: '#ffffff',   // квадрат
+  ring: false,     // обводка квадрата
+  chat: '#1f1f1f'  // фон чата
+};
+var target = 'bg';  // кого красит колесо: 'bg' | 'fg'
+
+// --- преобразования цветов ----------------------------------------------
+function hexToRgb(h) {
+  h = h.replace('#', '');
+  if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  var n = parseInt(h, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function rgbToHex(c) {
+  var f = function (v) { v = Math.max(0, Math.min(255, Math.round(v)));
+    return ('0' + v.toString(16)).slice(-2); };
+  return '#' + f(c.r) + f(c.g) + f(c.b);
+}
+function rgbToHsv(c) {
+  var r = c.r/255, g = c.g/255, b = c.b/255;
+  var max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min;
+  var h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  return { h: h, s: max ? d / max : 0, v: max };
+}
+function hsvToRgb(h, s, v) {
+  var c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+  var r=0,g=0,b=0;
+  if      (h < 60)  { r=c; g=x; }
+  else if (h < 120) { r=x; g=c; }
+  else if (h < 180) { g=c; b=x; }
+  else if (h < 240) { g=x; b=c; }
+  else if (h < 300) { r=x; b=c; }
+  else              { r=c; b=x; }
+  return { r:(r+m)*255, g:(g+m)*255, b:(b+m)*255 };
+}
+
+// Относительная яркость WCAG и контраст пары.
+function luminance(hex) {
+  var c = hexToRgb(hex), f = function (v) {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+}
+function contrast(a, b) {
+  var la = luminance(a), lb = luminance(b);
+  var hi = Math.max(la, lb), lo = Math.min(la, lb);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// --- колесо --------------------------------------------------------------
+var wheel = document.getElementById('wheel');
+var wctx = wheel.getContext('2d');
+var wheelH = 45, wheelS = 1, wheelV = 1; // текущее положение на колесе
+
+function drawWheel() {
+  var size = 220, cx = size/2, cy = size/2, r = cx - 4;
+  var img = wctx.createImageData(size, size);
+  for (var y = 0; y < size; y++) {
+    for (var x = 0; x < size; x++) {
+      var dx = x - cx, dy = y - cy;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      var i = (y * size + x) * 4;
+      if (dist > r) { img.data[i+3] = 0; continue; }
+      var ang = Math.atan2(dy, dx) * 180 / Math.PI;
+      if (ang < 0) ang += 360;
+      var c = hsvToRgb(ang, dist / r, wheelV);
+      img.data[i] = c.r; img.data[i+1] = c.g; img.data[i+2] = c.b;
+      img.data[i+3] = 255;
+    }
+  }
+  wctx.putImageData(img, 0, 0);
+  // маркер текущего цвета
+  var mx = cx + Math.cos(wheelH * Math.PI / 180) * wheelS * r;
+  var my = cy + Math.sin(wheelH * Math.PI / 180) * wheelS * r;
+  wctx.beginPath();
+  wctx.arc(mx, my, 5, 0, Math.PI * 2);
+  wctx.strokeStyle = '#fff'; wctx.lineWidth = 2; wctx.stroke();
+  wctx.beginPath();
+  wctx.arc(mx, my, 5.8, 0, Math.PI * 2);
+  wctx.strokeStyle = 'rgba(0,0,0,0.7)'; wctx.lineWidth = 1; wctx.stroke();
+}
+
+wheel.addEventListener('mousedown', function (e) {
+  pickWheel(e);
+  function move(ev) { pickWheel(ev); }
+  function up() {
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', up);
+  }
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
+});
+function pickWheel(e) {
+  var rect = wheel.getBoundingClientRect();
+  var x = e.clientX - rect.left - 110, y = e.clientY - rect.top - 110;
+  var dist = Math.min(Math.sqrt(x*x + y*y), 106);
+  var ang = Math.atan2(y, x) * 180 / Math.PI;
+  if (ang < 0) ang += 360;
+  wheelH = ang; wheelS = dist / 106;
+  setTarget(rgbToHex(hsvToRgb(wheelH, wheelS, wheelV)));
+  drawWheel();
+}
+document.getElementById('vslider').addEventListener('input', function () {
+  wheelV = this.value / 100;
+  setTarget(rgbToHex(hsvToRgb(wheelH, wheelS, wheelV)));
+  drawWheel();
+});
+
+// --- ввод --------------------------------------------------------------
+document.getElementById('colorInput').addEventListener('input', function () {
+  setTarget(this.value);
+});
+document.getElementById('hexInput').addEventListener('change', function () {
+  if (/^#[0-9a-fA-F]{6}$/.test(this.value)) setTarget(this.value);
+  else this.value = state[target === 'bg' ? 'bg' : 'fg'];
+});
+function setTarget(hex) {
+  if (target === 'bg') state.bg = hex; else state.fg = hex;
+  var hsv = rgbToHsv(hexToRgb(hex));
+  if (hsv.s > 0.02) { wheelH = hsv.h; }
+  wheelS = hsv.s; wheelV = hsv.v;
+  render();
+}
+
+// --- пресеты -------------------------------------------------------------
+var PRESETS = [
+  { name: 'жёлтый + белый (текущий)', bg: '#ffcc00', fg: '#ffffff', ring: false },
+  { name: 'жёлтый + чёрный',          bg: '#ffcc00', fg: '#141414', ring: false },
+  { name: 'жёлтый + белый + обводка', bg: '#ffcc00', fg: '#ffffff', ring: true },
+  { name: 'янтарный + тёмный',        bg: '#ffb300', fg: '#3e2723', ring: false },
+  { name: 'оранжевый + белый',        bg: '#f57c00', fg: '#ffffff', ring: false },
+  { name: 'красный + белый',          bg: '#e53935', fg: '#ffffff', ring: false },
+  { name: 'тёмный круг + жёлтый',     bg: '#1f1f1f', fg: '#ffcc00', ring: false },
+  { name: 'белый + красный',          bg: '#ffffff', fg: '#e53935', ring: false },
+  { name: 'зелёный + белый',          bg: '#2e7d32', fg: '#ffffff', ring: false }
+];
+var presetsEl = document.getElementById('presets');
+PRESETS.forEach(function (p) {
+  var el = document.createElement('div');
+  el.className = 'preset';
+  el.title = p.name;
+  var s = document.createElement('div');
+  s.className = 'stop';
+  s.style.background = p.bg;
+  var q = document.createElement('div');
+  q.className = 'sq';
+  q.style.background = p.fg;
+  if (p.ring) q.style.boxShadow = '0 0 0 2.5px rgba(0,0,0,0.8)';
+  s.appendChild(q);
+  el.appendChild(s);
+  el.addEventListener('click', function () {
+    state.bg = p.bg; state.fg = p.fg; state.ring = p.ring;
+    var hsv = rgbToHsv(hexToRgb(p.bg));
+    wheelH = hsv.h; wheelS = hsv.s; wheelV = hsv.v;
+    render();
+  });
+  presetsEl.appendChild(el);
+});
+
+// --- фон чата ------------------------------------------------------------
+document.getElementById('bgDark').addEventListener('click', function () {
+  state.chat = '#1f1f1f'; this.classList.add('on');
+  document.getElementById('bgLight').classList.remove('on'); render();
+});
+document.getElementById('bgLight').addEventListener('click', function () {
+  state.chat = '#fafafa'; this.classList.add('on');
+  document.getElementById('bgDark').classList.remove('on'); render();
+});
+
+// --- цель колеса ---------------------------------------------------------
+function setTargetChip(which) {
+  target = which;
+  document.getElementById('tgtBg').classList.toggle('on', which === 'bg');
+  document.getElementById('tgtFg').classList.toggle('on', which === 'fg');
+  var hex = which === 'bg' ? state.bg : state.fg;
+  var hsv = rgbToHsv(hexToRgb(hex));
+  if (hsv.s > 0.02) wheelH = hsv.h;
+  wheelS = hsv.s; wheelV = hsv.v;
+  drawWheel(); render();
+}
+document.getElementById('tgtBg').addEventListener('click', function () { setTargetChip('bg'); });
+document.getElementById('tgtFg').addEventListener('click', function () { setTargetChip('fg'); });
+
+// --- отрисовка -----------------------------------------------------------
+function verdictOf(r) {
+  if (r >= 4.5) return ['v-good', 'отлично'];
+  if (r >= 3)   return ['v-ok', 'достаточно'];
+  return ['v-bad', 'низкий'];
+}
+function render() {
+  ['stopReal', 'stopBig'].forEach(function (id) {
+    document.getElementById(id).style.background = state.bg;
+  });
+  ['sqReal', 'sqBig'].forEach(function (id) {
+    var el = document.getElementById(id);
+    el.style.background = state.fg;
+    el.style.boxShadow = state.ring ? '0 0 0 3.5px rgba(0,0,0,0.8)' : 'none';
+  });
+  document.getElementById('chatbg').style.background = state.chat;
+  document.getElementById('colorInput').value = target === 'bg' ? state.bg : state.fg;
+  document.getElementById('hexInput').value = target === 'bg' ? state.bg : state.fg;
+  document.getElementById('vslider').value = Math.round(wheelV * 100);
+
+  var rFg = contrast(state.fg, state.bg);
+  var rBg = contrast(state.bg, state.chat);
+  var vFg = verdictOf(rFg), vBg = verdictOf(rBg);
+  document.getElementById('swA').style.background = state.fg;
+  document.getElementById('swB').style.background = state.bg;
+  document.getElementById('swC').style.background = state.bg;
+  document.getElementById('swD').style.background = state.chat;
+  document.getElementById('ratioFg').textContent = rFg.toFixed(2) + ':1';
+  document.getElementById('ratioBg').textContent = rBg.toFixed(2) + ':1';
+  var vf = document.getElementById('verdictFg');
+  vf.className = 'verdict ' + vFg[0]; vf.textContent = vFg[1];
+  var vb = document.getElementById('verdictBg');
+  vb.className = 'verdict ' + vBg[0]; vb.textContent = vBg[1];
+
+  var css = '.claude-limit-stop-float {\n'
+    + '  background: ' + state.bg + ';\n'
+    + '  color: ' + state.fg + ';\n'
+    + '}' + (state.ring
+      ? '\n\n.claude-limit-stop-float svg rect {\n'
+        + '  stroke: rgba(0, 0, 0, 0.8);\n'
+        + '  stroke-width: 0.6;\n'
+        + '}'
+      : '');
+  document.getElementById('cssOut').textContent = css;
+  drawWheel();
+}
+
+document.getElementById('copyBtn').addEventListener('click', function () {
+  var text = document.getElementById('cssOut').textContent;
+  var done = this;
+  function ok() { done.textContent = 'Скопировано ✓';
+    setTimeout(function () { done.textContent = 'Скопировать'; }, 1500); }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(ok);
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta); ok();
+  }
+});
+
+render();
+</script>
+</body>
+</html>
