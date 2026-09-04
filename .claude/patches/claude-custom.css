@@ -2637,8 +2637,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 140px;
-  height: 140px;
+  width: 93px;
+  height: 93px;
   padding: 0;
   border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
   border-radius: 50%;
@@ -2651,10 +2651,13 @@
 
 /* Размер иконки живёт здесь, а не в атрибутах SVG у stopIcon():
  * CSS перебивает презентационные атрибуты, значит размер правится
- * горячо — и окнам со старым JS не нужен Reload Window. */
+ * горячо — и окнам со старым JS не нужен Reload Window.
+ *
+ * Квадрат занимает половину viewBox (8 из 16), поэтому при svg 140px
+ * видимый белый квадрат — 70px: втрое крупнее прежнего при круге 93px. */
 .claude-limit-stop-float svg {
-  width: 70px;
-  height: 70px;
+  width: 140px;
+  height: 140px;
 }
 
 .claude-limit-stop-float:hover {
