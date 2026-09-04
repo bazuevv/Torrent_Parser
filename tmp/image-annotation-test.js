@@ -50,6 +50,27 @@ global.document = {
   body: { contains() { return true; } },
 };
 
+global.DataTransfer = class DataTransfer {
+  constructor() {
+    const files = [];
+    this.files = files;
+    this.items = { add(file) { files.push(file); } };
+  }
+};
+global.ClipboardEvent = class ClipboardEvent {
+  constructor(type, init) {
+    this.type = type;
+    this.bubbles = !!init.bubbles;
+    this.cancelable = !!init.cancelable;
+    this.clipboardData = init.clipboardData;
+    this.defaultPrevented = false;
+  }
+  preventDefault() { this.defaultPrevented = true; }
+};
+global.Event = class Event {
+  constructor(type, init) { this.type = type; this.bubbles = !!(init && init.bubbles); }
+};
+
 eval(block);
 
 const results = [];
@@ -83,6 +104,43 @@ check('повторный скан не дублирует кнопку', (() =>
 const api = window.__claudeImageAnnotation._test;
 check('имя PNG добавляет суффикс', api.annotatedName('mockup.jpg') === 'mockup-annotated.png');
 check('имя без расширения поддерживается', api.annotatedName('mockup') === 'mockup-annotated.png');
+
+let replacementAttached = false;
+let originalRemoved = false;
+const replacement = fakeElement('div');
+const removeButton = { click() { originalRemoved = true; } };
+const composer = {
+  dispatchEvent(event) {
+    check('новый файл передаётся композеру через paste',
+      event.type === 'paste' && event.clipboardData.files[0].name === 'result.png');
+    event.preventDefault();
+    replacementAttached = true;
+    return false;
+  },
+};
+const composerHost = { querySelector() { return composer; } };
+thumb.closest = () => composerHost;
+const originalQuerySelector = thumb.querySelector;
+thumb.querySelector = (selector) => {
+  if (selector.includes('removeButton_')) return removeButton;
+  return originalQuerySelector(selector);
+};
+document.querySelectorAll = (selector) => {
+  if (selector.includes('attachedFilesContainer_')) {
+    return replacementAttached ? [thumb, replacement] : [thumb];
+  }
+  return [];
+};
+let replaceError = 'callback не вызван';
+api.replaceAttachment(
+  { thumb, sourceUrl: sourceImage.src },
+  { name: 'result.png', type: 'image/png' },
+  (error) => { replaceError = error; },
+);
+check('замена вложения завершается без ошибки', replaceError === null,
+  replaceError && replaceError.message ? replaceError.message : String(replaceError));
+check('исходник удаляется только после появления результата',
+  replacementAttached && originalRemoved);
 
 function fakeContext() {
   const calls = [];

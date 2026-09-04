@@ -11589,7 +11589,12 @@
     open: openEditor,
     close: closeEditor,
     scan: scan,
-    _test: { drawAction: drawAction, annotatedName: annotatedName },
+    _test: {
+      drawAction: drawAction,
+      annotatedName: annotatedName,
+      dispatchFile: dispatchFile,
+      replaceAttachment: replaceAttachment,
+    },
   };
 
   if (document.readyState === 'loading') {
