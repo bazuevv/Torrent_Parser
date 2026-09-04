@@ -94,6 +94,8 @@ HOT_KEYS = frozenset({
     "limitResetAlertPollSec",
     "limitResetAlertRepeatMin",
     "limitResetAlertPlaySec",
+    "limitResetAlertDuckOthers",
+    "limitResetAlertMinVolume",
 })
 
 DEFAULT_CONFIG_WATCH_SEC = 10

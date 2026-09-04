@@ -273,6 +273,16 @@ REQUIRED_PARAMS = [
         lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
         "должен быть неотрицательным целым числом (сек), 0 — играть целиком",
     ),
+    (
+        "limitResetAlertDuckOthers",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
+    (
+        "limitResetAlertMinVolume",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100,
+        "должен быть целым числом от 0 до 100 (проценты), 0 — не трогать громкость",
+    ),
 ]
 
 # Маркеры берём из общей таблицы ext_patch: эталонный снимок бандла
