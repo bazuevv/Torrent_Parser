@@ -288,6 +288,7 @@ def _fmt(moment) -> str | None:
 
 def status() -> dict:
     """Снимок монитора для GET /limit-reset-alert (копия, под локом)."""
+    playing = is_playing()
     with _STATUS_LOCK:
         snap = dict(_MONITOR["snap"]) if _MONITOR["snap"] else None
         if snap and snap.get("resetAt") is not None:
@@ -302,6 +303,7 @@ def status() -> dict:
         return {
             "enabled": _MONITOR["enabled"],
             "providerActive": _MONITOR["providerActive"],
+            "playing": playing,
             "cfg": dict(_MONITOR["cfg"]) if _MONITOR["cfg"] else None,
             "snap": snap,
             "state": state,
@@ -316,6 +318,31 @@ def test_play() -> dict:
     cfg = _monitor_config()
     started = play(cfg["playSec"], reason="test")
     return {"ok": started, "playSec": cfg["playSec"]}
+
+
+def is_playing() -> bool:
+    """Играет ли звук прямо сейчас.
+
+    Кнопка «Стоп» в webview опрашивает это поле и показывается только
+    пока оно истинно: постоянная кнопка останавливать нечего.
+    """
+    with _PLAY_LOCK:
+        proc = _PLAYER["proc"]
+        return proc is not None and proc.poll() is None
+
+
+def stop() -> bool:
+    """Гасит играющий звук; True — звук был и остановлен.
+
+    Тот же слот плеера, что и у монитора: остановка человеком и
+    старт нового сигнала не конфликтуют.
+    """
+    with _PLAY_LOCK:
+        was = _PLAYER["proc"] is not None and _PLAYER["proc"].poll() is None
+        _stop_player()
+    if was:
+        hook_log.log("limit-alert", "звук остановлен вручную (кнопка «Стоп»)")
+    return was
 
 
 def run_monitor() -> None:

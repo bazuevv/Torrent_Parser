@@ -34,9 +34,12 @@ Endpoints:
   POST /create-project— тело = JSON {path}, создаёт папку для проекта в ~/.claude/projects/
                         с кодированием пути (не-alphanum → '-')
   GET  /limit-reset-alert — состояние монитора сброса 5-часового окна лимита
-                        (включён ли, снимок кэша, окно-свидетель, последний сигнал)
+                        (включён ли, снимок кэша, окно-свидетель, последний сигнал;
+                        поле playing — играет ли звук сейчас, его опрашивает
+                        кнопка «Стоп» в webview)
   POST /limit-reset-alert-test — немедленно проигрывает notification.mp3
                         (проверка звука руками; реальный сброс ждать нельзя)
+  POST /limit-reset-alert-stop — гасит играющий звук (кнопка «Стоп»)
 """
 
 import json
@@ -777,6 +780,10 @@ class Handler(BaseHTTPRequestHandler):
         """Немедленно проигрывает notification.mp3 — проверка руками."""
         self._json_response(200, limit_alert.test_play())
 
+    def _handle_limit_reset_alert_stop(self) -> None:
+        """Гасит играющий звук — клик по кнопке «Стоп» в футере."""
+        self._json_response(200, {"ok": True, "stopped": limit_alert.stop()})
+
     # --- переключение аккаунтов ------------------------------------------
     #
     # Логика подмены ~/.claude/settings.json живёт в account_switcher.py;
@@ -1360,6 +1367,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/limit-reset-alert-test":
             self._handle_limit_reset_alert_test()
+            return
+
+        if self.path == "/limit-reset-alert-stop":
+            self._handle_limit_reset_alert_stop()
             return
 
         if self.path == "/webview-error":
