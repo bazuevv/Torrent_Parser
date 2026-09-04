@@ -10361,6 +10361,315 @@
 })();
 
 /* ============================================================
+ * SETTINGS PANEL — окно настроек из контекстного меню
+ *
+ * Открывается пунктом «⚙ Настройки» контекстного меню страницы и
+ * правит `claude-custom-config.toml` — тот же файл, что и рука.
+ *
+ * Путь до окна длиннее обычного, и это не прихоть: меню по правой
+ * кнопке рисует оболочка VSCode, а не страница. Поэтому пункт
+ * объявлен в манифесте расширения (patch-extension-settings.py),
+ * страница помечена атрибутом `data-vscode-context`, команду ловит
+ * блок в extension.js (patch-extension-csp.py), и он же шлёт сюда
+ * postMessage. Здесь — последнее звено: показать окно.
+ *
+ * Список параметров и подсказки приходят с сервера
+ * (`GET /config-schema`), а подсказки — это комментарии из самого
+ * TOML. Описывать флаги второй раз здесь значило бы завести два
+ * источника правды о том, что они делают, и они разошлись бы на
+ * первой же правке файла.
+ *
+ * Модуль не имеет своего выключателя в конфиге намеренно: выключив
+ * его, пользователь остался бы без единственного окна, из которого
+ * флаги и включаются обратно.
+ * ============================================================ */
+(function () {
+  if (window.__claudeSettingsPanelInstalled) return;
+  window.__claudeSettingsPanelInstalled = true;
+
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  var SCHEMA_URL = 'http://localhost:18923/config-schema';
+  var SAVE_URL = 'http://localhost:18923/custom-config';
+  var PANEL_ID = 'claude-settings-panel';
+
+  var panel = null;
+  var items = [];       // описания с сервера
+  var controls = {};    // ключ → функция чтения текущего значения из UI
+
+  function logInfo() {
+    if (!cfg.logs) return;
+    try {
+      console.log.apply(console, ['[settings-panel]'].concat([].slice.call(arguments)));
+    } catch (e) {}
+  }
+
+  /** Первая строка подсказки — она же заголовок параметра в списке. */
+  function firstLine(text) {
+    var line = String(text || '').split('\n')[0].trim();
+    return line;
+  }
+
+  function closePanel() {
+    if (!panel) return;
+    if (panel.parentNode) panel.parentNode.removeChild(panel);
+    panel = null;
+    controls = {};
+    document.removeEventListener('keydown', onKeydown, true);
+  }
+
+  function onKeydown(e) {
+    if (e.key !== 'Escape') return;
+    // Окно перекрывает страницу целиком, поэтому Escape закрывает его
+    // и не должен уходить дальше — иначе заодно снимет выделение или
+    // закроет что-то за ним.
+    e.preventDefault();
+    e.stopPropagation();
+    closePanel();
+  }
+
+  /* ---------- элементы управления ---------- */
+
+  /**
+   * Строка параметра. Тип решает вид: булев — переключатель, число и
+   * строка — поле ввода. Ключ показывается как есть: он же стоит в
+   * TOML, и по нему пользователь найдёт параметр в файле.
+   */
+  function paramRow(item) {
+    var row = document.createElement('div');
+    row.className = 'claude-settings-row';
+
+    var left = document.createElement('div');
+    left.className = 'claude-settings-name';
+
+    var key = document.createElement('div');
+    key.className = 'claude-settings-key';
+    key.textContent = item.key;
+    left.appendChild(key);
+
+    var hint = firstLine(item.hint);
+    if (hint) {
+      var sub = document.createElement('div');
+      sub.className = 'claude-settings-hint';
+      sub.textContent = hint;
+      // Полный текст — в подсказке при наведении: у некоторых
+      // параметров это несколько абзацев с историей поломки, и
+      // разворачивать их в списке из тридцати строк нечитаемо.
+      if (item.hint && item.hint !== hint) sub.title = item.hint;
+      left.appendChild(sub);
+    }
+    row.appendChild(left);
+
+    var wrap = document.createElement('div');
+    wrap.className = 'claude-settings-control';
+
+    if (item.type === 'bool') {
+      var box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = !!item.value;
+      box.className = 'claude-settings-check';
+      wrap.appendChild(box);
+      controls[item.key] = function () { return box.checked; };
+    } else {
+      var input = document.createElement('input');
+      input.type = item.type === 'number' ? 'number' : 'text';
+      input.value = String(item.value);
+      input.className = 'claude-settings-input';
+      wrap.appendChild(input);
+      controls[item.key] = function () {
+        if (item.type !== 'number') return input.value;
+        var num = Number(input.value);
+        // Нечисло в числовом поле не отправляем: сервер записал бы его
+        // строкой, и параметр молча перестал бы действовать.
+        return isFinite(num) ? num : item.value;
+      };
+    }
+    row.appendChild(wrap);
+    return row;
+  }
+
+  /* ---------- сохранение ---------- */
+
+  function changedValues() {
+    var out = {};
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var read = controls[item.key];
+      if (!read) continue;
+      var now = read();
+      if (now !== item.value) out[item.key] = now;
+    }
+    return out;
+  }
+
+  function save(status, button) {
+    var values = changedValues();
+    var keys = Object.keys(values);
+    if (!keys.length) {
+      setStatus(status, 'Менять нечего — значения те же.', '');
+      return;
+    }
+    button.disabled = true;
+    setStatus(status, 'Сохраняю…', 'wait');
+    fetch(SAVE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: values }),
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        button.disabled = false;
+        if (!d || !d.ok) throw new Error((d && d.error) || 'сервер отказал');
+        // Запоминаем новые значения как исходные, иначе повторное
+        // нажатие отправило бы те же правки ещё раз.
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].key in values) items[i].value = values[items[i].key];
+        }
+        // Честно про момент применения: CSS подхватывается горячо,
+        // а флаги модулей живут в bootstrap, который перечитывается
+        // только при перезагрузке окна.
+        setStatus(status,
+          'Сохранено (' + keys.length + '): ' + keys.join(', ')
+          + '. Флаги модулей применятся после Developer: Reload Window.',
+          'ok');
+        logInfo('сохранено', values);
+      })
+      .catch(function (err) {
+        button.disabled = false;
+        setStatus(status, 'Не удалось сохранить: '
+          + ((err && err.message) || err), 'err');
+      });
+  }
+
+  function setStatus(el, text, kind) {
+    el.textContent = text;
+    el.className = 'claude-settings-status'
+      + (kind ? ' claude-settings-status-' + kind : '');
+  }
+
+  /* ---------- окно ---------- */
+
+  function render(body, status) {
+    body.textContent = '';
+    var search = document.createElement('input');
+    search.type = 'search';
+    search.className = 'claude-settings-search';
+    search.placeholder = 'Поиск по названию и описанию';
+    body.appendChild(search);
+
+    var list = document.createElement('div');
+    list.className = 'claude-settings-list';
+    body.appendChild(list);
+
+    var rows = [];
+    for (var i = 0; i < items.length; i++) {
+      var row = paramRow(items[i]);
+      rows.push({ row: row, item: items[i] });
+      list.appendChild(row);
+    }
+
+    // Поиск по ключу и по описанию: половину параметров помнишь не по
+    // имени, а по тому, что они делают.
+    search.addEventListener('input', function () {
+      var q = search.value.trim().toLowerCase();
+      for (var j = 0; j < rows.length; j++) {
+        var it = rows[j].item;
+        var hit = !q
+          || it.key.toLowerCase().indexOf(q) !== -1
+          || String(it.hint || '').toLowerCase().indexOf(q) !== -1;
+        rows[j].row.style.display = hit ? '' : 'none';
+      }
+    });
+    search.focus();
+  }
+
+  function openPanel() {
+    closePanel();
+
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.className = 'claude-settings-backdrop';
+    // Клик мимо окна закрывает его, как у остальных панелей. Проверка
+    // именно на подложку: клик внутри окна всплывает сюда же.
+    panel.addEventListener('mousedown', function (e) {
+      if (e.target === panel) closePanel();
+    });
+
+    var win = document.createElement('div');
+    win.className = 'claude-settings-window';
+    panel.appendChild(win);
+
+    var head = document.createElement('div');
+    head.className = 'claude-settings-head';
+    head.textContent = '⚙ Настройки патча';
+    win.appendChild(head);
+
+    var sub = document.createElement('div');
+    sub.className = 'claude-settings-sub';
+    sub.textContent = 'claude-custom-config.toml';
+    win.appendChild(sub);
+
+    var body = document.createElement('div');
+    body.className = 'claude-settings-body';
+    body.textContent = 'загрузка…';
+    win.appendChild(body);
+
+    var footer = document.createElement('div');
+    footer.className = 'claude-settings-footer';
+    var status = document.createElement('div');
+    status.className = 'claude-settings-status';
+    footer.appendChild(status);
+
+    var saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'claude-settings-btn claude-settings-btn-primary';
+    saveBtn.textContent = 'Сохранить';
+    saveBtn.addEventListener('click', function () { save(status, saveBtn); });
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'claude-settings-btn';
+    closeBtn.textContent = 'Закрыть';
+    closeBtn.addEventListener('click', closePanel);
+    footer.appendChild(saveBtn);
+    footer.appendChild(closeBtn);
+    win.appendChild(footer);
+
+    document.body.appendChild(panel);
+    document.addEventListener('keydown', onKeydown, true);
+
+    fetch(SCHEMA_URL, { cache: 'no-store' })
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        if (!panel) return;
+        if (!d || !d.ok) throw new Error((d && d.error) || 'сервер отказал');
+        items = d.items || [];
+        render(body, status);
+        if (d.path) sub.title = d.path;
+      })
+      .catch(function (err) {
+        if (!panel) return;
+        body.textContent = 'http-server.py недоступен (порт 18923): '
+          + ((err && err.message) || err);
+      });
+  }
+
+  /* ---------- вход ---------- */
+
+  window.addEventListener('message', function (e) {
+    // Сообщение приходит от блока в extension.js по нажатию пункта
+    // меню. Ключ нарочно свой, чтобы не пересечься с протоколом
+    // приложения — и чтобы его обработчик так же спокойно прошёл мимо
+    // нашего сообщения.
+    var data = e && e.data;
+    if (!data || data.__claudeCustom !== 'open-settings') return;
+    logInfo('открываю по команде из контекстного меню');
+    openPanel();
+  });
+
+  // Отладочный вход: окно можно открыть и без меню.
+  window.__claudeSettings = { open: openPanel, close: closePanel };
+})();
+
+/* ============================================================
  * BLANK VIEW DETECTOR — датчик пустой вкладки
  *
  * Отказ 2026-09-01: вкладки расширения пусты, при этом бандл цел,

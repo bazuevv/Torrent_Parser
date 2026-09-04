@@ -1920,3 +1920,174 @@
   font-variant-numeric: tabular-nums;
   opacity: 1;
 }
+
+/* --- окно настроек (SETTINGS PANEL) ---------------------------------
+ *
+ * В отличие от панелей футера, это окно не привязано к кнопке: его
+ * открывают из контекстного меню, то есть из произвольной точки
+ * страницы, и «раскрываться вверх от кнопки» тут не от чего. Поэтому
+ * подложка на весь экран и окно по центру — заодно подложка даёт
+ * закрытие кликом мимо без слежения за координатами.
+ */
+.claude-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.claude-settings-window {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(78vh, 640px);
+  padding: 14px 16px 12px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-settings-head {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Имя файла под заголовком — чтобы было видно, что именно правится:
+ * те же параметры руками меняют прямо в нём. */
+.claude-settings-sub {
+  margin-bottom: 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.claude-settings-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;  /* иначе flex не даст списку прокручиваться */
+  gap: 8px;
+}
+
+.claude-settings-search {
+  padding: 5px 8px;
+  background: var(--vscode-input-background, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 5px;
+  color: inherit;
+  font: inherit;
+}
+
+.claude-settings-list {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.claude-settings-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 6px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.claude-settings-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.claude-settings-key {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
+
+/* Первая строка комментария из TOML. Обрезаем одной строкой: полный
+ * текст уходит в подсказку при наведении — у некоторых параметров это
+ * несколько абзацев, и в списке из тридцати строк они нечитаемы. */
+.claude-settings-hint {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--app-secondary-foreground, #9aa0a6);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-settings-control {
+  flex: 0 0 auto;
+  padding-top: 2px;
+}
+
+.claude-settings-input {
+  width: 130px;
+  padding: 3px 6px;
+  background: var(--vscode-input-background, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.claude-settings-check {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--vscode-charts-blue, #3794ff);
+  cursor: pointer;
+}
+
+.claude-settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Статус занимает всё свободное место слева от кнопок: сообщение об
+ * ошибке бывает длинным, а кнопки должны оставаться на месте. */
+.claude-settings-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.claude-settings-status-ok { color: var(--vscode-charts-green, #3fb950); opacity: 1; }
+.claude-settings-status-err { color: var(--vscode-charts-red, #f85149); opacity: 1; }
+.claude-settings-status-wait { opacity: 0.6; }
+
+.claude-settings-btn {
+  padding: 4px 12px;
+  background: none;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.18));
+  border-radius: 5px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.claude-settings-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+.claude-settings-btn-primary {
+  background: var(--vscode-button-background, #0e639c);
+  border-color: transparent;
+  color: var(--vscode-button-foreground, #fff);
+}
+
+.claude-settings-btn-primary:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.claude-settings-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
