@@ -141,6 +141,29 @@ def dynamic_tools(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return converted
 
 
+def prepare_dynamic_tools(
+    payload: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Rename names reserved by Codex and retain the Anthropic names."""
+    prepared = dynamic_tools(payload)
+    original_names: dict[str, str] = {}
+    used = {tool["name"] for tool in prepared}
+    for index, tool in enumerate(prepared):
+        original = tool["name"]
+        safe = original
+        if original.startswith("mcp__"):
+            safe = f"claude_mcp_tool_{index}"
+            while safe in used:
+                safe += "_"
+            used.add(safe)
+            tool["name"] = safe
+            tool["description"] = (
+                f"Claude Code tool {original}. " + tool["description"]
+            ).strip()
+        original_names[safe] = original
+    return prepared, original_names
+
+
 class EventRouter:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -198,7 +221,9 @@ class CodexTextBackend:
         self.timeout = timeout
         self.router = EventRouter()
         self._tool_lock = threading.Lock()
-        self._tool_queues: dict[str, queue.Queue[DynamicToolCall]] = {}
+        self._tool_queues: dict[
+            str, tuple[queue.Queue[DynamicToolCall], dict[str, str]]
+        ] = {}
         self.client = CodexAppServerClient(
             notification_handler=self.router.dispatch,
             server_request_handler=self._handle_server_request,
@@ -228,7 +253,7 @@ class CodexTextBackend:
         }
         if model:
             params["model"] = model
-        tools = dynamic_tools(payload)
+        tools, tool_names = prepare_dynamic_tools(payload)
         if tools:
             params["dynamicTools"] = tools
         started = self.client.request("thread/start", params)
@@ -240,7 +265,7 @@ class CodexTextBackend:
         events = self.router.register(thread_id)
         tool_calls: queue.Queue[DynamicToolCall] = queue.Queue()
         with self._tool_lock:
-            self._tool_queues[thread_id] = tool_calls
+            self._tool_queues[thread_id] = (tool_calls, tool_names)
         try:
             turn = self.client.request("turn/start", {
                 "threadId": thread_id,
@@ -268,9 +293,10 @@ class CodexTextBackend:
             raise BridgeError("dynamic tool request has no params")
         thread_id = params.get("threadId")
         with self._tool_lock:
-            target = self._tool_queues.get(thread_id)
-        if target is None:
+            session = self._tool_queues.get(thread_id)
+        if session is None:
             raise BridgeError("dynamic tool request belongs to an inactive thread")
+        target, tool_names = session
         arguments = params.get("arguments", {})
         if isinstance(arguments, str):
             try:
@@ -282,7 +308,9 @@ class CodexTextBackend:
         response: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
         target.put(DynamicToolCall(
             call_id=str(params.get("callId") or "toolu_" + uuid.uuid4().hex),
-            name=str(params.get("tool") or ""),
+            name=tool_names.get(
+                str(params.get("tool") or ""), str(params.get("tool") or "")
+            ),
             arguments=arguments,
             _response=response,
         ))
@@ -504,7 +532,8 @@ class BridgeHandler(http.server.BaseHTTPRequestHandler):
             self._json(404, {"error": {"type": "not_found_error", "message": "not found"}})
 
     def do_POST(self) -> None:
-        if self.path.rstrip("/") != "/v1/messages":
+        path = self.path.split("?", 1)[0].rstrip("/")
+        if path != "/v1/messages":
             self._json(404, {"error": {"type": "not_found_error", "message": "not found"}})
             return
         try:

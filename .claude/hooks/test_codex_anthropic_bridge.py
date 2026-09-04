@@ -3,6 +3,7 @@
 
 import json
 import unittest
+from unittest import mock
 
 from codex_anthropic_bridge import (
     BridgeError,
@@ -12,6 +13,7 @@ from codex_anthropic_bridge import (
     collect_message,
     dynamic_tools,
     message_object,
+    prepare_dynamic_tools,
     stream_events,
 )
 
@@ -54,6 +56,14 @@ class PromptConversionTests(unittest.TestCase):
         self.assertEqual(result[0]["type"], "function")
         self.assertEqual(result[0]["inputSchema"]["required"], ["file_path"])
 
+    def test_reserved_mcp_tool_name_round_trips(self):
+        tools, names = prepare_dynamic_tools({"tools": [{
+            "name": "mcp__drive__search", "description": "Search",
+            "input_schema": {"type": "object"},
+        }]})
+        self.assertEqual(tools[0]["name"], "claude_mcp_tool_0")
+        self.assertEqual(names["claude_mcp_tool_0"], "mcp__drive__search")
+
 
 class AnthropicResponseTests(unittest.TestCase):
     def test_non_streaming_message_shape(self):
@@ -94,6 +104,18 @@ class AnthropicResponseTests(unittest.TestCase):
         message = collect_message(TextTurn("msg_1", "gpt-test", iter([call])))
         self.assertEqual(message["stop_reason"], "tool_use")
         self.assertEqual(message["content"][0]["name"], "Bash")
+
+    def test_messages_route_accepts_claude_beta_query(self):
+        handler = object.__new__(__import__(
+            "codex_anthropic_bridge").BridgeHandler)
+        handler.path = "/v1/messages?beta=true"
+        handler.headers = {"Content-Length": "2"}
+        handler.rfile = __import__("io").BytesIO(b"{}")
+        handler.server = mock.Mock()
+        handler.server.backend.begin.side_effect = BridgeError("messages required")
+        handler._json = mock.Mock()
+        handler.do_POST()
+        self.assertNotEqual(handler._json.call_args.args[0], 404)
 
 
 if __name__ == "__main__":
