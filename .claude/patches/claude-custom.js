@@ -11145,6 +11145,9 @@
   var PREVIEW_SELECTOR = '[class*="previewContainer_"]';
   var PREVIEW_IMAGE_SELECTOR = 'img[class*="previewImage_"]';
   var COMPOSER_SELECTOR = '[role="textbox"][contenteditable]';
+  var MIN_ZOOM = 0.25;
+  var MAX_ZOOM = 4;
+  var ZOOM_FACTOR = 1.2;
   var active = null;
 
   function own(el) {
@@ -11163,6 +11166,63 @@
     }
     if (handler) el.addEventListener('click', handler);
     return el;
+  }
+
+  function clampZoom(value) {
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(value) || 1));
+  }
+
+  function wheelZoom(value, deltaY) {
+    return clampZoom(value * Math.exp(-Number(deltaY || 0) * 0.002));
+  }
+
+  function touchDistance(points) {
+    var ids = Object.keys(points);
+    if (ids.length < 2) return 0;
+    var a = points[ids[0]];
+    var b = points[ids[1]];
+    return Math.hypot(b.x - a.x, b.y - a.y);
+  }
+
+  function touchCenter(points) {
+    var ids = Object.keys(points);
+    if (ids.length < 2) return null;
+    var a = points[ids[0]];
+    var b = points[ids[1]];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  function zoomControls(className, getZoom, setZoom) {
+    var host = own(document.createElement('div'));
+    host.className = className;
+    host.addEventListener('mousedown', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    host.addEventListener('click', function (event) { event.stopPropagation(); });
+    var out = own(document.createElement('button'));
+    out.type = 'button';
+    out.className = 'claude-image-zoom-value';
+    out.title = 'Сбросить масштаб';
+    out.setAttribute('aria-label', 'Сбросить масштаб');
+    out.addEventListener('click', function () { setZoom(1); });
+    var minus = button('−', 'claude-image-zoom-btn', 'Уменьшить', function () {
+      setZoom(getZoom() / ZOOM_FACTOR);
+    });
+    var plus = button('+', 'claude-image-zoom-btn', 'Увеличить', function () {
+      setZoom(getZoom() * ZOOM_FACTOR);
+    });
+    host.appendChild(minus);
+    host.appendChild(out);
+    host.appendChild(plus);
+    host.update = function () {
+      var value = getZoom();
+      out.textContent = Math.round(value * 100) + '%';
+      minus.disabled = value <= MIN_ZOOM + 0.001;
+      plus.disabled = value >= MAX_ZOOM - 0.001;
+    };
+    host.update();
+    return host;
   }
 
   function imageOf(thumb) {
@@ -11189,6 +11249,7 @@
   function closeEditor() {
     if (!active) return;
     document.removeEventListener('keydown', active.keyHandler, true);
+    (active.cleanup || []).forEach(function (fn) { fn(); });
     if (active.overlay && active.overlay.parentNode) active.overlay.remove();
     active = null;
   }
@@ -11427,6 +11488,9 @@
     ];
     var tool = 'brush';
     var toolButtons = {};
+    var editorZoom = 1;
+    var fitScale = 1;
+    var zoomWidget = null;
     function chooseTool(next) {
       tool = next;
       if (canvas) canvas.dataset.tool = next;
@@ -11478,6 +11542,12 @@
     var redoBtn = button('↷', 'claude-image-history-btn', 'Вернуть действие (Ctrl+Shift+Z)', redo);
     history.appendChild(undoBtn);
     history.appendChild(redoBtn);
+    zoomWidget = zoomControls(
+      'claude-image-editor-zoom',
+      function () { return editorZoom; },
+      setEditorZoom
+    );
+    history.appendChild(zoomWidget);
     var widthLabel = own(document.createElement('label'));
     widthLabel.className = 'claude-image-width-label';
     widthLabel.textContent = 'Толщина';
@@ -11520,6 +11590,9 @@
     var drawing = false;
     var selectedIndex = -1;
     var drag = null;
+    var touchPoints = {};
+    var pinch = null;
+    var touchZooming = false;
 
     function updateHistory() {
       undoBtn.disabled = historyEntries.length === 0;
@@ -11567,6 +11640,43 @@
       updateHistory();
     }
 
+    function updateEditorCanvasSize(anchor) {
+      if (!base.naturalWidth) return;
+      var before = anchor ? canvas.getBoundingClientRect() : null;
+      var relX = before && before.width ? (anchor.x - before.left) / before.width : 0.5;
+      var relY = before && before.height ? (anchor.y - before.top) / before.height : 0.5;
+      relX = Math.max(0, Math.min(1, relX));
+      relY = Math.max(0, Math.min(1, relY));
+      canvas.style.width = Math.max(1, base.naturalWidth * fitScale * editorZoom) + 'px';
+      canvas.style.height = Math.max(1, base.naturalHeight * fitScale * editorZoom) + 'px';
+      var shownHeight = base.naturalHeight * fitScale * editorZoom;
+      canvas.style.marginTop = Math.max(14, (stage.clientHeight - shownHeight) / 2) + 'px';
+      canvas.style.marginBottom = '14px';
+      if (before && before.width && before.height) {
+        var after = canvas.getBoundingClientRect();
+        stage.scrollLeft += after.left + relX * after.width - anchor.x;
+        stage.scrollTop += after.top + relY * after.height - anchor.y;
+      }
+    }
+
+    function setEditorZoom(next, anchor) {
+      editorZoom = clampZoom(next);
+      if (!anchor && base.naturalWidth) {
+        var stageRect = stage.getBoundingClientRect();
+        anchor = { x: stageRect.left + stageRect.width / 2, y: stageRect.top + stageRect.height / 2 };
+      }
+      updateEditorCanvasSize(anchor);
+      if (zoomWidget) zoomWidget.update();
+    }
+
+    function refitEditor() {
+      if (!base.naturalWidth) return;
+      var availableWidth = Math.max(1, stage.clientWidth - 28);
+      var availableHeight = Math.max(1, stage.clientHeight - 28);
+      fitScale = Math.min(1, availableWidth / base.naturalWidth, availableHeight / base.naturalHeight);
+      updateEditorCanvasSize();
+    }
+
     function point(event) {
       var rect = canvas.getBoundingClientRect();
       return {
@@ -11588,8 +11698,38 @@
       event.stopPropagation();
       if (event.stopImmediatePropagation) event.stopImmediatePropagation();
     });
+    stage.addEventListener('wheel', function (event) {
+      if (!base.naturalWidth) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setEditorZoom(wheelZoom(editorZoom, event.deltaY), { x: event.clientX, y: event.clientY });
+    }, { passive: false });
+
+    function cancelDrawingForPinch() {
+      if (!drawing) return;
+      drawing = false;
+      draft = null;
+      if (drag) actions[drag.index] = cloneAction(drag.before);
+      drag = null;
+      delete canvas.dataset.dragging;
+      render();
+      updateHistory();
+    }
+
     canvas.addEventListener('pointerdown', function (event) {
       if ((event.button !== 0 && event.button !== 2) || !base.naturalWidth) return;
+      if (event.pointerType === 'touch') {
+        touchPoints[event.pointerId] = { x: event.clientX, y: event.clientY };
+        try { canvas.setPointerCapture(event.pointerId); } catch (e) {}
+        if (Object.keys(touchPoints).length >= 2) {
+          cancelDrawingForPinch();
+          touchZooming = true;
+          pinch = { distance: touchDistance(touchPoints), zoom: editorZoom };
+          event.preventDefault();
+          return;
+        }
+        if (touchZooming) return;
+      }
       event.preventDefault();
       var p = point(event);
       // Правая кнопка всегда выбирает/двигает, какой бы инструмент ни
@@ -11619,6 +11759,17 @@
       render();
     });
     canvas.addEventListener('pointermove', function (event) {
+      if (event.pointerType === 'touch' && touchPoints[event.pointerId]) {
+        touchPoints[event.pointerId] = { x: event.clientX, y: event.clientY };
+        if (touchZooming && pinch && pinch.distance && Object.keys(touchPoints).length >= 2) {
+          event.preventDefault();
+          setEditorZoom(
+            pinch.zoom * touchDistance(touchPoints) / pinch.distance,
+            touchCenter(touchPoints)
+          );
+          return;
+        }
+      }
       if (!drawing || (!draft && !drag)) return;
       var p = point(event);
       if (drag) {
@@ -11671,8 +11822,20 @@
       render();
       updateHistory();
     }
-    canvas.addEventListener('pointerup', function (event) { finish(event, true); });
-    canvas.addEventListener('pointercancel', function (event) { finish(event, false); });
+    function endPointer(event, commit) {
+      if (event.pointerType === 'touch') {
+        delete touchPoints[event.pointerId];
+        if (touchZooming) {
+          event.preventDefault();
+          pinch = null;
+          if (!Object.keys(touchPoints).length) touchZooming = false;
+          return;
+        }
+      }
+      finish(event, commit);
+    }
+    canvas.addEventListener('pointerup', function (event) { endPointer(event, true); });
+    canvas.addEventListener('pointercancel', function (event) { endPointer(event, false); });
 
     function save() {
       if (saveBtn.disabled) return;
@@ -11735,7 +11898,11 @@
       thumb: thumb,
       sourceUrl: sourceImg.src,
       keyHandler: onKeydown,
+      cleanup: [],
     };
+    var resizeHandler = function () { refitEditor(); };
+    window.addEventListener('resize', resizeHandler);
+    active.cleanup.push(function () { window.removeEventListener('resize', resizeHandler); });
     chooseTool(tool);
     updateColors();
     updateHistory();
@@ -11745,6 +11912,7 @@
     base.onload = function () {
       canvas.width = base.naturalWidth;
       canvas.height = base.naturalHeight;
+      refitEditor();
       render();
       saveBtn.disabled = false;
       status.textContent = base.naturalWidth + ' × ' + base.naturalHeight;
@@ -11756,12 +11924,86 @@
     base.src = sourceImg.src;
   }
 
+  function installPreviewZoom(preview, image) {
+    if (preview.__claudeImageZoom && preview.__claudeImageZoom.image === image) return;
+    var state = {
+      image: image, value: 1, panX: 0, panY: 0,
+      touches: {}, pinch: null, touchZooming: false,
+    };
+    preview.__claudeImageZoom = state;
+
+    function setZoom(next, anchor) {
+      var value = clampZoom(next);
+      var rect = image.getBoundingClientRect();
+      if (!anchor && Math.abs(value - 1) > 0.001) {
+        anchor = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      }
+      if (anchor && state.value) {
+        var ratio = value / state.value;
+        state.panX += (anchor.x - rect.left) * (1 - ratio);
+        state.panY += (anchor.y - rect.top) * (1 - ratio);
+      } else if (!anchor) {
+        state.panX = 0;
+        state.panY = 0;
+      }
+      state.value = value;
+      image.style.transformOrigin = '0 0';
+      image.style.transform = 'translate(' + state.panX + 'px,' + state.panY + 'px) scale(' + value + ')';
+      controls.update();
+    }
+
+    var controls = zoomControls(
+      'claude-image-preview-zoom',
+      function () { return state.value; },
+      setZoom
+    );
+    preview.appendChild(controls);
+
+    image.addEventListener('wheel', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      setZoom(wheelZoom(state.value, event.deltaY), { x: event.clientX, y: event.clientY });
+    }, { passive: false });
+    image.addEventListener('pointerdown', function (event) {
+      if (event.pointerType !== 'touch') return;
+      state.touches[event.pointerId] = { x: event.clientX, y: event.clientY };
+      try { image.setPointerCapture(event.pointerId); } catch (e) {}
+      if (Object.keys(state.touches).length >= 2) {
+        state.pinch = { distance: touchDistance(state.touches), zoom: state.value };
+        state.touchZooming = true;
+        event.preventDefault();
+      }
+    });
+    image.addEventListener('pointermove', function (event) {
+      if (event.pointerType !== 'touch' || !state.touches[event.pointerId]) return;
+      state.touches[event.pointerId] = { x: event.clientX, y: event.clientY };
+      if (!state.pinch || !state.pinch.distance) return;
+      event.preventDefault();
+      var center = touchCenter(state.touches);
+      setZoom(state.pinch.zoom * touchDistance(state.touches) / state.pinch.distance, center);
+    });
+    function endTouch(event) {
+      if (event.pointerType !== 'touch') return;
+      delete state.touches[event.pointerId];
+      if (Object.keys(state.touches).length < 2) state.pinch = null;
+      if (state.touchZooming) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!Object.keys(state.touches).length) state.touchZooming = false;
+      }
+    }
+    image.addEventListener('pointerup', endTouch);
+    image.addEventListener('pointercancel', endTouch);
+  }
+
   function addEditButton(preview, thumbs) {
     var sourceImg = previewImageOf(preview);
-    if (!sourceImg || preview.querySelector('.' + EDIT_CLASS)) return;
+    if (!sourceImg) return;
     var thumb = thumbForSource(sourceImg.src, thumbs);
     if (!thumb) return;
     preview.classList.add(MARK_CLASS);
+    installPreviewZoom(preview, sourceImg);
+    if (preview.querySelector('.' + EDIT_CLASS)) return;
     var edit = button('✎', EDIT_CLASS, 'Редактировать изображение', function (event) {
       event.preventDefault();
       event.stopPropagation();
@@ -11800,6 +12042,9 @@
       translateAction: translateAction,
       actionBounds: actionBounds,
       hitAction: hitAction,
+      clampZoom: clampZoom,
+      wheelZoom: wheelZoom,
+      touchDistance: touchDistance,
     },
   };
 

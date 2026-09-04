@@ -2251,6 +2251,68 @@
   transform: scale(1.06);
 }
 
+.claude-image-editable img[class*="previewImage_"] {
+  touch-action: none;
+  will-change: transform;
+}
+
+.claude-image-preview-zoom,
+.claude-image-editor-zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.2));
+  border-radius: 6px;
+  background: var(--app-primary-background, var(--vscode-editor-background, #18181b));
+  color: var(--app-primary-foreground, var(--vscode-editor-foreground, #e5e7eb));
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
+}
+
+.claude-image-preview-zoom {
+  position: absolute;
+  z-index: 5;
+  bottom: -44px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.claude-image-editor-zoom {
+  flex: 0 0 auto;
+  box-shadow: none;
+}
+
+.claude-image-zoom-btn,
+.claude-image-zoom-value {
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: 12px/1 sans-serif;
+  cursor: pointer;
+}
+
+.claude-image-zoom-btn {
+  width: 27px;
+  font-size: 18px;
+}
+
+.claude-image-zoom-value {
+  width: 48px;
+}
+
+.claude-image-zoom-btn:hover:not(:disabled),
+.claude-image-zoom-value:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+.claude-image-zoom-btn:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
 .claude-image-editor-overlay {
   position: fixed;
   z-index: 100100;
@@ -2407,13 +2469,10 @@
 }
 
 .claude-image-editor-stage {
-  display: flex;
+  display: block;
   flex: 1 1 auto;
   min-height: 0;
-  align-items: center;
-  justify-content: center;
   overflow: auto;
-  padding: 14px;
   background-color: #111318;
   background-image:
     linear-gradient(45deg, #1b1e24 25%, transparent 25%),
@@ -2426,8 +2485,10 @@
 
 .claude-image-editor-canvas {
   display: block;
-  max-width: 100%;
-  max-height: 100%;
+  max-width: none;
+  max-height: none;
+  margin-right: auto;
+  margin-left: auto;
   background: #fff;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
   cursor: crosshair;
