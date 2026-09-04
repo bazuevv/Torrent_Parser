@@ -2586,6 +2586,9 @@
     return {
       inputs: document.querySelectorAll('[class*="inputContainer_"]'),
       sessions: document.querySelectorAll('[class*="sessionItem_"]'),
+      imageAttachments: document.querySelectorAll(
+        '[class*="attachedFilesContainer_"] [class*="pill_"]'
+      ),
     };
   }
 
@@ -2663,7 +2666,7 @@
    *
    * Проверка стоит `closest` на запись — десятки шагов вверх по
    * дереву против восьми обходов всего документа. */
-  var RELEVANT = '[class*="inputContainer_"], [class*="inputFooter_"], [class*="sessionItem_"]';
+  var RELEVANT = '[class*="inputContainer_"], [class*="inputFooter_"], [class*="sessionItem_"], [class*="attachedFilesContainer_"], [class*="pill_"]';
 
   function isRelevant(m) {
     var target = m.target;
@@ -11112,6 +11115,488 @@
 
   // Отладочный вход: окно можно открыть и без меню.
   window.__claudeSettings = { open: openPanel, close: closePanel };
+})();
+
+/* ============================================================
+ * IMAGE ANNOTATION EDITOR — ручная разметка вложений
+ *
+ * Добавляет кнопку ✎ в левый верхний угол миниатюры прикреплённого
+ * изображения. Редактор живёт целиком внутри webview: исходник уже
+ * доступен как data URL, Canvas рисует поверх него в родном разрешении,
+ * а результат возвращается штатному React-композеру как новый File.
+ *
+ * Исходник удаляется только после того, как новая миниатюра появилась
+ * в DOM. При ошибке добавления исходное вложение остаётся на месте.
+ * ============================================================ */
+(function () {
+  var cfg = window.__CLAUDE_CUSTOM_CONFIG__ || {};
+  if (!cfg.imageAnnotationEditor) return;
+  if (window.__claudeImageAnnotationInstalled) return;
+  window.__claudeImageAnnotationInstalled = true;
+
+  var EDIT_CLASS = 'claude-image-edit-btn';
+  var MARK_CLASS = 'claude-image-editable';
+  // В 2.1.220 composer рисует вложения компонентом pill_lcdCYQ.
+  // Ограничение родителем обязательно: pill_* встречается и в других
+  // частях интерфейса, а редактор относится только к ещё не отправленным
+  // вложениям активного поля ввода.
+  var THUMB_SELECTOR = '[class*="attachedFilesContainer_"] [class*="pill_"]';
+  var COMPOSER_SELECTOR = '[role="textbox"][contenteditable]';
+  var active = null;
+
+  function own(el) {
+    if (el) el.__claudeOwnNode = true;
+    return el;
+  }
+
+  function button(label, className, title, handler) {
+    var el = own(document.createElement('button'));
+    el.type = 'button';
+    el.className = className || '';
+    el.textContent = label;
+    if (title) {
+      el.title = title;
+      el.setAttribute('aria-label', title);
+    }
+    if (handler) el.addEventListener('click', handler);
+    return el;
+  }
+
+  function imageOf(thumb) {
+    var img = thumb && thumb.querySelector('img');
+    if (!img || !/^data:image\//i.test(img.src || '')) return null;
+    return img;
+  }
+
+  function closeEditor() {
+    if (!active) return;
+    document.removeEventListener('keydown', active.keyHandler, true);
+    if (active.overlay && active.overlay.parentNode) active.overlay.remove();
+    active = null;
+  }
+
+  function annotatedName(name) {
+    var clean = String(name || 'image').replace(/\.[^.]+$/, '');
+    return clean + '-annotated.png';
+  }
+
+  function drawAction(ctx, action) {
+    if (!action) return;
+    var pts = action.points || [];
+    var start = action.start || pts[0];
+    var end = action.end || pts[pts.length - 1];
+    ctx.save();
+    ctx.strokeStyle = action.color || '#ef4444';
+    ctx.lineWidth = action.width || 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+
+    if (action.tool === 'brush') {
+      if (!pts.length) { ctx.restore(); return; }
+      ctx.moveTo(pts[0].x, pts[0].y);
+      if (pts.length === 1) ctx.lineTo(pts[0].x + 0.01, pts[0].y + 0.01);
+      for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    } else if (action.tool === 'line' && start && end) {
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
+    } else if (action.tool === 'rect' && start && end) {
+      ctx.rect(start.x, start.y, end.x - start.x, end.y - start.y);
+    } else if (action.tool === 'ellipse' && start && end) {
+      var cx = (start.x + end.x) / 2;
+      var cy = (start.y + end.y) / 2;
+      var rx = Math.abs(end.x - start.x) / 2;
+      var ry = Math.abs(end.y - start.y) / 2;
+      ctx.ellipse(cx, cy, Math.max(rx, 0.01), Math.max(ry, 0.01), 0, 0, Math.PI * 2);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function dispatchFile(file, composer) {
+    try {
+      var transfer = new DataTransfer();
+      transfer.items.add(file);
+      var paste = new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: transfer,
+      });
+      composer.dispatchEvent(paste);
+      if (paste.defaultPrevented) return true;
+    } catch (e) {}
+
+    // Запасной путь для Electron-сборок, которые не принимают
+    // clipboardData в конструкторе ClipboardEvent.
+    try {
+      var input = document.querySelector('input[type="file"][multiple]');
+      if (!input) return false;
+      var dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    } catch (e2) {
+      return false;
+    }
+  }
+
+  function replaceAttachment(state, file, done) {
+    var composerHost = state.thumb.closest('[class*="inputContainer_"]');
+    var composer = composerHost && composerHost.querySelector(COMPOSER_SELECTOR);
+    if (!composer) composer = document.querySelector(COMPOSER_SELECTOR);
+    if (!composer) { done(new Error('поле ввода чата не найдено')); return; }
+
+    var before = document.querySelectorAll(THUMB_SELECTOR).length;
+    if (!dispatchFile(file, composer)) {
+      done(new Error('расширение не приняло новый файл'));
+      return;
+    }
+
+    var started = Date.now();
+    (function waitForThumbnail() {
+      var now = document.querySelectorAll(THUMB_SELECTOR).length;
+      if (now > before) {
+        var original = state.thumb;
+        if (!document.body.contains(original)) {
+          var candidates = document.querySelectorAll(THUMB_SELECTOR);
+          for (var i = 0; i < candidates.length; i++) {
+            var img = imageOf(candidates[i]);
+            if (img && img.src === state.sourceUrl) { original = candidates[i]; break; }
+          }
+        }
+        var remove = original && original.querySelector(
+          'button[class*="removeButton_"], button[title="Remove attachment"]'
+        );
+        if (!remove) {
+          done(new Error('новая картинка добавлена, но кнопка удаления исходника не найдена'));
+          return;
+        }
+        remove.click();
+        done(null);
+        return;
+      }
+      if (Date.now() - started > 5000) {
+        done(new Error('новая миниатюра не появилась за 5 секунд'));
+        return;
+      }
+      setTimeout(waitForThumbnail, 80);
+    })();
+  }
+
+  function openEditor(thumb) {
+    var sourceImg = imageOf(thumb);
+    if (!sourceImg) return;
+    closeEditor();
+
+    var overlay = own(document.createElement('div'));
+    overlay.className = 'claude-image-editor-overlay';
+    var panel = own(document.createElement('section'));
+    panel.className = 'claude-image-editor-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('aria-label', 'Редактор изображения');
+    overlay.appendChild(panel);
+
+    var header = own(document.createElement('header'));
+    header.className = 'claude-image-editor-header';
+    var title = own(document.createElement('strong'));
+    title.textContent = 'Разметка изображения';
+    var close = button('×', 'claude-image-editor-close', 'Отменить редактирование', closeEditor);
+    header.appendChild(title);
+    header.appendChild(close);
+    panel.appendChild(header);
+
+    var toolbar = own(document.createElement('div'));
+    toolbar.className = 'claude-image-editor-toolbar';
+    var tools = own(document.createElement('div'));
+    tools.className = 'claude-image-editor-tools';
+    var toolDefs = [
+      ['brush', '✎', 'Кисть'],
+      ['line', '╱', 'Линия'],
+      ['rect', '□', 'Прямоугольник'],
+      ['ellipse', '○', 'Эллипс'],
+    ];
+    var tool = 'brush';
+    var toolButtons = {};
+    function chooseTool(next) {
+      tool = next;
+      Object.keys(toolButtons).forEach(function (key) {
+        toolButtons[key].classList.toggle('is-active', key === tool);
+      });
+    }
+    toolDefs.forEach(function (def) {
+      var b = button(def[1], 'claude-image-tool-btn', def[2], function () { chooseTool(def[0]); });
+      b.dataset.tool = def[0];
+      toolButtons[def[0]] = b;
+      tools.appendChild(b);
+    });
+    toolbar.appendChild(tools);
+
+    var colors = own(document.createElement('div'));
+    colors.className = 'claude-image-editor-colors';
+    var color = '#ef3340';
+    var swatches = [];
+    ['#ef3340', '#38b879', '#4387df', '#ffd43b', '#ffffff', '#111827'].forEach(function (value) {
+      var sw = button('', 'claude-image-color-btn', 'Цвет ' + value, function () {
+        color = value;
+        picker.value = value;
+        updateColors();
+      });
+      sw.style.setProperty('--annotation-color', value);
+      sw.dataset.color = value;
+      colors.appendChild(sw);
+      swatches.push(sw);
+    });
+    var picker = own(document.createElement('input'));
+    picker.type = 'color';
+    picker.value = color;
+    picker.className = 'claude-image-color-picker';
+    picker.title = 'Другой цвет';
+    picker.setAttribute('aria-label', 'Другой цвет');
+    picker.addEventListener('input', function () { color = picker.value; updateColors(); });
+    colors.appendChild(picker);
+    function updateColors() {
+      swatches.forEach(function (sw) {
+        sw.classList.toggle('is-active', sw.dataset.color.toLowerCase() === color.toLowerCase());
+      });
+    }
+    toolbar.appendChild(colors);
+
+    var history = own(document.createElement('div'));
+    history.className = 'claude-image-editor-history';
+    var undoBtn = button('↶', 'claude-image-history-btn', 'Отменить действие (Ctrl+Z)', undo);
+    var redoBtn = button('↷', 'claude-image-history-btn', 'Вернуть действие (Ctrl+Shift+Z)', redo);
+    history.appendChild(undoBtn);
+    history.appendChild(redoBtn);
+    var widthLabel = own(document.createElement('label'));
+    widthLabel.className = 'claude-image-width-label';
+    widthLabel.textContent = 'Толщина';
+    var widthInput = own(document.createElement('input'));
+    widthInput.type = 'range';
+    widthInput.min = '1';
+    widthInput.max = '24';
+    widthInput.value = '4';
+    widthInput.className = 'claude-image-width-input';
+    widthLabel.appendChild(widthInput);
+    history.appendChild(widthLabel);
+    toolbar.appendChild(history);
+    panel.appendChild(toolbar);
+
+    var stage = own(document.createElement('div'));
+    stage.className = 'claude-image-editor-stage';
+    var canvas = own(document.createElement('canvas'));
+    canvas.className = 'claude-image-editor-canvas';
+    canvas.tabIndex = 0;
+    stage.appendChild(canvas);
+    panel.appendChild(stage);
+
+    var footer = own(document.createElement('footer'));
+    footer.className = 'claude-image-editor-footer';
+    var status = own(document.createElement('span'));
+    status.className = 'claude-image-editor-status';
+    var cancelBtn = button('Отмена', 'claude-image-editor-action', 'Закрыть без сохранения', closeEditor);
+    var saveBtn = button('Сохранить', 'claude-image-editor-action is-primary', 'Сохранить и заменить вложение', save);
+    footer.appendChild(status);
+    footer.appendChild(cancelBtn);
+    footer.appendChild(saveBtn);
+    panel.appendChild(footer);
+
+    var ctx = canvas.getContext('2d');
+    var base = new Image();
+    var actions = [];
+    var undone = [];
+    var draft = null;
+    var drawing = false;
+
+    function updateHistory() {
+      undoBtn.disabled = actions.length === 0;
+      redoBtn.disabled = undone.length === 0;
+    }
+
+    function render() {
+      if (!base.naturalWidth) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(base, 0, 0, canvas.width, canvas.height);
+      actions.forEach(function (action) { drawAction(ctx, action); });
+      drawAction(ctx, draft);
+    }
+
+    function undo() {
+      if (!actions.length) return;
+      undone.push(actions.pop());
+      render();
+      updateHistory();
+    }
+
+    function redo() {
+      if (!undone.length) return;
+      actions.push(undone.pop());
+      render();
+      updateHistory();
+    }
+
+    function point(event) {
+      var rect = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - rect.left) * canvas.width / rect.width,
+        y: (event.clientY - rect.top) * canvas.height / rect.height,
+      };
+    }
+
+    function strokeWidth() {
+      var rect = canvas.getBoundingClientRect();
+      var scale = rect.width ? canvas.width / rect.width : 1;
+      return Number(widthInput.value) * scale;
+    }
+
+    canvas.addEventListener('pointerdown', function (event) {
+      if (event.button !== 0 || !base.naturalWidth) return;
+      event.preventDefault();
+      canvas.setPointerCapture(event.pointerId);
+      var p = point(event);
+      draft = { tool: tool, color: color, width: strokeWidth(), start: p, end: p, points: [p] };
+      drawing = true;
+      render();
+    });
+    canvas.addEventListener('pointermove', function (event) {
+      if (!drawing || !draft) return;
+      var p = point(event);
+      if (draft.tool === 'brush') draft.points.push(p);
+      draft.end = p;
+      render();
+    });
+    function finish(event, commit) {
+      if (!drawing) return;
+      drawing = false;
+      try { canvas.releasePointerCapture(event.pointerId); } catch (e) {}
+      if (commit && draft) {
+        actions.push(draft);
+        undone.length = 0;
+      }
+      draft = null;
+      render();
+      updateHistory();
+    }
+    canvas.addEventListener('pointerup', function (event) { finish(event, true); });
+    canvas.addEventListener('pointercancel', function (event) { finish(event, false); });
+
+    function save() {
+      if (saveBtn.disabled) return;
+      saveBtn.disabled = true;
+      cancelBtn.disabled = true;
+      status.textContent = 'Подготавливаю изображение…';
+      render();
+      canvas.toBlob(function (blob) {
+        if (!blob) {
+          status.textContent = 'Не удалось создать PNG';
+          saveBtn.disabled = false;
+          cancelBtn.disabled = false;
+          return;
+        }
+        var name = annotatedName(sourceImg.alt || thumb.title || 'image');
+        var file = new File([blob], name, { type: 'image/png', lastModified: Date.now() });
+        status.textContent = 'Прикрепляю результат…';
+        replaceAttachment(active, file, function (err) {
+          if (err) {
+            status.textContent = err.message + '. Исходник сохранён.';
+            saveBtn.disabled = false;
+            cancelBtn.disabled = false;
+            return;
+          }
+          closeEditor();
+        });
+      }, 'image/png');
+    }
+
+    function onKeydown(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeEditor();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.shiftKey) redo(); else undo();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
+        event.preventDefault();
+        event.stopPropagation();
+        redo();
+      }
+    }
+
+    overlay.addEventListener('mousedown', function (event) {
+      if (event.target === overlay) closeEditor();
+    });
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKeydown, true);
+    active = {
+      overlay: overlay,
+      thumb: thumb,
+      sourceUrl: sourceImg.src,
+      keyHandler: onKeydown,
+    };
+    chooseTool(tool);
+    updateColors();
+    updateHistory();
+    saveBtn.disabled = true;
+    status.textContent = 'Загружаю изображение…';
+
+    base.onload = function () {
+      canvas.width = base.naturalWidth;
+      canvas.height = base.naturalHeight;
+      render();
+      saveBtn.disabled = false;
+      status.textContent = base.naturalWidth + ' × ' + base.naturalHeight;
+      canvas.focus();
+    };
+    base.onerror = function () {
+      status.textContent = 'Не удалось открыть изображение';
+    };
+    base.src = sourceImg.src;
+  }
+
+  function addEditButton(thumb) {
+    if (!imageOf(thumb) || thumb.querySelector('.' + EDIT_CLASS)) return;
+    thumb.classList.add(MARK_CLASS);
+    var edit = button('✎', EDIT_CLASS, 'Редактировать изображение', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+      openEditor(thumb);
+    });
+    edit.addEventListener('mousedown', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    thumb.insertBefore(edit, thumb.firstChild);
+  }
+
+  function scan(ctx) {
+    var thumbs = (ctx && ctx.imageAttachments) || document.querySelectorAll(THUMB_SELECTOR);
+    for (var i = 0; i < thumbs.length; i++) addEditButton(thumbs[i]);
+    if (active && active.thumb && !document.body.contains(active.thumb)) closeEditor();
+  }
+
+  function init() {
+    window.__claudeDomWatch.register('image-annotation', scan);
+  }
+
+  // Отладочный вход и минимальная поверхность для автономного стенда.
+  window.__claudeImageAnnotation = {
+    open: openEditor,
+    close: closeEditor,
+    scan: scan,
+    _test: { drawAction: drawAction, annotatedName: annotatedName },
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();
 
 /* ============================================================

@@ -114,6 +114,11 @@ REQUIRED_PARAMS = [
         "должен быть true или false",
     ),
     (
+        "imageAnnotationEditor",
+        lambda v: isinstance(v, bool),
+        "должен быть true или false",
+    ),
+    (
         "emojiRecentLimit",
         lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0,
         "должен быть неотрицательным целым числом",
@@ -280,6 +285,7 @@ MARKER_BEGIN, MARKER_END = ext_patch.BOOTSTRAP_MARKERS
 # пришлось бы восстанавливать руками после каждой проверки.
 MODULE_FLAGS = (
     "sessionMover",
+    "imageAnnotationEditor",
     "emojiPicker",
     "emojiAutoReplace",
     "fixSettingsMenuItem",

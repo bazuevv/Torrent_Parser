@@ -169,10 +169,11 @@ queryCalls = 0;
 mutate([foreign]);
 advance(250);
 check('контекст доходит до скана',
-  seenCtx && Array.isArray(seenCtx.inputs) && Array.isArray(seenCtx.sessions),
+  seenCtx && Array.isArray(seenCtx.inputs) && Array.isArray(seenCtx.sessions)
+    && Array.isArray(seenCtx.imageAttachments),
   JSON.stringify(seenCtx));
 check('обход документа один на проход, а не на модуль',
-  queryCalls === 2, `querySelectorAll вызван ${queryCalls} раз при 3 подписчиках`);
+  queryCalls === 3, `querySelectorAll вызван ${queryCalls} раз при 3 подписчиках`);
 
 // --- скан вне прохода получает undefined и ищет узлы сам
 let ctxOutside = 'не вызывался';
