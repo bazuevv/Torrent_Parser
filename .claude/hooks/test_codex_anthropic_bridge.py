@@ -265,7 +265,10 @@ class PersistentSessionTests(unittest.TestCase):
         def request(self, method, params):
             self.requests.append((method, params))
             if method == "thread/start":
-                return {"thread": {"id": "thread-1", "model": "gpt-test"}}
+                return {"thread": {
+                    "id": "thread-1", "model": "gpt-test",
+                    "reasoningEffort": "low",
+                }}
             if method == "turn/start":
                 self.turn_number += 1
                 return {"turn": {"id": f"turn-{self.turn_number}"}}
@@ -387,6 +390,7 @@ class PersistentSessionTests(unittest.TestCase):
             snapshot = backend.snapshot()
         self.assertEqual(snapshot["bridgeUsage"]["last"]["total_tokens"], 112)
         self.assertEqual(snapshot["bridgeUsage"]["model_context_window"], 258400)
+        self.assertEqual(snapshot["bridgeUsage"]["effort"], "low")
 
 
 if __name__ == "__main__":

@@ -379,6 +379,7 @@ class BridgeSession:
     key: str
     thread_id: str
     model: str
+    effort: str | None
     events: queue.Queue[dict[str, Any]]
     tool_calls: queue.Queue[DynamicToolCall]
     tool_names: dict[str, str]
@@ -473,6 +474,7 @@ class CodexTextBackend:
                 with self._usage_lock:
                     self._latest_usage = {
                         "model": session.model,
+                        "effort": session.effort,
                         "last": dict(last),
                         "total": dict(total),
                         "model_context_window": session.context_window,
@@ -530,16 +532,27 @@ class CodexTextBackend:
         if not isinstance(thread_id, str):
             raise BridgeError("thread/start returned no thread id")
         actual_model = thread.get("model") or model or "codex"
+        actual_effort = thread.get("reasoningEffort")
         session = BridgeSession(
             key=key,
             thread_id=thread_id,
             model=str(actual_model),
+            effort=actual_effort if isinstance(actual_effort, str) else None,
             events=self.router.register(thread_id),
             tool_calls=queue.Queue(),
             tool_names=tool_names,
             tool_signature=tool_signature,
             seen_messages=_message_fingerprints(payload),
         )
+        with self._usage_lock:
+            self._latest_usage = {
+                "model": session.model,
+                "effort": session.effort,
+                "last": {},
+                "total": {},
+                "model_context_window": None,
+                "updated_at": int(time.time()),
+            }
         session.response_lock.acquire()
         with self._tool_lock:
             self._tool_queues[thread_id] = session

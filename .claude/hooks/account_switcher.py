@@ -416,6 +416,33 @@ def _openai_usage(rate_limits: Any) -> dict | None:
             "sourceLabel": "Данные Codex App Server"}
 
 
+def _openai_runtime(value: Any) -> dict | None:
+    """Public per-thread model/effort/token details from the local bridge."""
+    if not isinstance(value, dict):
+        return None
+    result: dict = {}
+    for key in ("model", "effort"):
+        item = value.get(key)
+        if isinstance(item, str) and item:
+            result[key] = item
+    last = value.get("last")
+    if isinstance(last, dict):
+        safe_last = {}
+        for key in (
+            "input_tokens", "cached_input_tokens", "cache_write_input_tokens",
+            "output_tokens", "reasoning_output_tokens", "total_tokens",
+        ):
+            amount = last.get(key)
+            if isinstance(amount, int) and not isinstance(amount, bool) and amount >= 0:
+                safe_last[key] = amount
+        if safe_last:
+            result["last"] = safe_last
+    context = value.get("model_context_window")
+    if isinstance(context, int) and not isinstance(context, bool) and context > 0:
+        result["modelContextWindow"] = context
+    return result or None
+
+
 def openai_account() -> dict:
     snapshot = codex_bridge_manager.account_snapshot()
     if not snapshot:
@@ -423,6 +450,7 @@ def openai_account() -> dict:
     account = snapshot.get("account")
     models = snapshot.get("models")
     limits = snapshot.get("rateLimits")
+    runtime = _openai_runtime(snapshot.get("bridgeUsage"))
     result: dict = {"bridgeReady": True}
     if isinstance(account, dict):
         email = account.get("email")
@@ -431,7 +459,11 @@ def openai_account() -> dict:
             result["email"] = email
         if isinstance(plan, str):
             result["plan"] = plan.replace("_", " ").title()
-    if isinstance(models, list):
+    if runtime:
+        result["runtime"] = runtime
+        if isinstance(runtime.get("model"), str):
+            result["model"] = runtime["model"]
+    elif isinstance(models, list):
         default = next((m for m in models if isinstance(m, dict)
                         and m.get("isDefault")), None)
         if isinstance(default, dict) and isinstance(default.get("id"), str):
