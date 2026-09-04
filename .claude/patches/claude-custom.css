@@ -2640,10 +2640,13 @@
   width: 93px;
   height: 93px;
   padding: 0;
-  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border: 1px solid rgba(0, 0, 0, 0.4);
   border-radius: 50%;
-  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
-  color: var(--app-primary-foreground, #ddd);
+  /* Сигнальный жёлтый + тёмный квадрат вместо белого: белый на
+   * жёлтом даёт контраст 1.6:1 и терялся бы; пара «жёлтый круг,
+   * тёмный квадрат» — классика аварийных кнопок стоп. */
+  background: #ffcc00;
+  color: #141414;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
   cursor: pointer;
   transform: translateX(-50%);
@@ -2653,16 +2656,15 @@
  * CSS перебивает презентационные атрибуты, значит размер правится
  * горячо — и окнам со старым JS не нужен Reload Window.
  *
- * Квадрат занимает половину viewBox (8 из 16), поэтому при svg 140px
- * видимый белый квадрат — 70px: втрое крупнее прежнего при круге 93px. */
+ * Квадрат занимает половину viewBox (8 из 16), поэтому при svg 94px
+ * видимый квадрат — 47px. */
 .claude-limit-stop-float svg {
-  width: 140px;
-  height: 140px;
+  width: 94px;
+  height: 94px;
 }
 
 .claude-limit-stop-float:hover {
-  border-color: rgba(255, 255, 255, 0.3);
-  color: #fff;
+  background: #ffd633;
 }
 
 .claude-limit-stop-float:active {
