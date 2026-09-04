@@ -8948,7 +8948,8 @@
 
       lines.push((w.title || w.label || '') + ' · ' + Math.floor(shown) + '%' + hint);
     }
-    lines.push('Данные Claude Code, ' + formatAge(usage.ageSec));
+    lines.push((usage.sourceLabel || 'Данные Claude Code') + ', '
+      + formatAge(usage.ageSec));
     box.title = lines.join('\n');
     return box;
   }
@@ -8971,13 +8972,13 @@
     // строку занимают полоски лимитов — endpoint там уже не нужен.
     // Но если ни тарифа, ни почты нет (файлы CLI не прочитались),
     // строка не должна оставаться пустой: показываем endpoint.
-    if (acc.oauth && (acc.plan || acc.email)) return '';
+    if ((acc.oauth || acc.provider === 'openai') && (acc.plan || acc.email)) return '';
     return acc.model ? acc.baseUrl + '  ·  ' + acc.model : acc.baseUrl;
   }
 
   /** «Pro (почта)» — приписка к названию OAuth-аккаунта. */
   function accountMeta(acc) {
-    if (!acc.oauth) return '';
+    if (!acc.oauth && acc.provider !== 'openai') return '';
     var parts = [];
     if (acc.plan) parts.push(acc.plan);
     if (acc.email) parts.push('(' + acc.email + ')');
@@ -9046,6 +9047,10 @@
       text.setAttribute(USAGE_HOST_ATTR, '1');
       var usage = usageBlock(acc.usage);
       if (usage) text.appendChild(usage);
+    }
+    if (showUsage && acc.provider === 'openai') {
+      var openaiUsage = usageBlock(acc.usage);
+      if (openaiUsage) text.appendChild(openaiUsage);
     }
 
     row.appendChild(text);

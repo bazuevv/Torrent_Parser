@@ -20,11 +20,16 @@ from dataclasses import dataclass
 from typing import Any, Iterator
 
 from codex_app_server import CodexAppServerClient, CodexAppServerError
+from codex_app_server import _safe_probe
 
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18924
 DEFAULT_REQUEST_TIMEOUT = 600.0
+SOURCE_MTIME = max(
+    os.path.getmtime(__file__),
+    os.path.getmtime(os.path.join(os.path.dirname(__file__), "codex_app_server.py")),
+)
 BRIDGE_INSTRUCTIONS = """You are providing the model response inside Claude Code.
 Return only the answer to the conversation supplied by the user. Never call
 built-in Codex tools and never inspect the filesystem directly. When dynamic
@@ -205,6 +210,10 @@ class CodexTextBackend:
 
     def close(self) -> None:
         self.client.close()
+
+    def snapshot(self) -> dict[str, Any]:
+        """Safe account/model/limit data; never exposes OAuth credentials."""
+        return _safe_probe(self.client.snapshot())
 
     def begin(self, payload: dict[str, Any]) -> TextTurn:
         developer, prompt = build_prompt(payload)
@@ -480,7 +489,17 @@ class BridgeHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/health":
-            self._json(200, {"ok": True, "service": "claude-openai-bridge"})
+            self._json(200, {
+                "ok": True,
+                "service": "claude-openai-bridge",
+                "pid": os.getpid(),
+                "sourceMtime": SOURCE_MTIME,
+            })
+        elif self.path == "/account":
+            try:
+                self._json(200, {"ok": True} | self.server.backend.snapshot())
+            except CodexAppServerError as exc:
+                self._json(503, {"ok": False, "error": str(exc)})
         else:
             self._json(404, {"error": {"type": "not_found_error", "message": "not found"}})
 

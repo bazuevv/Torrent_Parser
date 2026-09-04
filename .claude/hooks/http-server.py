@@ -110,6 +110,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_usage  # noqa: E402
 import hook_log  # noqa: E402
 import account_switcher  # noqa: E402
+import codex_bridge_manager  # noqa: E402
 import limit_alert  # noqa: E402
 
 
@@ -129,7 +130,9 @@ PORT = int(os.environ.get("CLAUDE_HTTP_PORT", "18923"))
 # они обязаны совпадать. Конфиг тоже здесь: правка serverLog должна
 # доезжать до сервера без ручного перезапуска.
 SOURCE_FILES = ("http-server.py", "cache_usage.py", "hook_log.py",
-                "account_switcher.py", "limit_alert.py")
+                "account_switcher.py", "codex_bridge_manager.py",
+                "codex_anthropic_bridge.py", "codex_app_server.py",
+                "limit_alert.py")
 CONFIG_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "patches", "claude-custom-config.toml",
@@ -813,6 +816,14 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         target = str(payload.get("file") or "")
+        if target == "settings_openai.json":
+            ready, bridge_message = codex_bridge_manager.ensure()
+            if not ready:
+                self._json_response(503, {
+                    "ok": False, "error": bridge_message,
+                    "accounts": account_switcher.list_accounts(),
+                })
+                return
         # revert — возврат прежнего аккаунта после отказа от перезапуска.
         # Отличить его от обычного переключения сервер сам не может:
         # запрос тот же самый. Знает об этом только модалка, она и
@@ -2088,6 +2099,14 @@ def main():
     # Сигнал сброса 5-часового окна лимита — независимый цикл (limit_alert):
     # живёт своей логикой и не делит состояние с наблюдателем конфига.
     threading.Thread(target=limit_alert.run_monitor, daemon=True).start()
+
+    # Если OpenAI уже добавлен в список провайдеров, мост должен быть
+    # готов до следующего запуска Claude Code. Ошибка не роняет панель:
+    # строка аккаунта покажет отсутствие готовности, а повторная попытка
+    # произойдёт непосредственно при выборе аккаунта.
+    if os.path.isfile(os.path.expanduser("~/.claude/settings_openai.json")):
+        ready, bridge_message = codex_bridge_manager.ensure()
+        _log(f"OpenAI bridge: {bridge_message} (ok={ready})")
 
     _log(
         f"старт: порт {PORT}, project_dir={PROJECT_DIR}, "

@@ -40,6 +40,9 @@ import re
 import shutil
 import tempfile
 import time
+from typing import Any
+
+import codex_bridge_manager
 
 CLAUDE_DIR = os.path.expanduser("~/.claude")
 SETTINGS_FILE = os.path.join(CLAUDE_DIR, "settings.json")
@@ -324,6 +327,7 @@ DISPLAY_NAMES = {
     "settings_glm.json": "Z.AI (GLM)",
     "settings_api.json": "East API",
     "settings_mac.json": "Mac",
+    "settings_openai.json": "OpenAI (ChatGPT)",
 }
 
 
@@ -369,7 +373,74 @@ def _describe(path: str) -> dict:
              or env.get("ANTHROPIC_DEFAULT_OPUS_MODEL")
              or "")
     oauth = not any(env.get(key) for key in THIRD_PARTY_ENV_KEYS)
-    return {"baseUrl": base_url, "model": model, "oauth": oauth}
+    provider = "openai" if base_url.rstrip("/") == (
+        f"http://{codex_bridge_manager.BRIDGE_HOST}:"
+        f"{codex_bridge_manager.BRIDGE_PORT}"
+    ) else ("anthropic" if oauth else "custom")
+    return {"baseUrl": base_url, "model": model, "oauth": oauth,
+            "provider": provider}
+
+
+def _openai_usage(rate_limits: Any) -> dict | None:
+    if not isinstance(rate_limits, dict):
+        return None
+    windows = []
+    for key, label, title in (
+        ("primary", "5 ч", "Сессия"),
+        ("secondary", "7 дн", "Неделя"),
+    ):
+        window = rate_limits.get(key)
+        if not isinstance(window, dict):
+            continue
+        percent = window.get("usedPercent")
+        if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+            continue
+        resets_at = window.get("resetsAt")
+        left = None
+        if isinstance(resets_at, (int, float)) and not isinstance(resets_at, bool):
+            left = int(resets_at - time.time())
+        duration = window.get("windowDurationMins")
+        if isinstance(duration, (int, float)) and duration > 0:
+            if duration < 24 * 60:
+                label = f"{int(duration // 60)} ч"
+            else:
+                label = f"{int(duration // (24 * 60))} дн"
+        windows.append({
+            "key": f"openai_{key}", "label": label, "title": title,
+            "percent": percent, "resetsInSec": max(0, left) if left is not None else None,
+            "expired": left is not None and left <= 0,
+        })
+    if not windows:
+        return None
+    return {"windows": windows, "ageSec": 0,
+            "sourceLabel": "Данные Codex App Server"}
+
+
+def openai_account() -> dict:
+    snapshot = codex_bridge_manager.account_snapshot()
+    if not snapshot:
+        return {"bridgeReady": False}
+    account = snapshot.get("account")
+    models = snapshot.get("models")
+    limits = snapshot.get("rateLimits")
+    result: dict = {"bridgeReady": True}
+    if isinstance(account, dict):
+        email = account.get("email")
+        plan = account.get("planType")
+        if isinstance(email, str):
+            result["email"] = email
+        if isinstance(plan, str):
+            result["plan"] = plan.replace("_", " ").title()
+    if isinstance(models, list):
+        default = next((m for m in models if isinstance(m, dict)
+                        and m.get("isDefault")), None)
+        if isinstance(default, dict) and isinstance(default.get("id"), str):
+            result["model"] = default["id"]
+    if isinstance(limits, dict):
+        usage = _openai_usage(limits)
+        if usage:
+            result["usage"] = usage
+    return result
 
 
 # --- лимиты подписки claude.ai ---------------------------------------
@@ -651,6 +722,7 @@ def list_accounts() -> list[dict]:
     # а аккаунтов на OAuth-логине может оказаться больше одного.
     usage = anthropic_usage()
     identity = anthropic_identity()
+    openai_identity: dict | None = None
     accounts = []
     for path in sorted(glob.glob(os.path.join(CLAUDE_DIR, "settings*.json"))):
         filename = os.path.basename(path)
@@ -664,6 +736,7 @@ def list_accounts() -> list[dict]:
             "baseUrl": info["baseUrl"],
             "model": info["model"],
             "oauth": info["oauth"],
+            "provider": info["provider"],
         }
         # Лимиты принадлежат логину claude.ai, а не активному аккаунту:
         # пока сессия идёт через стороннего провайдера, они не тратятся,
@@ -673,6 +746,10 @@ def list_accounts() -> list[dict]:
             if usage:
                 entry["usage"] = usage
             entry.update(identity)
+        elif info["provider"] == "openai":
+            if openai_identity is None:
+                openai_identity = openai_account()
+            entry.update(openai_identity)
         accounts.append(entry)
 
     # Базовый аккаунт первым, остальные по алфавиту.

@@ -373,6 +373,7 @@ emojiAutoReplace = true
 #   settings.json       Anthropic (базовый)
 #   settings_glm.json   Z.AI
 #   settings_api.json   и любые другие settings_*.json
+#   settings_openai.json OpenAI через локальный Codex App Server
 # Список собирается сканированием по маске, поэтому добавленный руками
 # файл появляется в панели сам, без правки кода.
 #

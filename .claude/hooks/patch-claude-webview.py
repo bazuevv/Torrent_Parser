@@ -765,7 +765,9 @@ def _server_sources_mtime() -> float:
     here = os.path.dirname(HTTP_SERVER_SCRIPT)
     newest = 0.0
     for name in ("http-server.py", "cache_usage.py", "hook_log.py",
-                 "account_switcher.py", "limit_alert.py"):
+                 "account_switcher.py", "codex_bridge_manager.py",
+                 "codex_anthropic_bridge.py", "codex_app_server.py",
+                 "limit_alert.py"):
         try:
             newest = max(newest, os.path.getmtime(os.path.join(here, name)))
         except OSError:
