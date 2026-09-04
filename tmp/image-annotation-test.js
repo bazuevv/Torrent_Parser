@@ -112,6 +112,16 @@ check('повторный скан не дублирует кнопку', (() =>
   return preview.children.filter((child) => child.textContent === '✎').length === 1
     && preview.children.filter((child) => child.className === 'claude-image-preview-zoom').length === 1;
 })());
+const previewEdit = preview.children.find((child) => child.textContent === '✎');
+let unarmedClickStopped = false;
+previewEdit.listeners.click({
+  detail: 1,
+  preventDefault() {},
+  stopPropagation() { unarmedClickStopped = true; },
+  stopImmediatePropagation() {},
+});
+check('click открытия миниатюры не переходит в редактор',
+  unarmedClickStopped && previewEdit.listeners.pointerdown instanceof Function);
 
 const api = window.__claudeImageAnnotation._test;
 check('имя PNG добавляет суффикс', api.annotatedName('mockup.jpg') === 'mockup-annotated.png');
@@ -222,6 +232,9 @@ check('колесо подключено и к Canvas-редактору',
     && block.includes("setEditorZoom(wheelZoom(editorZoom, event.deltaY)"));
 check('pinch подключён и к Canvas-редактору',
   block.includes('pinch.zoom * touchDistance(touchPoints) / pinch.distance'));
+check('перед редактором штатный preview закрывается',
+  block.includes("button[class*=\"previewCloseButton_\"]")
+    && block.includes('setTimeout(function () { openEditor(thumb); }, 0)'));
 
 function fakeContext() {
   const calls = [];

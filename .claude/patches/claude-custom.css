@@ -2218,6 +2218,7 @@
 
 .claude-image-editable {
   position: relative;
+  width: fit-content;
 }
 
 /* Штатное закрытие preview стоит top:-12/right:-12. Редактор ставим

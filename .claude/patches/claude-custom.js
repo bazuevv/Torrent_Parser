@@ -12004,11 +12004,28 @@
     preview.classList.add(MARK_CLASS);
     installPreviewZoom(preview, sourceImg);
     if (preview.querySelector('.' + EDIT_CLASS)) return;
+    var pointerArmed = false;
     var edit = button('✎', EDIT_CLASS, 'Редактировать изображение', function (event) {
       event.preventDefault();
       event.stopPropagation();
       if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-      openEditor(thumb);
+      // Preview может смонтироваться синхронно в ответ на тот же click,
+      // которым пользователь открыл миниатюру. Требуем отдельный
+      // pointerdown именно на уже существующей кнопке; detail=0 оставляет
+      // доступным запуск с клавиатуры.
+      if (!pointerArmed && event.detail !== 0) return;
+      pointerArmed = false;
+      var closePreview = preview.querySelector('button[class*="previewCloseButton_"]');
+      if (closePreview) closePreview.click();
+      // React снимает штатный preview после обработчика close. Следующий
+      // task гарантирует, что редактор не окажется под его z-index и не
+      // унаследует чужие кнопки ✎/× по краям экрана.
+      setTimeout(function () { openEditor(thumb); }, 0);
+    });
+    edit.addEventListener('pointerdown', function (event) {
+      pointerArmed = true;
+      event.preventDefault();
+      event.stopPropagation();
     });
     edit.addEventListener('mousedown', function (event) {
       event.preventDefault();
