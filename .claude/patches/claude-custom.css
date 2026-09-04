@@ -2642,11 +2642,10 @@
   padding: 0;
   border: 1px solid rgba(0, 0, 0, 0.4);
   border-radius: 50%;
-  /* Сигнальный жёлтый фон, квадрат — белый (выбор пользователя:
-   * тёмный на жёлтом читался как «чёрная дыра»). Контраст пары
-   * невысок, но плашка крупная и жёлтый от белого отличим. */
+  /* Сигнальный жёлтый фон, квадрат — #178aff (подобран на стенде
+   * tmp/stop-button-color-picker.html). */
   background: #ffcc00;
-  color: #fff;
+  color: #178aff;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
   cursor: pointer;
   transform: translateX(-50%);
