@@ -32,6 +32,21 @@ class PromptConversionTests(unittest.TestCase):
         self.assertIn("<assistant>\nOld\n</assistant>", prompt)
         self.assertTrue(prompt.endswith("<assistant>\n"))
 
+    def test_system_role_inside_messages_keeps_privileged_precedence(self):
+        developer, prompt = build_prompt({
+            "messages": [
+                {"role": "system", "content": "Internal context"},
+                {"role": "developer", "content": [{
+                    "type": "text", "text": "Extension instruction",
+                }]},
+                {"role": "user", "content": "Tell me about yourself"},
+            ],
+        })
+        self.assertIn("SYSTEM MESSAGE FROM CLAUDE CODE:\nInternal context", developer)
+        self.assertIn("DEVELOPER MESSAGE FROM CLAUDE CODE", developer)
+        self.assertNotIn("<system>", prompt)
+        self.assertIn("<user>\nTell me about yourself\n</user>", prompt)
+
     def test_tool_history_is_preserved(self):
         _, prompt = build_prompt({
             "messages": [

@@ -98,15 +98,25 @@ def build_prompt(payload: dict[str, Any]) -> tuple[str, str]:
     if not isinstance(messages, list) or not messages:
         raise BridgeError("messages must be a non-empty array")
     rendered: list[str] = []
+    privileged: list[tuple[str, str]] = []
     for message in messages:
         if not isinstance(message, dict):
             raise BridgeError("each message must be an object")
         role = message.get("role")
-        if role not in ("user", "assistant"):
+        if role not in ("system", "developer", "user", "assistant"):
             raise BridgeError(f"unsupported message role: {role!r}")
         content = message.get("content")
         text = _render_content(content)
+        # Claude Code 2.1.220 may put additional privileged context in
+        # `messages` instead of the top-level Anthropic `system` field.
+        # Keep its precedence: it belongs in developerInstructions, not
+        # among quoted user/assistant conversation turns.
+        if role in ("system", "developer"):
+            privileged.append((role, text))
+            continue
         rendered.append(f"<{role}>\n{text}\n</{role}>")
+    for role, text in privileged:
+        developer += f"\n\n{role.upper()} MESSAGE FROM CLAUDE CODE:\n{text}"
     rendered.append("<assistant>\n")
     return developer, "\n\n".join(rendered)
 
