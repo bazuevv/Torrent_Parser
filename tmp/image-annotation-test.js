@@ -88,17 +88,23 @@ const sourceImage = { src: 'data:image/png;base64,AAAA' };
 const thumb = fakeElement('div');
 thumb.querySelector = (selector) => {
   if (selector === 'img') return sourceImage;
+  return null;
+};
+const preview = fakeElement('div');
+preview.querySelector = (selector) => {
+  if (selector === 'img[class*="previewImage_"]') return sourceImage;
   if (selector === '.claude-image-edit-btn') {
-    return thumb.children.find((child) => child.className === 'claude-image-edit-btn') || null;
+    return preview.children.find((child) => child.className === 'claude-image-edit-btn') || null;
   }
   return null;
 };
-registered.scan({ imageAttachments: [thumb] });
-check('на миниатюру добавлена одна кнопка редактирования',
-  thumb.children.length === 1 && thumb.children[0].textContent === '✎');
+registered.scan({ imageAttachments: [thumb], imagePreviews: [preview] });
+check('на миниатюре кнопки редактирования больше нет', thumb.children.length === 0);
+check('в preview добавлена одна кнопка редактирования',
+  preview.children.length === 1 && preview.children[0].textContent === '✎');
 check('повторный скан не дублирует кнопку', (() => {
-  registered.scan({ imageAttachments: [thumb] });
-  return thumb.children.length === 1;
+  registered.scan({ imageAttachments: [thumb], imagePreviews: [preview] });
+  return preview.children.length === 1;
 })());
 
 const api = window.__claudeImageAnnotation._test;
@@ -173,6 +179,10 @@ check('эллипс выбирается по внутренней област�
   }, { x: 30, y: 40 }, 2));
 check('в панели объявлен инструмент выбора',
   block.includes("['select', '↖', 'Выбор и перемещение']"));
+check('ПКМ всегда включает перемещение',
+  block.includes("event.button === 2 || tool === 'select'"));
+check('контекстное меню холста отключено',
+  block.includes("canvas.addEventListener('contextmenu'"));
 
 function fakeContext() {
   const calls = [];

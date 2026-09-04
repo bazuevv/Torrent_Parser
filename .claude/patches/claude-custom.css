@@ -2213,34 +2213,31 @@
 }
 
 /* ============================================================
- * IMAGE ANNOTATION EDITOR — кнопка на вложении и Canvas-редактор
+ * IMAGE ANNOTATION EDITOR — кнопка в preview и Canvas-редактор
  * ============================================================ */
 
 .claude-image-editable {
   position: relative;
-  /* Штатный pill вложения имеет высоту всего 24px и overflow:hidden.
-   * Освобождаем слева место под кнопку, не перекрывая имя файла. */
-  padding-left: 27px !important;
 }
 
-/* Левый верхний угол оставлен редактору; штатное удаление вложения
- * остаётся в правом верхнем углу. */
+/* Штатное закрытие preview стоит top:-12/right:-12. Редактор ставим
+ * симметрично слева — вне изображения и без изменения его размеров. */
 .claude-image-edit-btn {
   position: absolute;
   z-index: 4;
-  top: 2px;
-  left: 3px;
+  top: -12px;
+  left: -12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.52);
   border-radius: 50%;
   background: rgba(24, 24, 27, 0.82);
   color: #fff;
-  font: 13px/1 sans-serif;
+  font: 17px/1 sans-serif;
   cursor: pointer;
   opacity: 0.9;
   transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
@@ -2439,6 +2436,10 @@
 
 .claude-image-editor-canvas[data-tool="select"] {
   cursor: move;
+}
+
+.claude-image-editor-canvas[data-dragging="true"] {
+  cursor: grabbing;
 }
 
 .claude-image-editor-canvas:focus {

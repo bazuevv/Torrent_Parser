@@ -2589,6 +2589,7 @@
       imageAttachments: document.querySelectorAll(
         '[class*="attachedFilesContainer_"] [class*="pill_"]'
       ),
+      imagePreviews: document.querySelectorAll('[class*="previewContainer_"]'),
     };
   }
 
@@ -2666,7 +2667,7 @@
    *
    * Проверка стоит `closest` на запись — десятки шагов вверх по
    * дереву против восьми обходов всего документа. */
-  var RELEVANT = '[class*="inputContainer_"], [class*="inputFooter_"], [class*="sessionItem_"], [class*="attachedFilesContainer_"], [class*="pill_"]';
+  var RELEVANT = '[class*="inputContainer_"], [class*="inputFooter_"], [class*="sessionItem_"], [class*="attachedFilesContainer_"], [class*="pill_"], [class*="previewOverlay_"], [class*="previewContainer_"]';
 
   function isRelevant(m) {
     var target = m.target;
@@ -11120,10 +11121,10 @@
 /* ============================================================
  * IMAGE ANNOTATION EDITOR — ручная разметка вложений
  *
- * Добавляет кнопку ✎ в левый верхний угол миниатюры прикреплённого
- * изображения. Редактор живёт целиком внутри webview: исходник уже
- * доступен как data URL, Canvas рисует поверх него в родном разрешении,
- * а результат возвращается штатному React-композеру как новый File.
+ * Добавляет кнопку ✎ в левый верхний угол открытого штатного preview
+ * прикреплённого изображения. Редактор живёт целиком внутри webview:
+ * исходник уже доступен как data URL, Canvas рисует поверх него в родном
+ * разрешении, а результат возвращается React-композеру как новый File.
  *
  * Исходник удаляется только после того, как новая миниатюра появилась
  * в DOM. При ошибке добавления исходное вложение остаётся на месте.
@@ -11141,6 +11142,8 @@
   // частях интерфейса, а редактор относится только к ещё не отправленным
   // вложениям активного поля ввода.
   var THUMB_SELECTOR = '[class*="attachedFilesContainer_"] [class*="pill_"]';
+  var PREVIEW_SELECTOR = '[class*="previewContainer_"]';
+  var PREVIEW_IMAGE_SELECTOR = 'img[class*="previewImage_"]';
   var COMPOSER_SELECTOR = '[role="textbox"][contenteditable]';
   var active = null;
 
@@ -11166,6 +11169,21 @@
     var img = thumb && thumb.querySelector('img');
     if (!img || !/^data:image\//i.test(img.src || '')) return null;
     return img;
+  }
+
+  function previewImageOf(preview) {
+    var img = preview && preview.querySelector(PREVIEW_IMAGE_SELECTOR);
+    if (!img || !/^data:image\//i.test(img.src || '')) return null;
+    return img;
+  }
+
+  function thumbForSource(sourceUrl, thumbs) {
+    var candidates = thumbs || document.querySelectorAll(THUMB_SELECTOR);
+    for (var i = 0; i < candidates.length; i++) {
+      var img = imageOf(candidates[i]);
+      if (img && img.src === sourceUrl) return candidates[i];
+    }
+    return null;
   }
 
   function closeEditor() {
@@ -11563,12 +11581,20 @@
       return Number(widthInput.value) * scale;
     }
 
-    canvas.addEventListener('pointerdown', function (event) {
-      if (event.button !== 0 || !base.naturalWidth) return;
+    canvas.addEventListener('contextmenu', function (event) {
+      // ПКМ зарезервирована для перемещения. Не позволяем webview/VSCode
+      // открыть поверх жеста штатное контекстное меню.
       event.preventDefault();
-      canvas.setPointerCapture(event.pointerId);
+      event.stopPropagation();
+      if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+    });
+    canvas.addEventListener('pointerdown', function (event) {
+      if ((event.button !== 0 && event.button !== 2) || !base.naturalWidth) return;
+      event.preventDefault();
       var p = point(event);
-      if (tool === 'select') {
+      // Правая кнопка всегда выбирает/двигает, какой бы инструмент ни
+      // был активен. Левая делает то же только в явном режиме select.
+      if (event.button === 2 || tool === 'select') {
         selectedIndex = -1;
         var tolerance = 8 * (canvas.width / Math.max(1, canvas.getBoundingClientRect().width));
         for (var i = actions.length - 1; i >= 0; i--) {
@@ -11580,9 +11606,14 @@
           before: cloneAction(actions[selectedIndex]),
         } : null;
         drawing = !!drag;
+        if (drag) {
+          canvas.setPointerCapture(event.pointerId);
+          canvas.dataset.dragging = 'true';
+        }
         render();
         return;
       }
+      canvas.setPointerCapture(event.pointerId);
       draft = { tool: tool, color: color, width: strokeWidth(), start: p, end: p, points: [p] };
       drawing = true;
       render();
@@ -11625,6 +11656,7 @@
           actions[drag.index] = cloneAction(drag.before);
         }
         drag = null;
+        delete canvas.dataset.dragging;
         render();
         updateHistory();
         return;
@@ -11724,9 +11756,12 @@
     base.src = sourceImg.src;
   }
 
-  function addEditButton(thumb) {
-    if (!imageOf(thumb) || thumb.querySelector('.' + EDIT_CLASS)) return;
-    thumb.classList.add(MARK_CLASS);
+  function addEditButton(preview, thumbs) {
+    var sourceImg = previewImageOf(preview);
+    if (!sourceImg || preview.querySelector('.' + EDIT_CLASS)) return;
+    var thumb = thumbForSource(sourceImg.src, thumbs);
+    if (!thumb) return;
+    preview.classList.add(MARK_CLASS);
     var edit = button('✎', EDIT_CLASS, 'Редактировать изображение', function (event) {
       event.preventDefault();
       event.stopPropagation();
@@ -11737,12 +11772,13 @@
       event.preventDefault();
       event.stopPropagation();
     });
-    thumb.insertBefore(edit, thumb.firstChild);
+    preview.insertBefore(edit, preview.firstChild);
   }
 
   function scan(ctx) {
     var thumbs = (ctx && ctx.imageAttachments) || document.querySelectorAll(THUMB_SELECTOR);
-    for (var i = 0; i < thumbs.length; i++) addEditButton(thumbs[i]);
+    var previews = (ctx && ctx.imagePreviews) || document.querySelectorAll(PREVIEW_SELECTOR);
+    for (var i = 0; i < previews.length; i++) addEditButton(previews[i], thumbs);
     if (active && active.thumb && !document.body.contains(active.thumb)) closeEditor();
   }
 
