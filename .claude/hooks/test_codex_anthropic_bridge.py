@@ -6,8 +6,11 @@ import unittest
 
 from codex_anthropic_bridge import (
     BridgeError,
+    DynamicToolCall,
     TextTurn,
     build_prompt,
+    collect_message,
+    dynamic_tools,
     message_object,
     stream_events,
 )
@@ -27,13 +30,29 @@ class PromptConversionTests(unittest.TestCase):
         self.assertIn("<assistant>\nOld\n</assistant>", prompt)
         self.assertTrue(prompt.endswith("<assistant>\n"))
 
-    def test_non_text_content_is_rejected(self):
-        with self.assertRaisesRegex(BridgeError, "text content only"):
-            build_prompt({
-                "messages": [{"role": "user", "content": [
-                    {"type": "image", "source": {"data": "..."}},
-                ]}],
-            })
+    def test_tool_history_is_preserved(self):
+        _, prompt = build_prompt({
+            "messages": [
+                {"role": "assistant", "content": [{
+                    "type": "tool_use", "id": "call_1", "name": "Read",
+                    "input": {"file_path": "/tmp/a"},
+                }]},
+                {"role": "user", "content": [{
+                    "type": "tool_result", "tool_use_id": "call_1",
+                    "content": "contents",
+                }]},
+            ],
+        })
+        self.assertIn('<tool_use id="call_1" name="Read">', prompt)
+        self.assertIn('<tool_result id="call_1" is_error="false">', prompt)
+
+    def test_dynamic_tool_schema_conversion(self):
+        result = dynamic_tools({"tools": [{
+            "name": "Read", "description": "Read a file",
+            "input_schema": {"type": "object", "required": ["file_path"]},
+        }]})
+        self.assertEqual(result[0]["type"], "function")
+        self.assertEqual(result[0]["inputSchema"]["required"], ["file_path"])
 
 
 class AnthropicResponseTests(unittest.TestCase):
@@ -58,6 +77,23 @@ class AnthropicResponseTests(unittest.TestCase):
         encoded = json.dumps(events)
         self.assertIn("hel", encoded)
         self.assertIn("lo", encoded)
+
+    def test_stream_emits_anthropic_tool_use(self):
+        response = __import__("queue").Queue(maxsize=1)
+        call = DynamicToolCall("call_1", "Read", {"file_path": "/tmp/a"}, response)
+        turn = TextTurn("msg_1", "gpt-test", iter([call]))
+        events = list(stream_events(turn))
+        encoded = json.dumps(events)
+        self.assertIn("tool_use", encoded)
+        self.assertIn("input_json_delta", encoded)
+        self.assertEqual(events[-2][1]["delta"]["stop_reason"], "tool_use")
+
+    def test_non_streaming_tool_use(self):
+        response = __import__("queue").Queue(maxsize=1)
+        call = DynamicToolCall("call_1", "Bash", {"command": "pwd"}, response)
+        message = collect_message(TextTurn("msg_1", "gpt-test", iter([call])))
+        self.assertEqual(message["stop_reason"], "tool_use")
+        self.assertEqual(message["content"][0]["name"], "Bash")
 
 
 if __name__ == "__main__":

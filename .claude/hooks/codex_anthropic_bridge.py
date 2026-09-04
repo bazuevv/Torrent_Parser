@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Loopback-only Anthropic Messages facade backed by Codex app-server.
 
-Phase 69.2 implements text requests and text streaming. Tool calls are added in
-the next phase. OAuth remains wholly owned by the official Codex process.
+Anthropic tools are exposed as Codex dynamic tools. OAuth remains wholly owned
+by the official Codex process.
 """
 
 from __future__ import annotations
@@ -26,9 +26,11 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18924
 DEFAULT_REQUEST_TIMEOUT = 600.0
 BRIDGE_INSTRUCTIONS = """You are providing the model response inside Claude Code.
-Return only the answer to the conversation supplied by the user. Do not discuss
-this bridge, do not call built-in Codex tools, and do not inspect the filesystem.
-Follow the supplied system instructions and conversation faithfully."""
+Return only the answer to the conversation supplied by the user. Never call
+built-in Codex tools and never inspect the filesystem directly. When dynamic
+tools are supplied, they are Claude Code's tools: call them whenever the task
+requires tool use. Follow the supplied system instructions and conversation
+faithfully."""
 
 
 class BridgeError(RuntimeError):
@@ -49,8 +51,39 @@ def _text_blocks(value: Any) -> str:
     return "\n".join(chunks)
 
 
+def _render_content(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, list):
+        return ""
+    rendered: list[str] = []
+    for block in value:
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type")
+        if block_type == "text" and isinstance(block.get("text"), str):
+            rendered.append(block["text"])
+        elif block_type == "tool_use":
+            rendered.append(
+                f'<tool_use id="{block.get("id", "")}" '
+                f'name="{block.get("name", "")}">\n'
+                f'{json.dumps(block.get("input", {}), ensure_ascii=False)}\n'
+                "</tool_use>"
+            )
+        elif block_type == "tool_result":
+            content = _text_blocks(block.get("content"))
+            rendered.append(
+                f'<tool_result id="{block.get("tool_use_id", "")}" '
+                f'is_error="{str(bool(block.get("is_error"))).lower()}">\n'
+                f"{content}\n</tool_result>"
+            )
+        else:
+            raise BridgeError(f"unsupported content block: {block_type!r}")
+    return "\n".join(rendered)
+
+
 def build_prompt(payload: dict[str, Any]) -> tuple[str, str]:
-    """Convert a text-only Anthropic request to Codex instructions and input."""
+    """Convert an Anthropic conversation to Codex instructions and input."""
     system = _text_blocks(payload.get("system"))
     developer = BRIDGE_INSTRUCTIONS
     if system:
@@ -67,9 +100,7 @@ def build_prompt(payload: dict[str, Any]) -> tuple[str, str]:
         if role not in ("user", "assistant"):
             raise BridgeError(f"unsupported message role: {role!r}")
         content = message.get("content")
-        text = _text_blocks(content)
-        if not text and content not in ("", []):
-            raise BridgeError("phase 69.2 supports text content only")
+        text = _render_content(content)
         rendered.append(f"<{role}>\n{text}\n</{role}>")
     rendered.append("<assistant>\n")
     return developer, "\n\n".join(rendered)
@@ -81,6 +112,28 @@ def select_model(payload: dict[str, Any]) -> str | None:
         return requested
     configured = os.environ.get("CODEX_BRIDGE_MODEL", "").strip()
     return configured or None
+
+
+def dynamic_tools(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    tools = payload.get("tools")
+    if tools is None:
+        return []
+    if not isinstance(tools, list):
+        raise BridgeError("tools must be an array")
+    converted: list[dict[str, Any]] = []
+    for tool in tools:
+        if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
+            raise BridgeError("each tool must have a name")
+        schema = tool.get("input_schema", {"type": "object"})
+        if not isinstance(schema, dict):
+            raise BridgeError(f"tool {tool['name']!r} has an invalid input_schema")
+        converted.append({
+            "type": "function",
+            "name": tool["name"],
+            "description": str(tool.get("description", "")),
+            "inputSchema": schema,
+        })
+    return converted
 
 
 class EventRouter:
@@ -113,7 +166,24 @@ class EventRouter:
 class TextTurn:
     message_id: str
     model: str
-    chunks: Iterator[str]
+    chunks: Iterator[Any]
+
+
+@dataclass
+class DynamicToolCall:
+    call_id: str
+    name: str
+    arguments: dict[str, Any]
+    _response: queue.Queue[dict[str, Any]]
+
+    def defer(self) -> None:
+        self._response.put({
+            "contentItems": [{
+                "type": "inputText",
+                "text": "Execution is delegated to Claude Code in the next API request.",
+            }],
+            "success": False,
+        })
 
 
 class CodexTextBackend:
@@ -122,7 +192,12 @@ class CodexTextBackend:
     def __init__(self, *, timeout: float = DEFAULT_REQUEST_TIMEOUT) -> None:
         self.timeout = timeout
         self.router = EventRouter()
-        self.client = CodexAppServerClient(notification_handler=self.router.dispatch)
+        self._tool_lock = threading.Lock()
+        self._tool_queues: dict[str, queue.Queue[DynamicToolCall]] = {}
+        self.client = CodexAppServerClient(
+            notification_handler=self.router.dispatch,
+            server_request_handler=self._handle_server_request,
+        )
 
     def start(self) -> "CodexTextBackend":
         self.client.start()
@@ -144,6 +219,9 @@ class CodexTextBackend:
         }
         if model:
             params["model"] = model
+        tools = dynamic_tools(payload)
+        if tools:
+            params["dynamicTools"] = tools
         started = self.client.request("thread/start", params)
         thread = started.get("thread") if isinstance(started, dict) else None
         thread_id = thread.get("id") if isinstance(thread, dict) else None
@@ -151,6 +229,9 @@ class CodexTextBackend:
             raise BridgeError("thread/start returned no thread id")
         actual_model = thread.get("model") or model or "codex"
         events = self.router.register(thread_id)
+        tool_calls: queue.Queue[DynamicToolCall] = queue.Queue()
+        with self._tool_lock:
+            self._tool_queues[thread_id] = tool_calls
         try:
             turn = self.client.request("turn/start", {
                 "threadId": thread_id,
@@ -158,22 +239,58 @@ class CodexTextBackend:
             })
         except Exception:
             self.router.unregister(thread_id)
+            with self._tool_lock:
+                self._tool_queues.pop(thread_id, None)
             raise
         turn_obj = turn.get("turn") if isinstance(turn, dict) else None
         turn_id = turn_obj.get("id") if isinstance(turn_obj, dict) else None
         return TextTurn(
             message_id="msg_" + uuid.uuid4().hex,
             model=str(actual_model),
-            chunks=self._chunks(thread_id, turn_id, events),
+            chunks=self._chunks(thread_id, turn_id, events, tool_calls),
         )
+
+    def _handle_server_request(self, message: dict[str, Any]) -> dict[str, Any]:
+        method = message.get("method")
+        if method != "item/tool/call":
+            raise BridgeError(f"unsupported Codex server request: {method}")
+        params = message.get("params")
+        if not isinstance(params, dict):
+            raise BridgeError("dynamic tool request has no params")
+        thread_id = params.get("threadId")
+        with self._tool_lock:
+            target = self._tool_queues.get(thread_id)
+        if target is None:
+            raise BridgeError("dynamic tool request belongs to an inactive thread")
+        arguments = params.get("arguments", {})
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError as exc:
+                raise BridgeError(f"invalid dynamic tool arguments: {exc}") from exc
+        if not isinstance(arguments, dict):
+            raise BridgeError("dynamic tool arguments must be an object")
+        response: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
+        target.put(DynamicToolCall(
+            call_id=str(params.get("callId") or "toolu_" + uuid.uuid4().hex),
+            name=str(params.get("tool") or ""),
+            arguments=arguments,
+            _response=response,
+        ))
+        try:
+            return response.get(timeout=self.timeout)
+        except queue.Empty as exc:
+            raise BridgeError("Claude Code did not accept the dynamic tool call") from exc
 
     def _chunks(
         self,
         thread_id: str,
         turn_id: str | None,
         events: queue.Queue[dict[str, Any]],
-    ) -> Iterator[str]:
+        tool_calls: queue.Queue[DynamicToolCall],
+    ) -> Iterator[Any]:
         deadline = time.monotonic() + self.timeout
+        delegated: DynamicToolCall | None = None
         try:
             while True:
                 remaining = deadline - time.monotonic()
@@ -182,7 +299,14 @@ class CodexTextBackend:
                         self.client.request("turn/interrupt", {"threadId": thread_id})
                     raise BridgeError("Codex turn timed out")
                 try:
-                    event = events.get(timeout=min(remaining, 1.0))
+                    delegated = tool_calls.get_nowait()
+                except queue.Empty:
+                    delegated = None
+                if delegated is not None:
+                    yield delegated
+                    return
+                try:
+                    event = events.get(timeout=min(remaining, 0.1))
                 except queue.Empty:
                     continue
                 method = event.get("method")
@@ -204,17 +328,33 @@ class CodexTextBackend:
                     error = params.get("error") or {}
                     raise BridgeError(error.get("message") or "Codex turn failed")
         finally:
+            if delegated is not None:
+                delegated.defer()
+                if turn_id:
+                    try:
+                        self.client.request("turn/interrupt", {"threadId": thread_id})
+                    except CodexAppServerError:
+                        pass
             self.router.unregister(thread_id)
+            with self._tool_lock:
+                self._tool_queues.pop(thread_id, None)
 
 
-def message_object(message_id: str, model: str, text: str) -> dict[str, Any]:
+def message_object(
+    message_id: str,
+    model: str,
+    text: str = "",
+    *,
+    content: list[dict[str, Any]] | None = None,
+    stop_reason: str = "end_turn",
+) -> dict[str, Any]:
     return {
         "id": message_id,
         "type": "message",
         "role": "assistant",
-        "content": [{"type": "text", "text": text}],
+        "content": content if content is not None else [{"type": "text", "text": text}],
         "model": model,
-        "stop_reason": "end_turn",
+        "stop_reason": stop_reason,
         "stop_sequence": None,
         "usage": {"input_tokens": 0, "output_tokens": 0},
     }
@@ -227,22 +367,90 @@ def stream_events(turn: TextTurn) -> Iterator[tuple[str, dict[str, Any]]]:
             "content": [], "stop_reason": None,
         },
     }
-    yield "content_block_start", {
-        "type": "content_block_start", "index": 0,
-        "content_block": {"type": "text", "text": ""},
-    }
-    for chunk in turn.chunks:
-        yield "content_block_delta", {
-            "type": "content_block_delta", "index": 0,
-            "delta": {"type": "text_delta", "text": chunk},
+    index = 0
+    text_open = False
+    emitted = False
+    stop_reason = "end_turn"
+    chunks = turn.chunks
+    for chunk in chunks:
+        if isinstance(chunk, str):
+            if not text_open:
+                yield "content_block_start", {
+                    "type": "content_block_start", "index": index,
+                    "content_block": {"type": "text", "text": ""},
+                }
+                text_open = True
+                emitted = True
+            yield "content_block_delta", {
+                "type": "content_block_delta", "index": index,
+                "delta": {"type": "text_delta", "text": chunk},
+            }
+        elif isinstance(chunk, DynamicToolCall):
+            if text_open:
+                yield "content_block_stop", {"type": "content_block_stop", "index": index}
+                index += 1
+                text_open = False
+            emitted = True
+            yield "content_block_start", {
+                "type": "content_block_start", "index": index,
+                "content_block": {
+                    "type": "tool_use", "id": chunk.call_id,
+                    "name": chunk.name, "input": {},
+                },
+            }
+            yield "content_block_delta", {
+                "type": "content_block_delta", "index": index,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": json.dumps(chunk.arguments, ensure_ascii=False),
+                },
+            }
+            yield "content_block_stop", {"type": "content_block_stop", "index": index}
+            stop_reason = "tool_use"
+            break
+    if hasattr(chunks, "close"):
+        chunks.close()
+    if text_open:
+        yield "content_block_stop", {"type": "content_block_stop", "index": index}
+    elif not emitted:
+        yield "content_block_start", {
+            "type": "content_block_start", "index": index,
+            "content_block": {"type": "text", "text": ""},
         }
-    yield "content_block_stop", {"type": "content_block_stop", "index": 0}
+        yield "content_block_stop", {"type": "content_block_stop", "index": index}
     yield "message_delta", {
         "type": "message_delta",
-        "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+        "delta": {"stop_reason": stop_reason, "stop_sequence": None},
         "usage": {"output_tokens": 0},
     }
     yield "message_stop", {"type": "message_stop"}
+
+
+def collect_message(turn: TextTurn) -> dict[str, Any]:
+    content: list[dict[str, Any]] = []
+    text: list[str] = []
+    stop_reason = "end_turn"
+    chunks = turn.chunks
+    for chunk in chunks:
+        if isinstance(chunk, str):
+            text.append(chunk)
+        elif isinstance(chunk, DynamicToolCall):
+            if text:
+                content.append({"type": "text", "text": "".join(text)})
+                text.clear()
+            content.append({
+                "type": "tool_use", "id": chunk.call_id,
+                "name": chunk.name, "input": chunk.arguments,
+            })
+            stop_reason = "tool_use"
+            break
+    if hasattr(chunks, "close"):
+        chunks.close()
+    if text or not content:
+        content.append({"type": "text", "text": "".join(text)})
+    return message_object(
+        turn.message_id, turn.model, content=content, stop_reason=stop_reason,
+    )
 
 
 class BridgeHttpServer(http.server.ThreadingHTTPServer):
@@ -291,9 +499,7 @@ class BridgeHandler(http.server.BaseHTTPRequestHandler):
             if payload.get("stream") is True:
                 self._stream(turn)
             else:
-                self._json(200, message_object(
-                    turn.message_id, turn.model, "".join(turn.chunks)
-                ))
+                self._json(200, collect_message(turn))
         except (BridgeError, CodexAppServerError, json.JSONDecodeError) as exc:
             self._json(400, {"type": "error", "error": {
                 "type": "api_error", "message": str(exc),
