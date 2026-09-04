@@ -16,7 +16,7 @@ import queue
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 from codex_app_server import CodexAppServerClient, CodexAppServerError
@@ -238,6 +238,97 @@ def prepare_dynamic_tools(
     return prepared, original_names
 
 
+def claude_session_key(payload: dict[str, Any]) -> str | None:
+    """Extract the stable Claude Code session id from Anthropic metadata."""
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    direct = metadata.get("session_id")
+    if isinstance(direct, str) and direct:
+        return direct
+    user_id = metadata.get("user_id")
+    if not isinstance(user_id, str) or not user_id:
+        return None
+    try:
+        decoded = json.loads(user_id)
+    except json.JSONDecodeError:
+        return None
+    session_id = decoded.get("session_id") if isinstance(decoded, dict) else None
+    return session_id if isinstance(session_id, str) and session_id else None
+
+
+def _message_fingerprints(payload: dict[str, Any]) -> list[str]:
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        raise BridgeError("messages must be a non-empty array")
+    return [json.dumps(item, ensure_ascii=False, sort_keys=True) for item in messages]
+
+
+def _followup_payload(
+    payload: dict[str, Any], previous: list[str],
+) -> dict[str, Any] | None:
+    """Return only newly appended user input, or None after history rewrite."""
+    current = _message_fingerprints(payload)
+    if len(current) < len(previous) or current[:len(previous)] != previous:
+        return None
+    messages = payload.get("messages") or []
+    suffix = messages[len(previous):]
+    user_messages = [
+        item for item in suffix
+        if isinstance(item, dict) and item.get("role") == "user"
+        and not _is_tool_result_only(item.get("content"))
+    ]
+    if not user_messages:
+        raise BridgeError("Claude session has no new user input")
+    result = dict(payload)
+    result["messages"] = user_messages
+    return result
+
+
+def _is_tool_result_only(content: Any) -> bool:
+    return (
+        isinstance(content, list) and bool(content)
+        and all(isinstance(block, dict) and block.get("type") == "tool_result"
+                for block in content)
+    )
+
+
+def _tool_results(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    results: dict[str, dict[str, Any]] = {}
+    for message in payload.get("messages") or []:
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            call_id = block.get("tool_use_id")
+            if isinstance(call_id, str) and call_id:
+                results[call_id] = block
+    return results
+
+
+def _dynamic_result(block: dict[str, Any]) -> dict[str, Any]:
+    content = block.get("content")
+    items: list[dict[str, Any]] = []
+    if isinstance(content, str):
+        items.append({"type": "inputText", "text": content})
+    elif isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text" and isinstance(item.get("text"), str):
+                items.append({"type": "inputText", "text": item["text"]})
+            elif item.get("type") == "image":
+                image = _image_input(item)
+                items.append({"type": "inputImage", "imageUrl": image["url"]})
+    if not items:
+        items.append({"type": "inputText", "text": ""})
+    return {"contentItems": items, "success": not bool(block.get("is_error"))}
+
+
 class EventRouter:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -278,26 +369,35 @@ class DynamicToolCall:
     arguments: dict[str, Any]
     _response: queue.Queue[dict[str, Any]]
 
-    def defer(self) -> None:
-        self._response.put({
-            "contentItems": [{
-                "type": "inputText",
-                "text": "Execution is delegated to Claude Code in the next API request.",
-            }],
-            "success": False,
-        })
+    def resolve(self, result: dict[str, Any]) -> None:
+        self._response.put(result)
+
+
+@dataclass
+class BridgeSession:
+    key: str
+    thread_id: str
+    model: str
+    events: queue.Queue[dict[str, Any]]
+    tool_calls: queue.Queue[DynamicToolCall]
+    tool_names: dict[str, str]
+    tool_signature: str
+    seen_messages: list[str]
+    active_turn_id: str | None = None
+    pending_tools: dict[str, DynamicToolCall] = field(default_factory=dict)
+    response_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 class CodexTextBackend:
-    """Run isolated text-only turns while sharing one authenticated process."""
+    """Keep one Codex thread per Claude Code session."""
 
     def __init__(self, *, timeout: float = DEFAULT_REQUEST_TIMEOUT) -> None:
         self.timeout = timeout
         self.router = EventRouter()
         self._tool_lock = threading.Lock()
-        self._tool_queues: dict[
-            str, tuple[queue.Queue[DynamicToolCall], dict[str, str]]
-        ] = {}
+        self._sessions_lock = threading.Lock()
+        self._sessions: dict[str, BridgeSession] = {}
+        self._tool_queues: dict[str, BridgeSession] = {}
         self.client = CodexAppServerClient(
             notification_handler=self.router.dispatch,
             server_request_handler=self._handle_server_request,
@@ -315,6 +415,35 @@ class CodexTextBackend:
         return _safe_probe(self.client.snapshot())
 
     def begin(self, payload: dict[str, Any]) -> TextTurn:
+        stable_key = claude_session_key(payload)
+        key = stable_key or "request:" + uuid.uuid4().hex
+        tools, tool_names = prepare_dynamic_tools(payload)
+        tool_signature = json.dumps(tools, ensure_ascii=False, sort_keys=True)
+        with self._sessions_lock:
+            session = self._sessions.get(key)
+        if session is not None:
+            session.response_lock.acquire()
+            try:
+                return self._continue_or_start(
+                    session, payload, tools, tool_names, tool_signature,
+                )
+            except Exception:
+                if session.response_lock.locked():
+                    session.response_lock.release()
+                raise
+        return self._start_session(
+            key, payload, tools, tool_names, tool_signature, stable_key is not None,
+        )
+
+    def _start_session(
+        self,
+        key: str,
+        payload: dict[str, Any],
+        tools: list[dict[str, Any]],
+        tool_names: dict[str, str],
+        tool_signature: str,
+        persistent: bool,
+    ) -> TextTurn:
         developer, prompt, image_inputs = build_request(payload)
         model = select_model(payload)
         params: dict[str, Any] = {
@@ -327,7 +456,6 @@ class CodexTextBackend:
         }
         if model:
             params["model"] = model
-        tools, tool_names = prepare_dynamic_tools(payload)
         if tools:
             params["dynamicTools"] = tools
         started = self.client.request("thread/start", params)
@@ -336,27 +464,101 @@ class CodexTextBackend:
         if not isinstance(thread_id, str):
             raise BridgeError("thread/start returned no thread id")
         actual_model = thread.get("model") or model or "codex"
-        events = self.router.register(thread_id)
-        tool_calls: queue.Queue[DynamicToolCall] = queue.Queue()
+        session = BridgeSession(
+            key=key,
+            thread_id=thread_id,
+            model=str(actual_model),
+            events=self.router.register(thread_id),
+            tool_calls=queue.Queue(),
+            tool_names=tool_names,
+            tool_signature=tool_signature,
+            seen_messages=_message_fingerprints(payload),
+        )
+        session.response_lock.acquire()
         with self._tool_lock:
-            self._tool_queues[thread_id] = (tool_calls, tool_names)
+            self._tool_queues[thread_id] = session
+        if persistent:
+            with self._sessions_lock:
+                self._sessions[key] = session
         try:
-            turn = self.client.request("turn/start", {
-                "threadId": thread_id,
-                "input": [{"type": "text", "text": prompt}] + image_inputs,
-            })
+            self._start_turn(session, prompt, image_inputs)
         except Exception:
-            self.router.unregister(thread_id)
-            with self._tool_lock:
-                self._tool_queues.pop(thread_id, None)
+            self._discard_session(session)
+            session.response_lock.release()
             raise
+        return self._text_turn(session)
+
+    def _continue_or_start(
+        self,
+        session: BridgeSession,
+        payload: dict[str, Any],
+        tools: list[dict[str, Any]],
+        tool_names: dict[str, str],
+        tool_signature: str,
+    ) -> TextTurn:
+        if session.active_turn_id:
+            supplied = _tool_results(payload)
+            matched = 0
+            for call_id, block in supplied.items():
+                call = session.pending_tools.pop(call_id, None)
+                if call is not None:
+                    call.resolve(_dynamic_result(block))
+                    matched += 1
+            if not matched:
+                raise BridgeError("Codex turn is waiting for a Claude tool_result")
+            session.seen_messages = _message_fingerprints(payload)
+            return self._text_turn(session)
+
+        followup = _followup_payload(payload, session.seen_messages)
+        if followup is None or tool_signature != session.tool_signature:
+            self._discard_session(session)
+            with self._sessions_lock:
+                self._sessions.pop(session.key, None)
+            session.response_lock.release()
+            return self._start_session(
+                session.key, payload, tools, tool_names, tool_signature, True,
+            )
+        _developer, prompt, image_inputs = build_request(followup)
+        session.seen_messages = _message_fingerprints(payload)
+        self._start_turn(session, prompt, image_inputs)
+        return self._text_turn(session)
+
+    def _start_turn(
+        self,
+        session: BridgeSession,
+        prompt: str,
+        image_inputs: list[dict[str, Any]],
+    ) -> None:
+        turn = self.client.request("turn/start", {
+            "threadId": session.thread_id,
+            "input": [{"type": "text", "text": prompt}] + image_inputs,
+        })
         turn_obj = turn.get("turn") if isinstance(turn, dict) else None
         turn_id = turn_obj.get("id") if isinstance(turn_obj, dict) else None
+        if not isinstance(turn_id, str):
+            raise BridgeError("turn/start returned no turn id")
+        session.active_turn_id = turn_id
+
+    def _text_turn(self, session: BridgeSession) -> TextTurn:
         return TextTurn(
             message_id="msg_" + uuid.uuid4().hex,
-            model=str(actual_model),
-            chunks=self._chunks(thread_id, turn_id, events, tool_calls),
+            model=session.model,
+            chunks=self._locked_chunks(session),
         )
+
+    def _locked_chunks(self, session: BridgeSession) -> Iterator[Any]:
+        try:
+            yield from self._chunks(session)
+        finally:
+            session.response_lock.release()
+
+    def _discard_session(self, session: BridgeSession) -> None:
+        self.router.unregister(session.thread_id)
+        with self._tool_lock:
+            self._tool_queues.pop(session.thread_id, None)
+        with self._sessions_lock:
+            if self._sessions.get(session.key) is session:
+                self._sessions.pop(session.key, None)
 
     def _handle_server_request(self, message: dict[str, Any]) -> dict[str, Any]:
         method = message.get("method")
@@ -370,7 +572,6 @@ class CodexTextBackend:
             session = self._tool_queues.get(thread_id)
         if session is None:
             raise BridgeError("dynamic tool request belongs to an inactive thread")
-        target, tool_names = session
         arguments = params.get("arguments", {})
         if isinstance(arguments, str):
             try:
@@ -380,14 +581,16 @@ class CodexTextBackend:
         if not isinstance(arguments, dict):
             raise BridgeError("dynamic tool arguments must be an object")
         response: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
-        target.put(DynamicToolCall(
+        call = DynamicToolCall(
             call_id=str(params.get("callId") or "toolu_" + uuid.uuid4().hex),
-            name=tool_names.get(
+            name=session.tool_names.get(
                 str(params.get("tool") or ""), str(params.get("tool") or "")
             ),
             arguments=arguments,
             _response=response,
-        ))
+        )
+        session.pending_tools[call.call_id] = call
+        session.tool_calls.put(call)
         try:
             return response.get(timeout=self.timeout)
         except queue.Empty as exc:
@@ -395,34 +598,35 @@ class CodexTextBackend:
 
     def _chunks(
         self,
-        thread_id: str,
-        turn_id: str | None,
-        events: queue.Queue[dict[str, Any]],
-        tool_calls: queue.Queue[DynamicToolCall],
+        session: BridgeSession,
     ) -> Iterator[Any]:
         deadline = time.monotonic() + self.timeout
-        delegated: DynamicToolCall | None = None
+        delegated = False
         try:
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    if turn_id:
-                        self.client.request("turn/interrupt", {"threadId": thread_id})
+                    if session.active_turn_id:
+                        self.client.request(
+                            "turn/interrupt", {"threadId": session.thread_id},
+                        )
                     raise BridgeError("Codex turn timed out")
                 try:
-                    delegated = tool_calls.get_nowait()
+                    tool_call = session.tool_calls.get_nowait()
                 except queue.Empty:
-                    delegated = None
-                if delegated is not None:
-                    yield delegated
+                    tool_call = None
+                if tool_call is not None:
+                    delegated = True
+                    yield tool_call
                     return
                 try:
-                    event = events.get(timeout=min(remaining, 0.1))
+                    event = session.events.get(timeout=min(remaining, 0.1))
                 except queue.Empty:
                     continue
                 method = event.get("method")
                 params = event.get("params") or {}
-                if turn_id and params.get("turnId") not in (None, turn_id):
+                if (session.active_turn_id
+                        and params.get("turnId") not in (None, session.active_turn_id)):
                     continue
                 if method == "item/agentMessage/delta":
                     delta = params.get("delta")
@@ -434,21 +638,22 @@ class CodexTextBackend:
                     if status != "completed":
                         error = turn.get("error") or {}
                         raise BridgeError(error.get("message") or f"turn {status}")
+                    session.active_turn_id = None
                     return
                 elif method == "error":
                     error = params.get("error") or {}
                     raise BridgeError(error.get("message") or "Codex turn failed")
         finally:
-            if delegated is not None:
-                delegated.defer()
-                if turn_id:
-                    try:
-                        self.client.request("turn/interrupt", {"threadId": thread_id})
-                    except CodexAppServerError:
-                        pass
-            self.router.unregister(thread_id)
-            with self._tool_lock:
-                self._tool_queues.pop(thread_id, None)
+            # A yielded tool call intentionally leaves the Codex turn alive.
+            # Claude Code returns tool_result in its next Anthropic request.
+            if session.active_turn_id and not delegated:
+                try:
+                    self.client.request(
+                        "turn/interrupt", {"threadId": session.thread_id},
+                    )
+                except CodexAppServerError:
+                    pass
+                session.active_turn_id = None
 
 
 def message_object(

@@ -2,17 +2,22 @@
 """Tests for text conversion and Anthropic-compatible stream framing."""
 
 import json
+import threading
 import unittest
 from unittest import mock
 
 from codex_anthropic_bridge import (
     BridgeError,
+    CodexTextBackend,
     DynamicToolCall,
     TextTurn,
     build_prompt,
     build_request,
     collect_message,
+    claude_session_key,
     dynamic_tools,
+    _dynamic_result,
+    _followup_payload,
     message_object,
     prepare_dynamic_tools,
     stream_events,
@@ -20,6 +25,34 @@ from codex_anthropic_bridge import (
 
 
 class PromptConversionTests(unittest.TestCase):
+    def test_claude_session_id_is_extracted_from_metadata_user_id(self):
+        self.assertEqual(claude_session_key({"metadata": {"user_id": json.dumps({
+            "device_id": "device-1", "session_id": "session-42",
+        })}}), "session-42")
+
+    def test_followup_contains_only_new_user_message(self):
+        old = [{"role": "user", "content": "first"}]
+        previous = [json.dumps(old[0], ensure_ascii=False, sort_keys=True)]
+        payload = {"messages": old + [
+            {"role": "assistant", "content": "answer"},
+            {"role": "user", "content": "second"},
+        ]}
+        self.assertEqual(_followup_payload(payload, previous)["messages"], [
+            {"role": "user", "content": "second"},
+        ])
+
+    def test_rewritten_history_requests_new_thread(self):
+        payload = {"messages": [{"role": "user", "content": "summary"}]}
+        self.assertIsNone(_followup_payload(payload, ["different"]))
+
+    def test_tool_result_becomes_successful_dynamic_response(self):
+        result = _dynamic_result({
+            "type": "tool_result", "tool_use_id": "call_1",
+            "content": [{"type": "text", "text": "contents"}],
+        })
+        self.assertTrue(result["success"])
+        self.assertEqual(result["contentItems"][0]["text"], "contents")
+
     def test_system_and_conversation_are_preserved(self):
         developer, prompt = build_prompt({
             "system": [{"type": "text", "text": "Answer briefly."}],
@@ -192,6 +225,99 @@ class AnthropicResponseTests(unittest.TestCase):
         handler._json = mock.Mock()
         handler.do_POST()
         self.assertNotEqual(handler._json.call_args.args[0], 404)
+
+
+class PersistentSessionTests(unittest.TestCase):
+    class FakeClient:
+        def __init__(self):
+            self.requests = []
+            self.turn_number = 0
+
+        def request(self, method, params):
+            self.requests.append((method, params))
+            if method == "thread/start":
+                return {"thread": {"id": "thread-1", "model": "gpt-test"}}
+            if method == "turn/start":
+                self.turn_number += 1
+                return {"turn": {"id": f"turn-{self.turn_number}"}}
+            return {}
+
+    @staticmethod
+    def payload(messages):
+        return {
+            "metadata": {"user_id": json.dumps({"session_id": "claude-1"})},
+            "messages": messages,
+            "tools": [{
+                "name": "Read", "description": "Read",
+                "input_schema": {"type": "object"},
+            }],
+        }
+
+    def test_tool_result_resumes_same_codex_turn_and_thread(self):
+        backend = CodexTextBackend(timeout=1)
+        backend.client = self.FakeClient()
+        first_messages = [{"role": "user", "content": "Read a file"}]
+        first = backend.begin(self.payload(first_messages))
+        holder = {}
+
+        def request_tool():
+            holder["response"] = backend._handle_server_request({
+                "method": "item/tool/call",
+                "params": {
+                    "threadId": "thread-1", "callId": "call-1",
+                    "tool": "Read", "arguments": {"file_path": "/tmp/a"},
+                },
+            })
+
+        worker = threading.Thread(target=request_tool)
+        worker.start()
+        tool_message = collect_message(first)
+        self.assertEqual(tool_message["stop_reason"], "tool_use")
+
+        second_messages = first_messages + [
+            {"role": "assistant", "content": [{
+                "type": "tool_use", "id": "call-1", "name": "Read",
+                "input": {"file_path": "/tmp/a"},
+            }]},
+            {"role": "user", "content": [{
+                "type": "tool_result", "tool_use_id": "call-1",
+                "content": "file contents",
+            }]},
+        ]
+        second = backend.begin(self.payload(second_messages))
+        worker.join(timeout=1)
+        self.assertEqual(holder["response"]["contentItems"][0]["text"], "file contents")
+        session = backend._sessions["claude-1"]
+        session.events.put({
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": "thread-1", "turnId": "turn-1", "delta": "done"},
+        })
+        session.events.put({
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turnId": "turn-1",
+                       "turn": {"status": "completed"}},
+        })
+        self.assertEqual(collect_message(second)["content"][0]["text"], "done")
+
+        third_messages = second_messages + [
+            {"role": "assistant", "content": "done"},
+            {"role": "user", "content": "Now summarize"},
+        ]
+        third = backend.begin(self.payload(third_messages))
+        turn_starts = [params for method, params in backend.client.requests
+                       if method == "turn/start"]
+        thread_starts = [1 for method, _params in backend.client.requests
+                         if method == "thread/start"]
+        self.assertEqual(len(thread_starts), 1)
+        self.assertEqual(len(turn_starts), 2)
+        self.assertIn("Now summarize", turn_starts[-1]["input"][0]["text"])
+        self.assertNotIn("file contents", turn_starts[-1]["input"][0]["text"])
+        session.events.put({
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turnId": "turn-2",
+                       "turn": {"status": "completed"}},
+        })
+        collect_message(third)
 
 
 if __name__ == "__main__":
