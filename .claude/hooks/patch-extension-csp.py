@@ -146,6 +146,10 @@ try {
     var RELOAD = "restart-exthost-reload.json";
     var RESTART_CMD = "workbench.action.restartExtensionHost";
     var OPEN_CMD = "claude-vscode.editor.open";
+    // Команда пункта «⚙ Настройки». Имя обязано совпадать с тем,
+    // что вписывает в манифест patch-extension-settings.py, —
+    // иначе пункт в меню будет, а обработчика у него не окажется.
+    var SETTINGS_CMD = "claudeCustom.openSettings";
     var POLL_MS = 1000;
     // Пауза перед рестартом: панель Accs опрашивает ack каждые 400 мс
     // (ACK_POLL_MS в claude-custom.js) — дадим ей увидеть подтверждение
@@ -224,6 +228,87 @@ try {
      * восстанавливает ли оно панели после рестарта хоста
      * (deserializeWebviewPanel) или создаёт их заново.
      */
+    /* --- пункт «⚙ Настройки» в контекстном меню страницы -------------
+     *
+     * Пункт объявлен в манифесте расширения (это делает
+     * patch-extension-settings.py), а страница помечена атрибутом
+     * `data-vscode-context` — иначе VSCode не считает клик «нашим».
+     * Здесь остаётся обработчик: команду выполняет extension host, а
+     * панель настроек рисует webview, и между ними нужен мостик.
+     *
+     * Мостик — postMessage в webview. Файл-заявка, как у перезапуска
+     * хоста, тут не годится: её пришлось бы опрашивать, а меню должно
+     * отзываться сразу. Сообщение нарочно непохожее на протокол
+     * приложения (`__claudeCustom`), чтобы его обработчик спокойно
+     * прошёл мимо незнакомого ключа.
+     *
+     * Кому слать. Правый клик всегда происходит в той панели, которая
+     * сейчас активна, поэтому берём её по `panel.active`. Реестр
+     * пополняется в обёртках выше: панель приходит либо из
+     * createWebviewPanel, либо из deserializeWebviewPanel после
+     * восстановления, и оба пути ведут сюда.
+     */
+    var panels = [];
+
+    function remember(panel) {
+      try {
+        if (!panel || panels.indexOf(panel) !== -1) return panel;
+        panels.push(panel);
+        // Без снятия мёртвых панелей массив рос бы всю жизнь окна, а
+        // обращение к disposed-панели бросает исключение.
+        if (typeof panel.onDidDispose === "function") {
+          panel.onDidDispose(function () {
+            var i = panels.indexOf(panel);
+            if (i !== -1) panels.splice(i, 1);
+          });
+        }
+      } catch (e) {
+        log("не удалось запомнить панель: " + e);
+      }
+      return panel;
+    }
+
+    function activePanel() {
+      for (var i = 0; i < panels.length; i++) {
+        try {
+          if (panels[i] && panels[i].active) return panels[i];
+        } catch (e) {}
+      }
+      return null;
+    }
+
+    function registerSettingsCommand() {
+      try {
+        vscode.commands.registerCommand(SETTINGS_CMD, function () {
+          var panel = activePanel();
+          if (!panel) {
+            // Панель настроек живёт в webview, и без него команда
+            // бессильна. Молчать нельзя: пользователь нажал пункт меню
+            // и вправе знать, почему ничего не произошло.
+            log("команда " + SETTINGS_CMD + ": активной панели нет");
+            try {
+              vscode.window.showWarningMessage(
+                "Claude Code: не найдено активное окно чата — "
+                + "панель настроек открыть не в чем.");
+            } catch (e) {}
+            return;
+          }
+          log("команда " + SETTINGS_CMD + " → panel "
+            + JSON.stringify(String(panel.title)));
+          try {
+            panel.webview.postMessage({ __claudeCustom: "open-settings" });
+          } catch (e) {
+            log("postMessage не прошёл: " + e);
+          }
+        });
+        log("команда " + SETTINGS_CMD + " зарегистрирована");
+      } catch (e) {
+        // Повторная регистрация того же id бросает исключение — это
+        // нормально при реактивации хоста, отдельного разбора не нужно.
+        log("не удалось зарегистрировать " + SETTINGS_CMD + ": " + e);
+      }
+    }
+
     function instrumentWebviewApi() {
       try {
         var origCreate = vscode.window.createWebviewPanel;
@@ -233,7 +318,7 @@ try {
               + " title=" + JSON.stringify(String(title))
               + " retainContextWhenHidden="
               + !!(options && options.retainContextWhenHidden));
-            return origCreate.apply(vscode.window, arguments);
+            return remember(origCreate.apply(vscode.window, arguments));
           };
           wrappedCreate.__claudeWrapped = true;
           vscode.window.createWebviewPanel = wrappedCreate;
@@ -252,6 +337,7 @@ try {
                 log("deserializeWebviewPanel viewType=" + viewType
                   + " title=" + JSON.stringify(String(panel && panel.title))
                   + " state=" + (state ? "есть" : "нет"));
+                remember(panel);
                 return serializer.deserializeWebviewPanel(panel, state);
               },
             };
@@ -476,6 +562,7 @@ try {
     rotateLog();
     log("=== блок активирован ===");
     instrumentWebviewApi();
+    registerSettingsCommand();
     consumeReloadRequest();
     scan();
     var timer = setInterval(scan, POLL_MS);
