@@ -423,6 +423,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_custom_config()
             return
 
+        if self.path.split("?", 1)[0] == "/config-schema":
+            self._handle_config_schema()
+            return
+
         if self.path.split("?", 1)[0] == "/accounts":
             self._handle_accounts_get()
             return
@@ -479,6 +483,196 @@ class Handler(BaseHTTPRequestHandler):
             data = dict(_CONFIG_CACHE["data"])
 
         self._json_response(200, {"ok": True, "mtime": mtime, "config": data})
+
+    # --- панель настроек: описание конфига и запись значений --------------
+    #
+    # Панель открывается из контекстного меню страницы и правит тот же
+    # claude-custom-config.toml, что и рука. Отсюда два требования, и оба
+    # определяют устройство ниже.
+    #
+    # Первое: файл — документация. Над каждым параметром лежит абзац
+    # комментария, объясняющий, зачем он и что сломается без него; часть
+    # из них написана по следам поломок. Перезаписать файл через
+    # `tomllib` + сериализатор нельзя: tomllib комментарии не хранит, и
+    # первая же правка из панели стёрла бы весь этот текст. Поэтому
+    # запись построчная — меняется правая часть строки `ключ = значение`,
+    # всё остальное остаётся байт в байт.
+    #
+    # Второе: те же комментарии — готовые подсказки для панели. Второй
+    # раз описывать параметры в JS значило бы завести два расходящихся
+    # источника правды о том, что делает флаг.
+
+    @staticmethod
+    def _config_lines() -> list:
+        with open(CONFIG_FILE, encoding="utf-8") as fh:
+            return fh.read().split("\n")
+
+    @classmethod
+    def _describe_config(cls, lines: list) -> list:
+        """Разбирает конфиг в список параметров с их комментариями.
+
+        Комментарий параметра — непрерывный блок строк `#` прямо над
+        ним. Пустая строка блок обрывает: она отделяет абзац про один
+        параметр от абзаца про другой.
+        """
+        items = []
+        comment: list[str] = []
+        for raw in lines:
+            line = raw.strip()
+            if line.startswith("#"):
+                comment.append(line.lstrip("#").strip())
+                continue
+            if not line:
+                comment = []
+                continue
+            if "=" not in line:
+                comment = []
+                continue
+            key = line.split("=", 1)[0].strip()
+            if not key or not key.replace("_", "").isalnum():
+                comment = []
+                continue
+            value_text = line.split("=", 1)[1].strip()
+            items.append({
+                "key": key,
+                "hint": "\n".join(comment).strip(),
+                "raw": value_text,
+            })
+            comment = []
+        return items
+
+    def _handle_config_schema(self) -> None:
+        """Отдаёт параметры конфига вместе с описаниями и значениями.
+
+        Отдельный endpoint, а не поле в `/custom-config`: тот опрашивают
+        несколько окон раз в несколько секунд ради актуальных значений,
+        и таскать в каждом ответе килобайты комментариев незачем.
+        Схема нужна ровно в момент открытия панели.
+        """
+        try:
+            lines = self._config_lines()
+        except OSError as exc:
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+        if tomllib is None:
+            self._json_response(500, {
+                "ok": False, "error": "нужен Python 3.11+ (tomllib)",
+            })
+            return
+        try:
+            with open(CONFIG_FILE, "rb") as fh:
+                data = tomllib.load(fh)
+        except Exception as exc:  # noqa: BLE001
+            self._json_response(500, {"ok": False, "error": f"TOML невалиден: {exc}"})
+            return
+
+        items = []
+        for item in self._describe_config(lines):
+            key = item["key"]
+            if key not in data:
+                continue  # ключ внутри секции или закомментирован
+            value = data[key]
+            # Панель умеет редактировать скаляры. Правило по типу, а не
+            # по списку: новый флаг должен появляться в панели сам —
+            # тот же принцип, что в форме настроек аккаунта.
+            if not isinstance(value, (bool, int, float, str)):
+                continue
+            items.append({
+                "key": key,
+                "value": value,
+                "type": ("bool" if isinstance(value, bool)
+                         else "number" if isinstance(value, (int, float))
+                         else "string"),
+                "hint": item["hint"],
+            })
+
+        self._json_response(200, {
+            "ok": True,
+            "items": items,
+            "path": CONFIG_FILE,
+        })
+
+    @staticmethod
+    def _format_toml_value(value) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            return repr(value)
+        text = str(value)
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    def _handle_config_post(self) -> None:
+        """Записывает значения в TOML, сохраняя комментарии и порядок."""
+        body = self._read_body()
+        if body is None:
+            return
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except Exception:  # noqa: BLE001
+            self._json_response(400, {"ok": False, "error": "тело не JSON"})
+            return
+        values = payload.get("values") if isinstance(payload, dict) else None
+        if not isinstance(values, dict) or not values:
+            self._json_response(400, {"ok": False, "error": "ожидалось {values: {...}}"})
+            return
+
+        try:
+            lines = self._config_lines()
+        except OSError as exc:
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+
+        changed = []
+        remaining = dict(values)
+        for i, raw in enumerate(lines):
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key = stripped.split("=", 1)[0].strip()
+            if key not in remaining:
+                continue
+            new_value = remaining.pop(key)
+            # Отступ строки сохраняем: в этом файле его нет, но правило
+            # «трогаем только правую часть» должно держаться и дальше.
+            indent = raw[: len(raw) - len(raw.lstrip())]
+            lines[i] = f"{indent}{key} = {self._format_toml_value(new_value)}"
+            changed.append(key)
+
+        if remaining:
+            # Дописывать новые ключи в конец файла панель не должна: он
+            # разбит на разделы с объяснениями, и ключ без абзаца над ним
+            # выпал бы из этого строя. Незнакомый ключ — почти наверняка
+            # опечатка или устаревшее окно.
+            self._json_response(400, {
+                "ok": False,
+                "error": "неизвестные параметры: " + ", ".join(sorted(remaining)),
+            })
+            return
+
+        text = "\n".join(lines)
+        if tomllib is not None:
+            # Проверяем ДО записи: сломанный конфиг оставил бы webview
+            # без настроек до ручной починки файла.
+            try:
+                tomllib.loads(text)
+            except Exception as exc:  # noqa: BLE001
+                self._json_response(500, {
+                    "ok": False, "error": f"после правки TOML невалиден: {exc}",
+                })
+                return
+
+        try:
+            tmp = CONFIG_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            os.replace(tmp, CONFIG_FILE)
+        except OSError as exc:
+            self._json_response(500, {"ok": False, "error": str(exc)})
+            return
+
+        _log("панель настроек: " + ", ".join(
+            f"{k}={values[k]}" for k in changed) or "нечего менять")
+        self._json_response(200, {"ok": True, "changed": changed})
 
     # --- переключение аккаунтов ------------------------------------------
     #
@@ -1055,6 +1249,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/restart-exthost":
             self._handle_restart_exthost_post()
+            return
+
+        if self.path == "/custom-config":
+            self._handle_config_post()
             return
 
         if self.path == "/webview-error":
