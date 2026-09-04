@@ -165,7 +165,55 @@ act, why = limit_alert.decide(state, snap(RESET1, percent=100),
 check("на OAuth тот же срок — повтор есть",
       act == "repeat" and why == "repeat", (act, why))
 
-print("13. конфиг: битый/отсутствующий TOML — монитор выключен")
+print("13. парсеры wpctl: громкость и чужие потоки")
+vol = limit_alert.parse_wpctl_volume("Volume: 0.40 [MUTED]")
+check("громкость с мьютом", vol == (0.4, True), repr(vol))
+vol = limit_alert.parse_wpctl_volume("Volume: 1.00")
+check("громкость обычная", vol == (1.0, False), repr(vol))
+check("мусор → None", limit_alert.parse_wpctl_volume(None) is None
+      and limit_alert.parse_wpctl_volume("oops") is None)
+WPCTL_STATUS = """
+PipeWire 'pipewire-0' [1.0.5]
+ └─ Clients:
+        82. Firefox                             [1.0.5, pid:13364]
+       101. VLC media player (LibVLC 3.0.20)    [1.0.5, pid:917700]
+
+Audio
+ ├─ Devices:
+ │      46. GP106 High Definition Audio Controller [alsa]
+ ├─ Sinks:
+ │      33. Built-in Audio Digital Stereo (IEC958) [vol: 1.00]
+ │  *   48. GP106 High Definition Audio Controller Digital Stereo (HDMI) [vol: 1.00]
+ ├─ Sink endpoints:
+ ├─ Sources:
+ │      42. Built-in Audio Analog Stereo        [vol: 1.00]
+ └─ Streams:
+        63. gnome-remote-desktop-daemon
+             67. input_FL        < ALC887-VD Digital:monitor_FL	[init]
+             69. monitor_FR
+        84. speech-dispatcher-dummy
+       105. VLC media player (LibVLC 3.0.20)
+       120. ffplay
+
+Video
+ └─ Streams:
+        99. firefox
+"""
+streams = limit_alert.parse_wpctl_streams(WPCTL_STATUS)
+ids = [s[0] for s in streams]
+check("главные строки Streams собраны",
+      63 in ids and 84 in ids and 105 in ids and 120 in ids, repr(streams))
+check("канальные строки (порты) не попали", 67 not in ids and 69 not in ids)
+check("Sinks и Clients не попали",
+      33 not in ids and 48 not in ids and 82 not in ids and 101 not in ids)
+check("видео-потоки не попали", 99 not in ids)
+check("3-значный id с меньшим отступом распознан",
+      (105, "VLC media player (LibVLC 3.0.20)") in streams, repr(streams))
+foreign = limit_alert.foreign_streams(streams)
+check("свой ffplay отфильтрован",
+      120 not in [s[0] for s in foreign] and len(foreign) == 3, repr(foreign))
+
+print("14. конфиг: битый/отсутствующий TOML — монитор выключен")
 saved = limit_alert.CONFIG_PATH
 limit_alert.CONFIG_PATH = os.path.join(os.path.dirname(saved), "нет-такого.toml")
 c = limit_alert._monitor_config()
