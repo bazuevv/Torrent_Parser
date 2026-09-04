@@ -11213,6 +11213,95 @@
     ctx.restore();
   }
 
+  function cloneAction(action) {
+    return {
+      tool: action.tool,
+      color: action.color,
+      width: action.width,
+      start: action.start ? { x: action.start.x, y: action.start.y } : null,
+      end: action.end ? { x: action.end.x, y: action.end.y } : null,
+      points: (action.points || []).map(function (p) { return { x: p.x, y: p.y }; }),
+    };
+  }
+
+  function translateAction(action, dx, dy) {
+    var moved = cloneAction(action);
+    if (moved.start) { moved.start.x += dx; moved.start.y += dy; }
+    if (moved.end) { moved.end.x += dx; moved.end.y += dy; }
+    moved.points.forEach(function (p) { p.x += dx; p.y += dy; });
+    return moved;
+  }
+
+  function actionBounds(action) {
+    var pts = (action.points || []).slice();
+    if (action.start) pts.push(action.start);
+    if (action.end) pts.push(action.end);
+    if (!pts.length) return null;
+    var minX = pts[0].x;
+    var maxX = pts[0].x;
+    var minY = pts[0].y;
+    var maxY = pts[0].y;
+    for (var i = 1; i < pts.length; i++) {
+      minX = Math.min(minX, pts[i].x);
+      maxX = Math.max(maxX, pts[i].x);
+      minY = Math.min(minY, pts[i].y);
+      maxY = Math.max(maxY, pts[i].y);
+    }
+    var pad = Math.max(1, Number(action.width) || 1) / 2;
+    return { x: minX - pad, y: minY - pad, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 };
+  }
+
+  function segmentDistance(point, a, b) {
+    var dx = b.x - a.x;
+    var dy = b.y - a.y;
+    if (!dx && !dy) return Math.hypot(point.x - a.x, point.y - a.y);
+    var t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy);
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+  }
+
+  function hitAction(action, point, tolerance) {
+    var extra = Math.max(0, tolerance || 0);
+    var radius = Math.max(1, Number(action.width) || 1) / 2 + extra;
+    var pts = action.points || [];
+    if (action.tool === 'brush') {
+      if (pts.length === 1) return Math.hypot(point.x - pts[0].x, point.y - pts[0].y) <= radius;
+      for (var i = 1; i < pts.length; i++) {
+        if (segmentDistance(point, pts[i - 1], pts[i]) <= radius) return true;
+      }
+      return false;
+    }
+    if (action.tool === 'line' && action.start && action.end) {
+      return segmentDistance(point, action.start, action.end) <= radius;
+    }
+    if ((action.tool === 'rect' || action.tool === 'ellipse') && action.start && action.end) {
+      var left = Math.min(action.start.x, action.end.x) - radius;
+      var right = Math.max(action.start.x, action.end.x) + radius;
+      var top = Math.min(action.start.y, action.end.y) - radius;
+      var bottom = Math.max(action.start.y, action.end.y) + radius;
+      if (point.x < left || point.x > right || point.y < top || point.y > bottom) return false;
+      if (action.tool === 'rect') return true;
+      var cx = (action.start.x + action.end.x) / 2;
+      var cy = (action.start.y + action.end.y) / 2;
+      var rx = Math.abs(action.end.x - action.start.x) / 2 + radius;
+      var ry = Math.abs(action.end.y - action.start.y) / 2 + radius;
+      return rx > 0 && ry > 0 && ((point.x - cx) * (point.x - cx)) / (rx * rx)
+        + ((point.y - cy) * (point.y - cy)) / (ry * ry) <= 1;
+    }
+    return false;
+  }
+
+  function drawSelection(ctx, action) {
+    var bounds = actionBounds(action);
+    if (!bounds) return;
+    ctx.save();
+    ctx.strokeStyle = '#60a5fa';
+    ctx.lineWidth = 1;
+    if (ctx.setLineDash) ctx.setLineDash([6, 4]);
+    ctx.strokeRect(bounds.x - 4, bounds.y - 4, bounds.width + 8, bounds.height + 8);
+    ctx.restore();
+  }
+
   function dispatchFile(file, composer) {
     try {
       var transfer = new DataTransfer();
@@ -11312,6 +11401,7 @@
     var tools = own(document.createElement('div'));
     tools.className = 'claude-image-editor-tools';
     var toolDefs = [
+      ['select', '↖', 'Выбор и перемещение'],
       ['brush', '✎', 'Кисть'],
       ['line', '╱', 'Линия'],
       ['rect', '□', 'Прямоугольник'],
@@ -11321,6 +11411,7 @@
     var toolButtons = {};
     function chooseTool(next) {
       tool = next;
+      if (canvas) canvas.dataset.tool = next;
       Object.keys(toolButtons).forEach(function (key) {
         toolButtons[key].classList.toggle('is-active', key === tool);
       });
@@ -11405,33 +11496,55 @@
     var ctx = canvas.getContext('2d');
     var base = new Image();
     var actions = [];
-    var undone = [];
+    var historyEntries = [];
+    var redoEntries = [];
     var draft = null;
     var drawing = false;
+    var selectedIndex = -1;
+    var drag = null;
 
     function updateHistory() {
-      undoBtn.disabled = actions.length === 0;
-      redoBtn.disabled = undone.length === 0;
+      undoBtn.disabled = historyEntries.length === 0;
+      redoBtn.disabled = redoEntries.length === 0;
     }
 
-    function render() {
+    function render(showSelection) {
       if (!base.naturalWidth) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(base, 0, 0, canvas.width, canvas.height);
       actions.forEach(function (action) { drawAction(ctx, action); });
       drawAction(ctx, draft);
+      if (showSelection !== false && selectedIndex >= 0 && actions[selectedIndex]) {
+        drawSelection(ctx, actions[selectedIndex]);
+      }
     }
 
     function undo() {
-      if (!actions.length) return;
-      undone.push(actions.pop());
+      if (!historyEntries.length) return;
+      var entry = historyEntries.pop();
+      if (entry.type === 'add') {
+        actions.splice(entry.index, 1);
+        selectedIndex = -1;
+      } else if (entry.type === 'move') {
+        actions[entry.index] = cloneAction(entry.before);
+        selectedIndex = entry.index;
+      }
+      redoEntries.push(entry);
       render();
       updateHistory();
     }
 
     function redo() {
-      if (!undone.length) return;
-      actions.push(undone.pop());
+      if (!redoEntries.length) return;
+      var entry = redoEntries.pop();
+      if (entry.type === 'add') {
+        actions.splice(entry.index, 0, cloneAction(entry.action));
+        selectedIndex = entry.index;
+      } else if (entry.type === 'move') {
+        actions[entry.index] = cloneAction(entry.after);
+        selectedIndex = entry.index;
+      }
+      historyEntries.push(entry);
       render();
       updateHistory();
     }
@@ -11455,13 +11568,37 @@
       event.preventDefault();
       canvas.setPointerCapture(event.pointerId);
       var p = point(event);
+      if (tool === 'select') {
+        selectedIndex = -1;
+        var tolerance = 8 * (canvas.width / Math.max(1, canvas.getBoundingClientRect().width));
+        for (var i = actions.length - 1; i >= 0; i--) {
+          if (hitAction(actions[i], p, tolerance)) { selectedIndex = i; break; }
+        }
+        drag = selectedIndex >= 0 ? {
+          index: selectedIndex,
+          origin: p,
+          before: cloneAction(actions[selectedIndex]),
+        } : null;
+        drawing = !!drag;
+        render();
+        return;
+      }
       draft = { tool: tool, color: color, width: strokeWidth(), start: p, end: p, points: [p] };
       drawing = true;
       render();
     });
     canvas.addEventListener('pointermove', function (event) {
-      if (!drawing || !draft) return;
+      if (!drawing || (!draft && !drag)) return;
       var p = point(event);
+      if (drag) {
+        actions[drag.index] = translateAction(
+          drag.before,
+          p.x - drag.origin.x,
+          p.y - drag.origin.y
+        );
+        render();
+        return;
+      }
       if (draft.tool === 'brush') draft.points.push(p);
       draft.end = p;
       render();
@@ -11470,9 +11607,33 @@
       if (!drawing) return;
       drawing = false;
       try { canvas.releasePointerCapture(event.pointerId); } catch (e) {}
+      if (drag) {
+        var moved = actions[drag.index];
+        var dx = moved.start && drag.before.start ? moved.start.x - drag.before.start.x
+          : moved.points[0].x - drag.before.points[0].x;
+        var dy = moved.start && drag.before.start ? moved.start.y - drag.before.start.y
+          : moved.points[0].y - drag.before.points[0].y;
+        if (commit && (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001)) {
+          historyEntries.push({
+            type: 'move',
+            index: drag.index,
+            before: cloneAction(drag.before),
+            after: cloneAction(moved),
+          });
+          redoEntries.length = 0;
+        } else if (!commit) {
+          actions[drag.index] = cloneAction(drag.before);
+        }
+        drag = null;
+        render();
+        updateHistory();
+        return;
+      }
       if (commit && draft) {
         actions.push(draft);
-        undone.length = 0;
+        historyEntries.push({ type: 'add', index: actions.length - 1, action: cloneAction(draft) });
+        redoEntries.length = 0;
+        selectedIndex = actions.length - 1;
       }
       draft = null;
       render();
@@ -11486,8 +11647,13 @@
       saveBtn.disabled = true;
       cancelBtn.disabled = true;
       status.textContent = 'Подготавливаю изображение…';
-      render();
+      // Рамка выбора — интерфейс редактора, в результирующий PNG она
+      // попадать не должна.
+      render(false);
       canvas.toBlob(function (blob) {
+        // Снимок уже сформирован; возвращаем служебную рамку на случай,
+        // если добавление вложения завершится ошибкой и редактор останется.
+        render();
         if (!blob) {
           status.textContent = 'Не удалось создать PNG';
           saveBtn.disabled = false;
@@ -11594,6 +11760,10 @@
       annotatedName: annotatedName,
       dispatchFile: dispatchFile,
       replaceAttachment: replaceAttachment,
+      cloneAction: cloneAction,
+      translateAction: translateAction,
+      actionBounds: actionBounds,
+      hitAction: hitAction,
     },
   };
 

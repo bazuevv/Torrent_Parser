@@ -142,6 +142,38 @@ check('замена вложения завершается без ошибки'
 check('исходник удаляется только после появления результата',
   replacementAttached && originalRemoved);
 
+const movableRect = {
+  tool: 'rect', color: '#f00', width: 4,
+  start: { x: 10, y: 20 }, end: { x: 50, y: 60 }, points: [{ x: 10, y: 20 }],
+};
+const movedRect = api.translateAction(movableRect, 7, -3);
+check('перемещение сдвигает обе точки фигуры',
+  movedRect.start.x === 17 && movedRect.start.y === 17
+    && movedRect.end.x === 57 && movedRect.end.y === 57);
+check('перемещение не мутирует исходное действие',
+  movableRect.start.x === 10 && movableRect.end.y === 60);
+check('прямоугольник выбирается по внутренней области',
+  api.hitAction(movableRect, { x: 30, y: 40 }, 2));
+check('точка вне прямоугольника не выбирает его',
+  !api.hitAction(movableRect, { x: 80, y: 90 }, 2));
+check('линию можно выбрать рядом со штрихом',
+  api.hitAction({
+    tool: 'line', width: 2,
+    start: { x: 0, y: 0 }, end: { x: 100, y: 0 }, points: [],
+  }, { x: 45, y: 4 }, 4));
+check('кисть можно выбрать по любому сегменту',
+  api.hitAction({
+    tool: 'brush', width: 3,
+    points: [{ x: 0, y: 0 }, { x: 20, y: 20 }, { x: 40, y: 0 }],
+  }, { x: 30, y: 11 }, 2));
+check('эллипс выбирается по внутренней области',
+  api.hitAction({
+    tool: 'ellipse', width: 2,
+    start: { x: 10, y: 20 }, end: { x: 50, y: 60 }, points: [],
+  }, { x: 30, y: 40 }, 2));
+check('в панели объявлен инструмент выбора',
+  block.includes("['select', '↖', 'Выбор и перемещение']"));
+
 function fakeContext() {
   const calls = [];
   const ctx = { calls };

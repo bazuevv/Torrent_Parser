@@ -2437,6 +2437,10 @@
   touch-action: none;
 }
 
+.claude-image-editor-canvas[data-tool="select"] {
+  cursor: move;
+}
+
 .claude-image-editor-canvas:focus {
   outline: 1px solid var(--vscode-focusBorder, #4387df);
   outline-offset: 2px;
