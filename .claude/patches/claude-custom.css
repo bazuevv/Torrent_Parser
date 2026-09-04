@@ -2248,3 +2248,42 @@
 .claude-ring-mood.claude-ring-mood[data-claude-mood-level="3"]:focus-within {
   --focus-ring-color: var(--claude-mood-4);
 }
+
+/* ============================================================
+ * LIMIT ALERT STOP — плавающая плашка «стоп» над панелью ввода
+ *
+ * Появляется только пока играет звук уведомления о сбросе лимита
+ * (модуль LIMIT ALERT STOP BUTTON в claude-custom.js); вид — в семье
+ * панелей проекта (Accs): те же переменные фона и рамки. Позицию
+ * bottom/left считает JS по панели ввода; left — это ЦЕНТР плашки,
+ * а не её край, поэтому постоянный translateX(-50%) обязателен.
+ * Повторён и в :active — единый transform, иначе нажатие скинуло бы
+ * плашку на полширины вправо.
+ * ============================================================ */
+
+.claude-limit-stop-float {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 50%;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  color: var(--app-primary-foreground, #ddd);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transform: translateX(-50%);
+}
+
+.claude-limit-stop-float:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.claude-limit-stop-float:active {
+  transform: translateX(-50%) scale(0.92);
+}

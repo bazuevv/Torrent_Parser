@@ -9584,6 +9584,165 @@
 })();
 
 /* ============================================================
+ * LIMIT ALERT STOP BUTTON
+ *
+ * Плавающая круглая кнопка-плашка с иконкой «стоп», висит по центру
+ * НАД панелью ввода (position: fixed, как панель Accs). Появляется
+ * ТОЛЬКО пока играет звук уведомления о сбросе 5-часового лимита
+ * (монитор limit_alert.py запускает ffplay; состояние — поле playing
+ * в GET /limit-reset-alert) и исчезает сама, когда звук закончился
+ * или остановлен. Клик — POST /limit-reset-alert-stop.
+ *
+ * Почему кнопка живёт по состоянию, а не постоянно: останавливать
+ * нечего почти всегда — окно сбрасывается раз в часы, и постоянная
+ * кнопка обещала бы действие впустую. Отдельного TOML-ключа модулю
+ * не нужно: пока не сыграет звук (который включает limitResetAlert),
+ * он не делает ровно ничего.
+ *
+ * Вид плашки — в claude-custom.css (`.claude-limit-stop-float`),
+ * иконка — SVG через createElementNS (Trusted Types, приём accsIcon).
+ * Опрос раз в секунду — статус сервера, не DOM-scan: общий наблюдатель
+ * (DOM WATCH) здесь ради пересчёта позиции, когда React пересоздал
+ * панель ввода.
+ * ============================================================ */
+(function () {
+  if (window.__claudeLimitStopInstalled) return;
+  window.__claudeLimitStopInstalled = true;
+
+  var STATUS_URL = 'http://localhost:18923/limit-reset-alert';
+  var STOP_URL = 'http://localhost:18923/limit-reset-alert-stop';
+  var BTN_CLASS = 'claude-limit-stop-float';
+  var POLL_MS = 1000;
+  // Три промаха подряд считаются «не играет»: сервер, который не
+  // отвечает, звуком не управляет, и плашка убирается до лучших
+  // времён, а не висит мёртвой.
+  var FAIL_TOLERANCE = 3;
+
+  var playing = false;
+  var fails = 0;
+  var btn = null; // плашка одна на окно, над панелью активной вкладки
+
+  function stopIcon() {
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    var rect = document.createElementNS(NS, 'rect');
+    rect.setAttribute('x', '4');
+    rect.setAttribute('y', '4');
+    rect.setAttribute('width', '8');
+    rect.setAttribute('height', '8');
+    rect.setAttribute('rx', '1.5');
+    rect.setAttribute('fill', 'currentColor');
+    svg.appendChild(rect);
+    return svg;
+  }
+
+  function inputContainer() {
+    // Самый нижний видимый контейнер поля ввода — панель активной
+    // вкладки. Полей ввода бывает несколько (правая панель, вкладки),
+    // плашка одна и должна висеть над тем, что сейчас перед глазами.
+    var all = document.querySelectorAll('[class*="inputContainer_"]');
+    var best = null;
+    var bestBottom = 0;
+    for (var i = 0; i < all.length; i++) {
+      var r = all[i].getBoundingClientRect();
+      if (r && r.height > 0 && r.bottom > bestBottom) {
+        best = all[i];
+        bestBottom = r.bottom;
+      }
+    }
+    return best;
+  }
+
+  function position() {
+    if (!btn) return;
+    var c = inputContainer();
+    if (!c) return;
+    var r = c.getBoundingClientRect();
+    // Центр панели по горизонтали (translateX(-50%) в CSS доворачивает
+    // плашку серединой к точке), снизу — чуть выше верхнего края.
+    btn.style.bottom = Math.max(8, window.innerHeight - r.top + 10) + 'px';
+    btn.style.left = (r.left + r.width / 2) + 'px';
+  }
+
+  function mount() {
+    if (btn) {
+      position();
+      return;
+    }
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = BTN_CLASS;
+    btn.__claudeOwnNode = true;
+    btn.title = 'Остановить звук уведомления о сбросе лимита';
+    btn.appendChild(stopIcon());
+    btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Не ждём следующего опроса: звук гасится сейчас — плашка
+      // должна уйти сразу, а не через секунду.
+      fetch(STOP_URL, { method: 'POST' })
+        .then(poll)
+        .catch(poll);
+    });
+    document.body.appendChild(btn);
+    position();
+  }
+
+  function unmount() {
+    if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+    btn = null;
+  }
+
+  function scan() {
+    // Общий наблюдатель (DOM WATCH) зовёт скан на мутации — панель
+    // ввода могла пересоздаться, плашка должна остаться над ней.
+    if (playing) mount();
+    else unmount();
+  }
+
+  function poll() {
+    fetch(STATUS_URL)
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        fails = 0;
+        var now = !!(d && d.playing);
+        if (now !== playing) {
+          playing = now;
+          scan();
+        } else if (now) {
+          // Панель ввода могла переехать (смена вкладки, ресайз) —
+          // пересчёт дешевле, чем промахнувшаяся плашка.
+          position();
+        }
+      })
+      .catch(function () {
+        fails++;
+        if (fails >= FAIL_TOLERANCE && playing) {
+          playing = false;
+          scan();
+        }
+      });
+  }
+
+  function init() {
+    window.__claudeDomWatch.register('limit-stop', scan);
+    window.addEventListener('resize', position);
+    setInterval(poll, POLL_MS);
+    poll();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+
+/* ============================================================
  * MOOD GAUGE
  *
  * Индикатор «Mood» в футере поля ввода, слева от кнопки Accs.
