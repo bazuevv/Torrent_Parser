@@ -11348,7 +11348,15 @@
       for (var i = 1; i < pts.length; i++) {
         if (segmentDistance(point, pts[i - 1], pts[i]) <= radius) return true;
       }
-      return false;
+      // У большого свободного штриха пунктирная рамка воспринимается как
+      // область выбора. Разрешаем брать его за пустое место внутри этой
+      // рамки; узкие линии сохраняют точное попадание по самому штриху.
+      var brushBounds = actionBounds(action);
+      return !!brushBounds
+        && brushBounds.width >= radius * 4
+        && brushBounds.height >= radius * 4
+        && point.x >= brushBounds.x && point.x <= brushBounds.x + brushBounds.width
+        && point.y >= brushBounds.y && point.y <= brushBounds.y + brushBounds.height;
     }
     if (action.tool === 'line' && action.start && action.end) {
       return segmentDistance(point, action.start, action.end) <= radius;
@@ -11547,7 +11555,6 @@
       function () { return editorZoom; },
       setEditorZoom
     );
-    history.appendChild(zoomWidget);
     var widthLabel = own(document.createElement('label'));
     widthLabel.className = 'claude-image-width-label';
     widthLabel.textContent = 'Толщина';
@@ -11577,6 +11584,7 @@
     var cancelBtn = button('Отмена', 'claude-image-editor-action', 'Закрыть без сохранения', closeEditor);
     var saveBtn = button('Сохранить', 'claude-image-editor-action is-primary', 'Сохранить и заменить вложение', save);
     footer.appendChild(status);
+    footer.appendChild(zoomWidget);
     footer.appendChild(cancelBtn);
     footer.appendChild(saveBtn);
     panel.appendChild(footer);
@@ -11929,8 +11937,61 @@
     var state = {
       image: image, value: 1, panX: 0, panY: 0,
       touches: {}, pinch: null, touchZooming: false,
+      drag: null, suppressClick: false,
     };
     preview.__claudeImageZoom = state;
+
+    function positionChrome() {
+      var previewRect = preview.getBoundingClientRect();
+      var imageRect = image.getBoundingClientRect();
+      if (!previewRect || !imageRect || !imageRect.width || !imageRect.height) return;
+      var edit = preview.querySelector('.' + EDIT_CLASS);
+      var close = preview.querySelector('button[class*="previewCloseButton_"]');
+      var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+      var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      var edge = 8;
+      function visible(value, size, limit) {
+        if (!limit) return value;
+        return Math.max(edge, Math.min(limit - size - edge, value));
+      }
+      // Кнопки целиком стоят снаружи верхних углов изображения, а не
+      // перекрывают его. Позиции считаются после transform, поэтому они
+      // следуют и за колесом, и за pinch. Если внешний край картинки ушёл
+      // за viewport, координата прижимается к безопасному краю окна.
+      if (edit) {
+        edit.style.left = visible(imageRect.left - 34, 28, viewportWidth) - previewRect.left + 'px';
+        edit.style.top = visible(imageRect.top, 28, viewportHeight) - previewRect.top + 'px';
+      }
+      if (close) {
+        close.style.right = 'auto';
+        close.style.left = visible(imageRect.right + 6, 28, viewportWidth) - previewRect.left + 'px';
+        close.style.top = visible(imageRect.top, 28, viewportHeight) - previewRect.top + 'px';
+      }
+      if (state.controls) {
+        var controlsRect = state.controls.getBoundingClientRect
+          ? state.controls.getBoundingClientRect() : null;
+        var controlsWidth = controlsRect && controlsRect.width ? controlsRect.width : 112;
+        var controlsHeight = controlsRect && controlsRect.height ? controlsRect.height : 32;
+        var controlsLeft = (imageRect.left + imageRect.right - controlsWidth) / 2;
+        state.controls.style.right = 'auto';
+        state.controls.style.bottom = 'auto';
+        state.controls.style.transform = 'none';
+        state.controls.style.left = visible(
+          controlsLeft, controlsWidth, viewportWidth
+        ) - previewRect.left + 'px';
+        state.controls.style.top = visible(
+          imageRect.bottom + 10, controlsHeight, viewportHeight
+        ) - previewRect.top + 'px';
+      }
+    }
+    state.position = positionChrome;
+
+    function applyTransform() {
+      image.style.transformOrigin = '0 0';
+      image.style.transform = 'translate(' + state.panX + 'px,' + state.panY + 'px) scale(' + state.value + ')';
+      image.dataset.previewZoomed = state.value > 1.001 ? 'true' : 'false';
+      positionChrome();
+    }
 
     function setZoom(next, anchor) {
       var value = clampZoom(next);
@@ -11947,8 +12008,7 @@
         state.panY = 0;
       }
       state.value = value;
-      image.style.transformOrigin = '0 0';
-      image.style.transform = 'translate(' + state.panX + 'px,' + state.panY + 'px) scale(' + value + ')';
+      applyTransform();
       controls.update();
     }
 
@@ -11957,7 +12017,9 @@
       function () { return state.value; },
       setZoom
     );
+    state.controls = controls;
     preview.appendChild(controls);
+    positionChrome();
 
     image.addEventListener('wheel', function (event) {
       event.preventDefault();
@@ -11965,7 +12027,28 @@
       setZoom(wheelZoom(state.value, event.deltaY), { x: event.clientX, y: event.clientY });
     }, { passive: false });
     image.addEventListener('pointerdown', function (event) {
-      if (event.pointerType !== 'touch') return;
+      if (event.pointerType !== 'touch') {
+        if (event.button !== 0 || state.value <= 1.001) return;
+        var rect = image.getBoundingClientRect();
+        var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+        var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        var overflowX = !!viewportWidth && rect.width > viewportWidth - 16;
+        var overflowY = !!viewportHeight && rect.height > viewportHeight - 16;
+        if (!overflowX && !overflowY) return;
+        state.drag = {
+          pointerId: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          overflowX: overflowX,
+          overflowY: overflowY,
+          moved: false,
+        };
+        image.dataset.previewPanning = 'true';
+        try { image.setPointerCapture(event.pointerId); } catch (e) {}
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       state.touches[event.pointerId] = { x: event.clientX, y: event.clientY };
       try { image.setPointerCapture(event.pointerId); } catch (e) {}
       if (Object.keys(state.touches).length >= 2) {
@@ -11975,6 +12058,25 @@
       }
     });
     image.addEventListener('pointermove', function (event) {
+      if (state.drag && event.pointerId === state.drag.pointerId) {
+        event.preventDefault();
+        event.stopPropagation();
+        var rect = image.getBoundingClientRect();
+        var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+        var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        var keep = 40;
+        var dx = state.drag.overflowX ? event.clientX - state.drag.x : 0;
+        var dy = state.drag.overflowY ? event.clientY - state.drag.y : 0;
+        if (viewportWidth) dx = Math.max(keep - rect.right, Math.min(viewportWidth - keep - rect.left, dx));
+        if (viewportHeight) dy = Math.max(keep - rect.bottom, Math.min(viewportHeight - keep - rect.top, dy));
+        state.panX += dx;
+        state.panY += dy;
+        state.drag.x = event.clientX;
+        state.drag.y = event.clientY;
+        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) state.drag.moved = true;
+        applyTransform();
+        return;
+      }
       if (event.pointerType !== 'touch' || !state.touches[event.pointerId]) return;
       state.touches[event.pointerId] = { x: event.clientX, y: event.clientY };
       if (!state.pinch || !state.pinch.distance) return;
@@ -11983,6 +12085,15 @@
       setZoom(state.pinch.zoom * touchDistance(state.touches) / state.pinch.distance, center);
     });
     function endTouch(event) {
+      if (state.drag && event.pointerId === state.drag.pointerId) {
+        state.suppressClick = state.drag.moved;
+        state.drag = null;
+        delete image.dataset.previewPanning;
+        try { image.releasePointerCapture(event.pointerId); } catch (e) {}
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (event.pointerType !== 'touch') return;
       delete state.touches[event.pointerId];
       if (Object.keys(state.touches).length < 2) state.pinch = null;
@@ -11994,6 +12105,13 @@
     }
     image.addEventListener('pointerup', endTouch);
     image.addEventListener('pointercancel', endTouch);
+    image.addEventListener('click', function (event) {
+      if (!state.suppressClick) return;
+      state.suppressClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+    }, true);
   }
 
   function addEditButton(preview, thumbs) {
@@ -12003,7 +12121,10 @@
     if (!thumb) return;
     preview.classList.add(MARK_CLASS);
     installPreviewZoom(preview, sourceImg);
-    if (preview.querySelector('.' + EDIT_CLASS)) return;
+    if (preview.querySelector('.' + EDIT_CLASS)) {
+      preview.__claudeImageZoom.position();
+      return;
+    }
     var pointerArmed = false;
     var edit = button('✎', EDIT_CLASS, 'Редактировать изображение', function (event) {
       event.preventDefault();
@@ -12032,6 +12153,7 @@
       event.stopPropagation();
     });
     preview.insertBefore(edit, preview.firstChild);
+    if (preview.__claudeImageZoom) preview.__claudeImageZoom.position();
   }
 
   function scan(ctx) {

@@ -35,6 +35,8 @@ function fakeElement(tag) {
   };
 }
 global.window = {
+  innerWidth: 500,
+  innerHeight: 400,
   __CLAUDE_CUSTOM_CONFIG__: { imageAnnotationEditor: true },
   __claudeDomWatch: {
     register(name, scan) { registered = { name, scan }; },
@@ -86,16 +88,29 @@ check('публичный отладочный вход доступен',
 
 const sourceImage = fakeElement('img');
 sourceImage.src = 'data:image/png;base64,AAAA';
-sourceImage.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 100 });
+sourceImage.getBoundingClientRect = () => {
+  const transform = sourceImage.style.transform || '';
+  const scaleMatch = transform.match(/scale\(([\d.]+)/);
+  const moveMatch = transform.match(/translate\(([-\d.]+)px,([\-\d.]+)px\)/);
+  const scale = scaleMatch ? Number(scaleMatch[1]) : 1;
+  const left = 100 + (moveMatch ? Number(moveMatch[1]) : 0);
+  const top = 50 + (moveMatch ? Number(moveMatch[2]) : 0);
+  return { left, top, width: 200 * scale, height: 100 * scale,
+    right: left + 200 * scale, bottom: top + 100 * scale };
+};
 sourceImage.setPointerCapture = () => {};
+sourceImage.releasePointerCapture = () => {};
 const thumb = fakeElement('div');
 thumb.querySelector = (selector) => {
   if (selector === 'img') return sourceImage;
   return null;
 };
 const preview = fakeElement('div');
+preview.getBoundingClientRect = () => ({ left: 100, top: 50, width: 200, height: 100 });
+const previewClose = fakeElement('button');
 preview.querySelector = (selector) => {
   if (selector === 'img[class*="previewImage_"]') return sourceImage;
+  if (selector === 'button[class*="previewCloseButton_"]') return previewClose;
   if (selector === '.claude-image-edit-btn') {
     return preview.children.find((child) => child.className === 'claude-image-edit-btn') || null;
   }
@@ -107,12 +122,16 @@ check('в preview добавлена одна кнопка редактиров�
   preview.children.filter((child) => child.textContent === '✎').length === 1);
 check('в preview добавлено управление масштабом',
   preview.children.some((child) => child.className === 'claude-image-preview-zoom'));
+const previewZoom = preview.children.find((child) => child.className === 'claude-image-preview-zoom');
+const previewEdit = preview.children.find((child) => child.textContent === '✎');
+check('элементы управления изначально находятся за границами изображения',
+  previewEdit.style.left === '-34px' && previewClose.style.left === '206px'
+    && previewZoom.style.left === '44px' && previewZoom.style.top === '110px');
 check('повторный скан не дублирует кнопку', (() => {
   registered.scan({ imageAttachments: [thumb], imagePreviews: [preview] });
   return preview.children.filter((child) => child.textContent === '✎').length === 1
     && preview.children.filter((child) => child.className === 'claude-image-preview-zoom').length === 1;
 })());
-const previewEdit = preview.children.find((child) => child.textContent === '✎');
 let unarmedClickStopped = false;
 previewEdit.listeners.click({
   detail: 1,
@@ -140,6 +159,12 @@ sourceImage.listeners.wheel({
 });
 check('колесо масштабирует штатный preview',
   wheelPrevented && /scale\(1\./.test(sourceImage.style.transform), sourceImage.style.transform);
+const zoomedRect = sourceImage.getBoundingClientRect();
+check('кнопки и масштаб следуют за увеличенным изображением',
+  Number.parseFloat(previewEdit.style.left) + 100 + 28 <= zoomedRect.left - 6
+    && Number.parseFloat(previewClose.style.left) + 100 >= zoomedRect.right + 6
+    && Number.parseFloat(previewZoom.style.top) + 50 >= zoomedRect.bottom + 10,
+  `edit=${previewEdit.style.left} close=${previewClose.style.left} zoom=${previewZoom.style.top}`);
 const zoomFromTransform = () => Number(sourceImage.style.transform.match(/scale\(([\d.]+)/)[1]);
 const beforePinch = zoomFromTransform();
 const touchEvent = (id, x, y) => ({
@@ -154,6 +179,38 @@ check('pinch масштабирует штатный preview', afterPinch > befo
   `${beforePinch} → ${afterPinch}`);
 sourceImage.listeners.pointerup(touchEvent(1, 80, 50));
 sourceImage.listeners.pointerup(touchEvent(2, 160, 50));
+sourceImage.listeners.wheel({
+  deltaY: -10000, clientX: 250, clientY: 200,
+  preventDefault() {}, stopPropagation() {},
+});
+const screenLeft = Number.parseFloat(previewEdit.style.left) + 100;
+const screenClose = Number.parseFloat(previewClose.style.left) + 100;
+const screenZoomLeft = Number.parseFloat(previewZoom.style.left) + 100;
+const screenZoomTop = Number.parseFloat(previewZoom.style.top) + 50;
+check('управление не выходит за viewport при максимальном масштабе',
+  screenLeft >= 8 && screenLeft + 28 <= 492
+    && screenClose >= 8 && screenClose + 28 <= 492
+    && screenZoomLeft >= 8 && screenZoomLeft + 112 <= 492
+    && screenZoomTop >= 8 && screenZoomTop + 32 <= 392,
+  `edit=${screenLeft} close=${screenClose} zoom=${screenZoomLeft},${screenZoomTop}`);
+const beforeDragTransform = sourceImage.style.transform;
+const mouseEvent = (type, x, y) => ({
+  pointerType: 'mouse', pointerId: 9, button: 0, clientX: x, clientY: y,
+  preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {}, type,
+});
+sourceImage.listeners.pointerdown(mouseEvent('pointerdown', 250, 200));
+sourceImage.listeners.pointermove(mouseEvent('pointermove', 150, 100));
+sourceImage.listeners.pointerup(mouseEvent('pointerup', 150, 100));
+check('увеличенный preview перемещается перетаскиванием ЛКМ',
+  sourceImage.style.transform !== beforeDragTransform
+    && sourceImage.dataset.previewPanning === undefined,
+  sourceImage.style.transform);
+let dragClickPrevented = false;
+sourceImage.listeners.click({
+  preventDefault() { dragClickPrevented = true; },
+  stopPropagation() {}, stopImmediatePropagation() {},
+});
+check('click после перетаскивания preview подавляется', dragClickPrevented);
 
 let replacementAttached = false;
 let originalRemoved = false;
@@ -216,6 +273,16 @@ check('кисть можно выбрать по любому сегменту',
     tool: 'brush', width: 3,
     points: [{ x: 0, y: 0 }, { x: 20, y: 20 }, { x: 40, y: 0 }],
   }, { x: 30, y: 11 }, 2));
+check('большой штрих кисти выбирается за пустое место внутри рамки',
+  api.hitAction({
+    tool: 'brush', width: 3,
+    points: [{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 100, y: 100 }],
+  }, { x: 50, y: 50 }, 2));
+check('узкий штрих кисти не захватывает пустую область рамки',
+  !api.hitAction({
+    tool: 'brush', width: 3,
+    points: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
+  }, { x: 50, y: 10 }, 2));
 check('эллипс выбирается по внутренней области',
   api.hitAction({
     tool: 'ellipse', width: 2,
@@ -235,6 +302,9 @@ check('pinch подключён и к Canvas-редактору',
 check('перед редактором штатный preview закрывается',
   block.includes("button[class*=\"previewCloseButton_\"]")
     && block.includes('setTimeout(function () { openEditor(thumb); }, 0)'));
+check('масштаб редактора находится в нижней панели',
+  block.includes('footer.appendChild(zoomWidget)')
+    && !block.includes('history.appendChild(zoomWidget)'));
 
 function fakeContext() {
   const calls = [];
