@@ -9629,8 +9629,9 @@
   function stopIcon() {
     var NS = 'http://www.w3.org/2000/svg';
     var svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('width', '14');
-    svg.setAttribute('height', '14');
+    // Размер иконки задаёт CSS (.claude-limit-stop-float svg):
+    // правка горячая и не требует Reload Window даже окнам со
+    // старым JS — CSS перебивает презентационные атрибуты.
     svg.setAttribute('viewBox', '0 0 16 16');
     var rect = document.createElementNS(NS, 'rect');
     rect.setAttribute('x', '4');
