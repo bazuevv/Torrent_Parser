@@ -4,11 +4,20 @@
 Settings UI (Settings → Extensions → Claude Code), а не только
 правкой `.claude/patches/claude-custom-config.toml`.
 
-Сейчас добавляется один пункт:
+Сейчас вписывается два вклада.
 
-  claudeCode.emojiButtonPlacement — где показывать кнопку 😀:
-    "mic"    — слева от микрофона, в правом верхнем углу поля ввода;
-    "footer" — в футере, рядом с кнопкой меню `/`.
+1. Пункт настройки claudeCode.emojiButtonPlacement — где показывать
+   кнопку 😀:
+     "mic"    — слева от микрофона, в правом верхнем углу поля ввода;
+     "footer" — в футере, рядом с кнопкой меню `/`.
+
+2. Команда claudeCustom.openSettings и пункт «⚙ Настройки» в
+   контекстном меню страницы (`webview/context`). Меню по правой кнопке
+   рисует оболочка VSCode, а не страница, — из инжектированного JS до
+   него не дотянуться, и штатный путь ровно один: вклад в манифесте
+   плюс атрибут `data-vscode-context` на странице. Сам обработчик
+   команды живёт в блоке, который дописывает в extension.js
+   patch-extension-csp.py.
 
 Значение читает не этот хук, а `patch-claude-webview.py`: он берёт
 его из settings.json VSCode и кладёт в `window.__CLAUDE_CUSTOM_CONFIG__`
@@ -105,6 +114,33 @@ ENUM_DESCRIPTIONS_EN = [
 # покажет ровно наши пункты и ничего больше.
 SETTING_TAG = "claude-custom-patch"
 
+# --- пункт «Настройки» в контекстном меню страницы ----------------------
+#
+# Меню, которое VSCode показывает по правой кнопке в webview (Cut/Copy/
+# Paste), рисует оболочка, а не страница: из инжектированного JS до него
+# не дотянуться. Штатный способ добавить туда пункт один — вклад
+# `webview/context` в манифесте расширения плюс атрибут
+# `data-vscode-context` на странице, по которому VSCode понимает, что
+# курсор внутри «нашей» области. Поддерживается с VSCode 1.66; здесь
+# 1.135, и раздел `webview/context` у расширения пуст, так что чужих
+# пунктов мы не тронем.
+COMMAND_ID = "claudeCustom.openSettings"
+
+# Значение webviewSection, которое ставит claude-custom.js на <body>.
+# Совпадение имени здесь и там обязательно: по нему VSCode решает,
+# показывать пункт или нет.
+WEBVIEW_SECTION = "claude-custom"
+
+# Заголовок пункта. Шестерёнка — часть строки, а не иконка: контекстные
+# меню VSCode иконок команд не рисуют вовсе, и `icon` в манифесте здесь
+# ничего не даст.
+COMMAND_TITLE_EN = "⚙ Settings"
+COMMAND_TITLE_RU = "⚙ Настройки"
+
+# Группа сортировки. Пункт должен стоять последним, под Cut/Copy/Paste;
+# группы в меню VSCode сортируются по имени, поэтому префикс `z_`.
+COMMAND_GROUP = "z_claude@1"
+
 
 def _read_locale() -> str:
     """Локаль из claude-custom-config.toml; 'en' при любой проблеме."""
@@ -158,8 +194,92 @@ def _desired_property(translations: dict) -> dict:
     }
 
 
-def _patch_manifest(pkg_path: str, desired: dict) -> str:
-    """Вписывает свойство в contributes.configuration.properties.
+def _desired_command(locale: str) -> dict:
+    """Описание команды для контекстного меню.
+
+    Заголовок берём сразу на языке локали и пишем одинаковым в оба
+    файла — в отличие от пункта настроек выше. Тот переводит сам
+    localize.py по словарю `static.settings`, а нашей строки в словаре
+    нет: положив в `package.json.original` английский вариант, мы бы
+    получили английский пункт после первого же восстановления
+    манифеста из бэкапа.
+    """
+    title = COMMAND_TITLE_RU if locale == "ru" else COMMAND_TITLE_EN
+    return {"command": COMMAND_ID, "title": title}
+
+
+def _patch_contributions(contributes: dict, command: dict) -> bool:
+    """Вписывает команду и пункт `webview/context`. True, если менял.
+
+    Пункт прячется из палитры команд (`commandPalette` с `when: false`):
+    сам по себе, вне контекстного меню, он бессмыслен, а палитра —
+    общий список, засорять который чужими служебными командами невежливо.
+    """
+    changed = False
+
+    commands = contributes.setdefault("commands", [])
+    if isinstance(commands, list):
+        existing = next(
+            (c for c in commands
+             if isinstance(c, dict) and c.get("command") == COMMAND_ID),
+            None,
+        )
+        if existing is None:
+            commands.append(command)
+            changed = True
+        elif existing != command:
+            existing.clear()
+            existing.update(command)
+            changed = True
+
+    menus = contributes.setdefault("menus", {})
+    if not isinstance(menus, dict):
+        return changed
+
+    wanted_menu = {
+        "command": COMMAND_ID,
+        "when": f"webviewSection == '{WEBVIEW_SECTION}'",
+        "group": COMMAND_GROUP,
+    }
+    ctx = menus.setdefault("webview/context", [])
+    if isinstance(ctx, list):
+        existing = next(
+            (m for m in ctx
+             if isinstance(m, dict) and m.get("command") == COMMAND_ID),
+            None,
+        )
+        if existing is None:
+            ctx.append(wanted_menu)
+            changed = True
+        elif existing != wanted_menu:
+            existing.clear()
+            existing.update(wanted_menu)
+            changed = True
+
+    wanted_palette = {"command": COMMAND_ID, "when": "false"}
+    palette = menus.setdefault("commandPalette", [])
+    if isinstance(palette, list):
+        existing = next(
+            (m for m in palette
+             if isinstance(m, dict) and m.get("command") == COMMAND_ID),
+            None,
+        )
+        if existing is None:
+            palette.append(wanted_palette)
+            changed = True
+        elif existing != wanted_palette:
+            existing.clear()
+            existing.update(wanted_palette)
+            changed = True
+
+    return changed
+
+
+def _patch_manifest(pkg_path: str, desired: dict, command: dict) -> str:
+    """Вписывает наши вклады в манифест расширения.
+
+    Это свойство в `contributes.configuration.properties` (пункт в
+    Settings UI) и команда с пунктом контекстного меню.
 
     Возвращает status: "no_file" | "unreadable" | "bad_structure" |
     "already" | "patched" | "write_failed".
@@ -178,6 +298,12 @@ def _patch_manifest(pkg_path: str, desired: dict) -> str:
     contributes = pkg.get("contributes")
     if not isinstance(contributes, dict):
         return "bad_structure"
+
+    # Команда и пункт меню живут в contributes рядом с настройкой и
+    # пишутся тем же заходом: разносить их по двум записям файла значило
+    # бы писать мегабайтный манифест дважды за запуск хука.
+    contributions_changed = _patch_contributions(contributes, command)
+
     configuration = contributes.get("configuration")
     # В манифесте Claude Code это объект, но спецификация VSCode
     # допускает и массив блоков — тогда берём первый с properties.
@@ -192,7 +318,7 @@ def _patch_manifest(pkg_path: str, desired: dict) -> str:
     if not isinstance(properties, dict):
         return "bad_structure"
 
-    if properties.get(SETTING_KEY) == desired:
+    if properties.get(SETTING_KEY) == desired and not contributions_changed:
         return "already"
 
     properties[SETTING_KEY] = desired
@@ -333,6 +459,7 @@ def main() -> int:
     locale = _read_locale()
     desired = _desired_property(_load_translations(locale))
     desired_en = _desired_property({})
+    command = _desired_command(locale)
     messages: list[str] = []
     marker = _load_marker()
     marker_changed = False
@@ -344,15 +471,17 @@ def main() -> int:
     with ext_patch.patch_lock():
         for ext_dir in glob.glob(EXT_GLOB):
             pkg_path = os.path.join(ext_dir, "package.json")
-            status = _patch_manifest(pkg_path, desired)
+            status = _patch_manifest(pkg_path, desired, command)
             # Тот же пункт — в бэкап, из которого localize.py восстанавливает
             # манифест. Без этого всё держалось бы на порядке хуков, а harness
             # запускает хуки одного события параллельно: localize.py успевает
             # откатить package.json уже ПОСЛЕ того, как мы его пропатчили,
             # и пункт пропадает (ровно это и произошло 2026-08-12).
-            # В бэкапе — английский оригинал: localize.py переведёт его сам
-            # по словарю, как и остальные строки настроек.
-            _patch_manifest(pkg_path + ".original", desired_en)
+            # В бэкапе — английский оригинал СВОЙСТВА: localize.py
+            # переведёт его сам по словарю, как и остальные строки
+            # настроек. А команда уходит туда уже переведённой — её
+            # строки в словаре нет, переводить некому (см. _desired_command).
+            _patch_manifest(pkg_path + ".original", desired_en, command)
             patched.append((ext_dir, status))
 
     for ext_dir, status in patched:
@@ -360,7 +489,11 @@ def main() -> int:
         if status in ("patched", "already"):
             seen = marker.get(name)
             version = _read_ext_version(ext_dir)
-            current = {"version": version, "property": desired}
+            # Команда в снимке нужна: правка её заголовка меняет манифест
+            # ровно так же, как правка настройки, и молчать об этом
+            # нельзя — без Reload Window пункт останется прежним.
+            current = {"version": version, "property": desired,
+                       "command": command}
             # Версию не удалось прочитать даже с ретраями — маркер не
             # трогаем: записанное «пусто» разошлось бы с реальной
             # версией и превратило разовое уведомление в постоянный шум.
@@ -370,10 +503,11 @@ def main() -> int:
                 marker[name] = current
                 marker_changed = True
                 messages.append(
-                    f"[ext-settings WARNING] В `{name}/package.json` добавлен пункт "
-                    f"`{SETTING_KEY}`. Чтобы он появился в Settings UI, нужен "
-                    "`Developer: Reload Window` — VSCode читает манифесты расширений "
-                    "при старте."
+                    f"[ext-settings WARNING] В `{name}/package.json` вписаны наши "
+                    f"вклады: пункт `{SETTING_KEY}` для Settings UI и команда "
+                    f"`{COMMAND_ID}` с пунктом контекстного меню. Чтобы они "
+                    "появились, нужен `Developer: Reload Window` — VSCode читает "
+                    "манифесты расширений при старте."
                 )
         elif status in ("bad_structure", "unreadable"):
             messages.append(

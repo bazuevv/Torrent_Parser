@@ -2257,6 +2257,35 @@
     return false;
   }
 
+  /**
+   * Помечает страницу для контекстного меню VSCode.
+   *
+   * Меню по правой кнопке (Cut/Copy/Paste) рисует оболочка VSCode, а не
+   * страница: дописать в него пункт из нашего JS нельзя в принципе.
+   * Штатный путь — атрибут `data-vscode-context`: VSCode при клике идёт
+   * от узла под курсором вверх по дереву, собирает эти атрибуты и по
+   * ним решает, какие вклады `webview/context` показать. Значение
+   * `webviewSection` должно совпадать с `when` в манифесте расширения
+   * (его вписывает patch-extension-settings.py).
+   *
+   * Ставим на <body>, потому что пункт нужен «в любом месте страницы».
+   * `preventDefaultContextMenuItems` не трогаем: Cut/Copy/Paste должны
+   * остаться, наш пункт к ним добавляется, а не заменяет их.
+   *
+   * body React не перерисовывает (он рендерит в #root), так что одной
+   * установки хватает.
+   */
+  function markVscodeContext() {
+    try {
+      if (!document.body) return;
+      document.body.setAttribute('data-vscode-context', JSON.stringify({
+        webviewSection: 'claude-custom',
+      }));
+    } catch (e) {
+      logWarn('не удалось пометить body для контекстного меню:', e);
+    }
+  }
+
   function init() {
     logInfo('init at', new Date().toISOString());
     var cspMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
@@ -2265,6 +2294,7 @@
     // Прибор запускается первым: всё, что происходит на загрузке
     // страницы, должно попасть в baseline-отчёт.
     perfInit();
+    markVscodeContext();
     tagTimestampLines();
     refreshCustomCss();
 
