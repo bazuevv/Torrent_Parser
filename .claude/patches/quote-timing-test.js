@@ -218,16 +218,47 @@ btn().onclick({ preventDefault() {}, stopPropagation() {} });
 check('в пустой composer цитата идёт без ведущего перевода строки',
   composerText === '> one\n', JSON.stringify(composerText));
 
-/* --- сценарий 7: цитата с пустой строкой внутри (два абзаца).
- * Ровно случай из отчёта: между абзацами пустая строка `> `. */
+/* --- сценарий 7: два соседних абзаца страницы.
+ * Selection API отдаёт их разделёнными пустой строкой — так
+ * сериализуются блочные элементы. Для пользователя это две строки
+ * подряд, и разделитель в цитате не нужен: он давал осиротевший
+ * `> ` между строками и цитату разреженнее оригинала. */
 selectionText = 'Работает как задумано.\n\nТекущая сессия зафиксировала переход';
 fire('mouseup');
 composerText = '';
 commands.length = 0;
 btn().onclick({ preventDefault() {}, stopPropagation() {} });
-check('два абзаца дают три строки цитаты',
-  composerText === '> Работает как задумано.\n> \n> Текущая сессия зафиксировала переход\n',
+check('два абзаца дают две строки цитаты, без пустой между ними',
+  composerText === '> Работает как задумано.\n> Текущая сессия зафиксировала переход\n',
   JSON.stringify(composerText));
+
+/* --- сценарий 8: несколько пустых строк подряд тоже исчезают */
+selectionText = 'первая\n\n\n\nвторая';
+fire('mouseup');
+composerText = '';
+btn().onclick({ preventDefault() {}, stopPropagation() {} });
+check('подряд идущие пустые строки не оставляют следов',
+  composerText === '> первая\n> вторая\n', JSON.stringify(composerText));
+
+/* --- сценарий 9: выделены одни пробелы — вставлять нечего.
+ * Пара переводов строки была бы мусором по нажатию, которое
+ * пользователь считает безрезультатным. */
+selectionText = '   \n \n';
+fire('mouseup');
+composerText = 'было';
+btn().onclick({ preventDefault() {}, stopPropagation() {} });
+check('пустое выделение ничего не вставляет',
+  composerText === 'было', JSON.stringify(composerText));
+
+/* --- сценарий 10: отступы внутри строк не трогаем.
+ * Выбрасываются только целиком пустые строки, а ведущие пробелы
+ * кода — часть содержимого. */
+selectionText = 'def f():\n    return 1';
+fire('mouseup');
+composerText = '';
+btn().onclick({ preventDefault() {}, stopPropagation() {} });
+check('отступы в непустых строках сохранены',
+  composerText === '> def f():\n>     return 1\n', JSON.stringify(composerText));
 
 /* ---------- отчёт ---------- */
 let failed = 0;
