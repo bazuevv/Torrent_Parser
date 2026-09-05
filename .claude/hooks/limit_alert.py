@@ -240,13 +240,15 @@ def parse_wpctl_volume(text):
 
 
 def parse_wpctl_streams(text):
-    """Аудио-потоки из `wpctl status`: [(id, имя клиента)].
+    """Потоки ВОСПРОИЗВЕДЕНИЯ из `wpctl status`: [(id, имя)].
 
-    Берутся только главные строки секции Streams блока Audio. У
-    канальных строк (input_FL, monitor_FR и т.п.) отступ глубже —
-    мьют применяется к узлу потока, а не к его портам; Sinks и
-    Clients в секцию Streams не входят. id выровнены по правому
-    краю, поэтому отступ главного знака — от 6 до 11 пробелов.
+    Одной главной строки Streams недостаточно: там вперемешку лежат
+    `Stream/Output/Audio` (Firefox/VLC) и `Stream/Input/Audio`
+    (захват monitor у gnome-remote-desktop). Глушить capture-узел
+    опасно — он может быть общим звуковым трактом окна. Поэтому поток
+    берётся только когда среди его дочерних строк есть явное
+    `output_* > ...:playback_*`. Каналы `input_* < ...:monitor_*`,
+    Sinks и Clients не попадают.
     """
     if not isinstance(text, str):
         return []
@@ -268,16 +270,27 @@ def parse_wpctl_streams(text):
             break
     if streams_at is None:
         return []
+
     result = []
+    current = None
+
+    def finish():
+        if current and current[2]:
+            result.append((current[0], current[1]))
+
     for line in block[streams_at:]:
         if line and not line.startswith(" "):
             break
-        m = re.match(r"^ {6,11}(\d+)\. +(.+?)\s*$", line)
-        if m:
-            # выравнивающий хвост (pid, версия) отрезается по двойному
-            # пробелу — имени клиента он не принадлежит
-            name = re.sub(r"\s{2,}.*$", "", m.group(2)).strip()
-            result.append((int(m.group(1)), name))
+        parent = re.match(r"^ {6,11}(\d+)\. +(.+?)\s*$", line)
+        if parent:
+            finish()
+            name = re.sub(r"\s{2,}.*$", "", parent.group(2)).strip()
+            current = [int(parent.group(1)), name, False]
+            continue
+        if (current is not None
+                and re.search(r"\boutput_\S*\s*>\s*.+:playback_\S*", line)):
+            current[2] = True
+    finish()
     return result
 
 
@@ -463,9 +476,14 @@ def play(cfg: dict, reason: str = "manual") -> bool:
 
         scene = duck(cfg)
         try:
-            proc = subprocess.Popen(cmd + ["-i", MP3_PATH],
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL)
+            # stderr — в журнал: «тихий» запуск без этой выкладки не
+            # диагностируется (ALSA/PipeWire-ругань уходила в DEVNULL)
+            err_path = os.path.join(os.path.dirname(RESTORE_FILE),
+                                    "limit-alert-ffplay.log")
+            with open(err_path, "ab") as err_fh:
+                proc = subprocess.Popen(cmd + ["-i", MP3_PATH],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=err_fh)
         except OSError as exc:
             restore(scene)  # сцена подготовлена, а звука не будет
             hook_log.log("limit-alert", f"не удалось запустить ffplay: {exc}")

@@ -192,8 +192,14 @@ Audio
              67. input_FL        < ALC887-VD Digital:monitor_FL	[init]
              69. monitor_FR
         84. speech-dispatcher-dummy
+             87. output_FR       > HDMI 0:playback_FR	[init]
+             88. output_FL       > HDMI 0:playback_FL	[init]
        105. VLC media player (LibVLC 3.0.20)
+            102. output_FR       > HDMI 0:playback_FR	[paused]
+            106. output_FL       > HDMI 0:playback_FL	[paused]
        120. ffplay
+            121. output_FL       > HDMI 0:playback_FL	[active]
+            122. output_FR       > HDMI 0:playback_FR	[active]
 
 Video
  └─ Streams:
@@ -201,9 +207,10 @@ Video
 """
 streams = limit_alert.parse_wpctl_streams(WPCTL_STATUS)
 ids = [s[0] for s in streams]
-check("главные строки Streams собраны",
-      63 in ids and 84 in ids and 105 in ids and 120 in ids, repr(streams))
-check("канальные строки (порты) не попали", 67 not in ids and 69 not in ids)
+check("только playback-потоки собраны",
+      63 not in ids and 84 in ids and 105 in ids and 120 in ids, repr(streams))
+check("capture/monitor и канальные строки не попали",
+      63 not in ids and 67 not in ids and 69 not in ids)
 check("Sinks и Clients не попали",
       33 not in ids and 48 not in ids and 82 not in ids and 101 not in ids)
 check("видео-потоки не попали", 99 not in ids)
@@ -211,7 +218,7 @@ check("3-значный id с меньшим отступом распознан
       (105, "VLC media player (LibVLC 3.0.20)") in streams, repr(streams))
 foreign = limit_alert.foreign_streams(streams)
 check("свой ffplay отфильтрован",
-      120 not in [s[0] for s in foreign] and len(foreign) == 3, repr(foreign))
+      120 not in [s[0] for s in foreign] and len(foreign) == 2, repr(foreign))
 
 print("14. конфиг: битый/отсутствующий TOML — монитор выключен")
 saved = limit_alert.CONFIG_PATH
