@@ -69,7 +69,7 @@ class OpenAIUsageTests(unittest.TestCase):
             "context_window": 258400, "context_after": None,
         }])
 
-    def test_consecutive_cache_hits_are_grouped_and_miss_breaks_run(self):
+    def test_all_cache_hits_are_grouped_across_misses_and_models(self):
         marked = [
             {"ts": "2026-09-05T10:00:00+00:00", "model": "glm-5.3",
              "verdict": "попадание", "read": 100, "explain": None},
@@ -83,12 +83,12 @@ class OpenAIUsageTests(unittest.TestCase):
              "verdict": "попадание", "read": 250, "explain": None},
         ]
         runs = cache_usage.cache_hit_runs(marked, [], [])
-        self.assertEqual([(run["count"], run["read"], run["model"])
+        self.assertEqual([(run["count"], run["read"], run["models"])
                           for run in runs], [
-            (2, 220, "glm-5.3"), (2, 450, "gpt-5.6-sol"),
+            (4, 670, ["glm-5.3", "gpt-5.6-sol"]),
         ])
 
-    def test_account_event_breaks_consecutive_cache_hits(self):
+    def test_account_event_does_not_split_session_cache_total(self):
         marked = [
             {"ts": "2026-09-05T10:00:00+00:00", "model": "same",
              "verdict": "попадание", "read": 100, "explain": None},
@@ -97,7 +97,8 @@ class OpenAIUsageTests(unittest.TestCase):
         ]
         events = [{"ts": "2026-09-05T10:01:00+00:00"}]
         runs = cache_usage.cache_hit_runs(marked, events, [])
-        self.assertEqual([run["count"] for run in runs], [1, 1])
+        self.assertEqual([run["count"] for run in runs], [2])
+        self.assertEqual(runs[0]["read"], 220)
 
 
 if __name__ == "__main__":

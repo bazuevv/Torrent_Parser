@@ -5875,7 +5875,7 @@
     }
   }
 
-  /** Непрерывная серия попаданий: одна строка вместо одного ряда на ход. */
+  /** Все попадания сессии: одна строка вместо одного ряда на ход/серию. */
   function hitRow(hit) {
     var count = typeof hit.count === 'number' && hit.count > 0 ? hit.count : 1;
     var since = count > 1 ? ' с ' + hhmm(hit.started_ts) : '';
@@ -5883,8 +5883,10 @@
       hhmm(hit.ts) + '  ·  попадания в кэш × ' + count,
       'прочитано ' + human(hit.read),
       'claude-cache-hit',
-      'Непрерывная серия успешных чтений prompt-кэша' + since
-        + (hit.model ? ' · ' + shortModel(hit.model) : '')
+      'Все успешные чтения prompt-кэша за сессию' + since
+        + (hit.models && hit.models.length
+          ? ' · ' + hit.models.map(shortModel).join(', ')
+          : hit.model ? ' · ' + shortModel(hit.model) : '')
     );
   }
 
