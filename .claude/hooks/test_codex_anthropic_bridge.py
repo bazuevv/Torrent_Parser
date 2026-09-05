@@ -2,6 +2,8 @@
 """Tests for text conversion and Anthropic-compatible stream framing."""
 
 import json
+import os
+import tempfile
 import threading
 import unittest
 from unittest import mock
@@ -427,6 +429,38 @@ class PersistentSessionTests(unittest.TestCase):
                        "turn": {"status": "completed"}},
         })
         collect_message(turn)
+
+    def test_compaction_notification_is_persisted_once(self):
+        backend = CodexTextBackend(timeout=1)
+        backend.client = self.FakeClient()
+        backend.begin(self.payload([{"role": "user", "content": "hello"}]))
+        backend._handle_notification({
+            "method": "thread/tokenUsage/updated",
+            "params": {"threadId": "thread-1", "tokenUsage": {
+                "last": {"inputTokens": 120}, "total": {"inputTokens": 120},
+                "modelContextWindow": 258400,
+            }},
+        })
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "codex_anthropic_bridge.CONTEXT_EVENTS_FILE",
+            os.path.join(tmp, "events.jsonl"),
+        ):
+            modern = {
+                "method": "item/completed",
+                "params": {"threadId": "thread-1", "turnId": "turn-1",
+                           "item": {"id": "compact-1", "type": "contextCompaction"}},
+            }
+            backend._handle_notification(modern)
+            backend._handle_notification({
+                "method": "thread/compacted",
+                "params": {"threadId": "thread-1", "turnId": "turn-1"},
+            })
+            with open(os.path.join(tmp, "events.jsonl"), encoding="utf-8") as handle:
+                events = [json.loads(line) for line in handle]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["kind"], "compact")
+        self.assertEqual(events[0]["context_before"], 120)
+        self.assertEqual(events[0]["context_window"], 258400)
 
     def test_history_and_tool_metadata_changes_do_not_recreate_thread(self):
         backend = CodexTextBackend(timeout=1)

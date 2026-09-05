@@ -35,6 +35,7 @@ credits TTL падает до пяти минут, и тогда оценка з
 на итоговое соотношение это влияет слабо, потому что чтений на порядки
 больше, чем записей.
 """
+import hashlib
 import json
 import os
 import sys
@@ -364,6 +365,7 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
     # счёт по `miss_gaps` и `requests`, и два источника могли разойтись:
     # пауз хранится 500, ходов 3000. Теперь источник один.
     events = account_events()
+    compactions = context_events(key, state_dir)
     marked = explain_turns(state.get("turns") or [], events, ttl_minutes)
     early = sum(1 for t in marked if t.get("early"))
     # Знаменатель — ходы, на которых кэш вообще мог сработать. Первый
@@ -403,7 +405,7 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
         # bootstrap перечитывается только при Reload Window, и такое
         # окно живёт до ближайшей перезагрузки. Новый UI читает history.
         "miss_log": state["miss_log"],
-        "history": build_history(state, marked, events),
+        "history": build_history(state, marked, events, compactions),
         "cost": round(cost, 2),
         "cost_naive": round(naive, 2),
         "ratio": round(naive / cost, 1) if cost > 0 else 0.0,
@@ -423,7 +425,9 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
     }
 
 
-def build_history(state: dict, marked: list, events: list) -> list[dict]:
+def build_history(
+    state: dict, marked: list, events: list, compactions: list | None = None,
+) -> list[dict]:
     """Лента событий сессии: промахи вперемешку с переключениями.
 
     Раньше панель показывала только промахи, и они выглядели
@@ -506,6 +510,18 @@ def build_history(state: dict, marked: list, events: list) -> list[dict]:
             "pending": True,
         })
 
+    for ev in compactions or []:
+        when = parse_ts(ev.get("ts") or "")
+        if not when or (started and when < started):
+            continue
+        items.append({
+            "kind": "compact",
+            "ts": ev.get("ts") or "",
+            "model": ev.get("model") or "",
+            "context_before": ev.get("context_before") or 0,
+            "context_window": ev.get("context_window"),
+        })
+
     # Событие (model/account) сортируется раньше всего остального с той
     # же меткой времени: у переключения и хода, который его вызвал,
     # секунда обычно совпадает, и порядок «причина, потом остальное»
@@ -527,6 +543,49 @@ def account_events() -> list:
         return account_switcher.read_account_events()
     except Exception:
         return []
+
+
+def context_events(session_key: str, state_dir: str = STATE_DIR) -> list:
+    """Read safe Codex compaction events belonging to this Claude session."""
+    wanted = hashlib.sha256(session_key.encode()).hexdigest()
+    path = os.path.join(state_dir, "codex-context-events.jsonl")
+    result = []
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    event = json.loads(line)
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if (isinstance(event, dict)
+                        and event.get("kind") == "compact"
+                        and event.get("session_hash") == wanted):
+                    result.append(event)
+    except OSError:
+        return []
+    return result[-MAX_HISTORY_ITEMS:]
+
+
+def apply_openai_usage(stats: dict, usage: object, session_key: str) -> dict:
+    """Overlay live Codex model/context only when it belongs to this tab."""
+    if not stats.get("ok") or not isinstance(usage, dict):
+        return stats
+    wanted = hashlib.sha256(session_key.encode()).hexdigest()
+    if usage.get("session_key_hash") != wanted:
+        return stats
+    model = usage.get("model")
+    if isinstance(model, str) and model:
+        stats["model"] = model
+    window = usage.get("model_context_window")
+    if isinstance(window, int) and window > 0:
+        stats["context_window"] = window
+    last = usage.get("last")
+    if isinstance(last, dict):
+        context = last.get("input_tokens")
+        if isinstance(context, int) and context >= 0:
+            stats["context"] = context
+    stats["live_provider"] = "openai"
+    return stats
 
 
 def explain_turns(turns: list, events: list, ttl_minutes: float) -> list[dict]:

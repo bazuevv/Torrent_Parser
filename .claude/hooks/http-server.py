@@ -1237,6 +1237,22 @@ class Handler(BaseHTTPRequestHandler):
                 stats = cache_usage.collect(
                     transcript, state_dir=state_dir, ttl_minutes=ttl,
                 )
+                active = account_switcher.current_account_runtime()
+                configured_model = active.get("model")
+                if isinstance(configured_model, str) and configured_model:
+                    stats["model"] = configured_model
+                if active.get("provider") == "openai":
+                    snapshot = codex_bridge_manager.account_snapshot(timeout=1.0)
+                    bridge_usage = (
+                        snapshot.get("bridgeUsage")
+                        if isinstance(snapshot, dict) else None
+                    )
+                    session_key = os.path.basename(transcript)
+                    if session_key.endswith(".jsonl"):
+                        session_key = session_key[:-6]
+                    cache_usage.apply_openai_usage(
+                        stats, bridge_usage, session_key,
+                    )
         except Exception as exc:
             self._json_response(500, {"ok": False, "error": str(exc)})
             return

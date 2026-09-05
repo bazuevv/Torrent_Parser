@@ -716,6 +716,17 @@ def get_current_account() -> str:
     return BASE_NAME
 
 
+def current_account_runtime() -> dict:
+    """Safe active provider/model metadata without usage or identity fetches."""
+    filename = get_current_account()
+    info = _describe(source_path(filename))
+    return {
+        "file": filename,
+        "provider": info.get("provider") or "",
+        "model": info.get("model") or "",
+    }
+
+
 def source_path(filename: str) -> str:
     """Файл, в котором лежат НАСТОЯЩИЕ настройки аккаунта.
 

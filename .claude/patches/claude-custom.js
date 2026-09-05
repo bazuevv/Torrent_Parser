@@ -5909,6 +5909,17 @@
 
   /** Строка переключения: смена модели или аккаунта. */
   function eventRow(ev) {
+    if (ev.kind === 'compact') {
+      var before = typeof ev.context_before === 'number' && ev.context_before > 0
+        ? human(ev.context_before) : '—';
+      return row(
+        hhmm(ev.ts) + '  ·  сжатие контекста',
+        before + (ev.model ? '  ·  ' + shortModel(ev.model) : ''),
+        'claude-cache-event',
+        'Codex App Server завершил сжатие контекста; число справа — '
+          + 'размер контекста перед событием'
+      );
+    }
     var isAccount = ev.kind === 'account';
     var from = isAccount ? (ev.from || '—') : shortModel(ev.from);
     var to = isAccount ? (ev.to || '—') : shortModel(ev.to);
@@ -5943,7 +5954,9 @@
 
     var head = document.createElement('div');
     head.className = 'claude-cache-head';
-    head.textContent = 'контекст ' + human(d.context);
+    head.textContent = 'контекст ' + human(d.context)
+      + (typeof d.context_window === 'number' && d.context_window > 0
+        ? ' / ' + human(d.context_window) : '');
     var sub = document.createElement('span');
     sub.className = 'claude-cache-sub';
     sub.textContent = d.model || '';
@@ -5962,6 +5975,9 @@
       'чтение / запись',
       human(last.read) + ' / ' + human(last.write)
     ));
+    if (typeof d.context_window === 'number' && d.context_window > 0) {
+      body.appendChild(row('окно модели', human(d.context_window)));
+    }
 
     body.appendChild(document.createElement('hr'));
 

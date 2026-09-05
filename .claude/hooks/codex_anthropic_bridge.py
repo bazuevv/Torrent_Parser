@@ -8,6 +8,7 @@ by the official Codex process.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import http.server
 import ipaddress
 import json
@@ -17,6 +18,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from codex_app_server import CodexAppServerClient, CodexAppServerError
@@ -26,6 +28,10 @@ from codex_app_server import _safe_probe
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18924
 DEFAULT_REQUEST_TIMEOUT = 600.0
+CONTEXT_EVENTS_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "hooks-runtime", "codex-context-events.jsonl",
+)
 SOURCE_MTIME = max(
     os.path.getmtime(__file__),
     os.path.getmtime(os.path.join(os.path.dirname(__file__), "codex_app_server.py")),
@@ -420,6 +426,7 @@ class BridgeSession:
     tool_continuations: int = 0
     initial_input_chars: int | None = None
     last_input_chars: int = 0
+    seen_compactions: set[str] = field(default_factory=set)
 
 
 TOKEN_USAGE_FIELDS = {
@@ -484,7 +491,8 @@ class CodexTextBackend:
         return result
 
     def _handle_notification(self, message: dict[str, Any]) -> None:
-        if message.get("method") == "thread/tokenUsage/updated":
+        method = message.get("method")
+        if method == "thread/tokenUsage/updated":
             params = message.get("params")
             thread_id = params.get("threadId") if isinstance(params, dict) else None
             token_usage = params.get("tokenUsage") if isinstance(params, dict) else None
@@ -501,7 +509,49 @@ class CodexTextBackend:
                     context_window if isinstance(context_window, int) else None
                 )
                 self._publish_session(session)
+        elif method in ("item/completed", "thread/compacted"):
+            params = message.get("params")
+            thread_id = params.get("threadId") if isinstance(params, dict) else None
+            item = params.get("item") if isinstance(params, dict) else None
+            is_compaction = (
+                method == "thread/compacted"
+                or (isinstance(item, dict) and item.get("type") == "contextCompaction")
+            )
+            with self._tool_lock:
+                session = self._tool_queues.get(thread_id)
+            if session is not None and is_compaction:
+                self._record_compaction(session, params or {})
         self.router.dispatch(message)
+
+    def _record_compaction(
+        self, session: BridgeSession, params: dict[str, Any],
+    ) -> None:
+        """Persist one safe Usage-history row for each Codex compaction."""
+        item = params.get("item")
+        keys = []
+        turn_id = params.get("turnId")
+        item_id = item.get("id") if isinstance(item, dict) else None
+        if isinstance(turn_id, str) and turn_id:
+            keys.append("turn:" + turn_id)
+        if isinstance(item_id, str) and item_id:
+            keys.append("item:" + item_id)
+        if keys and any(key in session.seen_compactions for key in keys):
+            return
+        session.seen_compactions.update(keys)
+        event = {
+            "kind": "compact",
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "session_hash": hashlib.sha256(session.key.encode()).hexdigest(),
+            "model": session.model,
+            "context_before": session.last_usage.get("input_tokens", 0),
+            "context_window": session.context_window,
+        }
+        try:
+            os.makedirs(os.path.dirname(CONTEXT_EVENTS_FILE), exist_ok=True)
+            with open(CONTEXT_EVENTS_FILE, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+        except OSError:
+            return
 
     def _publish_session(self, session: BridgeSession) -> None:
         """Expose only counters and model metadata, never prompts or ids."""
@@ -517,6 +567,7 @@ class CodexTextBackend:
                 "initial_input_chars": session.initial_input_chars,
                 "last_input_chars": session.last_input_chars,
                 "updated_at": int(time.time()),
+                "session_key_hash": hashlib.sha256(session.key.encode()).hexdigest(),
             }
 
     def begin(self, payload: dict[str, Any]) -> TextTurn:
