@@ -119,6 +119,32 @@ class OpenAIUsageTests(unittest.TestCase):
         self.assertEqual(stats["last"]["read"], 0)
         self.assertEqual(stats["last"]["write"], 0)
 
+    def test_openai_transcript_hit_is_included_in_history_without_cache_write(self):
+        records = [
+            {"timestamp": "2026-09-05T12:20:42Z", "message": {
+                "model": "gpt-5.6-sol", "usage": {
+                    "input_tokens": 63711, "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0, "output_tokens": 319,
+                }}},
+            {"timestamp": "2026-09-05T12:23:56Z", "message": {
+                "model": "gpt-5.6-sol", "usage": {
+                    "input_tokens": 64311, "cache_read_input_tokens": 63744,
+                    "cache_creation_input_tokens": 0, "output_tokens": 202,
+                }}},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = os.path.join(tmp, "session-42.jsonl")
+            with open(transcript, "w", encoding="utf-8") as handle:
+                for record in records:
+                    handle.write(json.dumps(record) + "\n")
+            result = cache_usage.collect(transcript, state_dir=tmp)
+
+        hits = [item for item in result["history"] if item["kind"] == "hit"]
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["count"], 1)
+        self.assertEqual(hits[0]["read"], 63744)
+        self.assertEqual(hits[0]["details"][0]["read"], 63744)
+
     def test_openai_zero_input_record_restores_compaction_and_context(self):
         records = [
             {"timestamp": "2026-09-05T06:14:32Z", "message": {

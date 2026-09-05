@@ -86,7 +86,7 @@ MAX_TRACKED_TURNS = 3000
 # набора полей: старое состояние тогда отбрасывается и транскрипт
 # перечитывается целиком. Без этого добавленное поле молча остаётся
 # пустым на всех сессиях, у которых состояние уже накоплено.
-STATE_VERSION = 9
+STATE_VERSION = 10
 
 
 def rate_for(model: str):
@@ -238,7 +238,15 @@ def consume(state: dict, path: str) -> None:
             ts_prev = parse_ts(prev["ts"])
             if ts_now and ts_prev:
                 gap_min = (ts_now - ts_prev).total_seconds() / 60.0
-            if expected <= 0:
+            if is_openai:
+                # Codex reports prompt-cache reads, but not a separate cache
+                # write on the preceding turn: its cache is populated
+                # automatically.  Requiring prev.rd + prev.wr therefore
+                # mislabeled a real cachedInputTokens hit as «н/д» and kept
+                # it out of Usage history.  For OpenAI the current raw read
+                # counter is the authoritative hit signal.
+                verdict = "попадание" if rd > 0 else "промах"
+            elif expected <= 0:
                 verdict = "н/д"
             elif rd >= expected * 0.95:
                 verdict = "попадание"
