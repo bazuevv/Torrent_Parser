@@ -6031,7 +6031,7 @@
     var sub = document.createElement('span');
     sub.className = 'claude-cache-sub';
     sub.textContent = (d.model || '')
-      + (d.effort ? ' · усилие ' + d.effort : '');
+      + (d.effort ? ' · ' + d.effort : '');
     head.appendChild(sub);
     body.appendChild(head);
 

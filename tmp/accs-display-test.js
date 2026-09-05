@@ -42,6 +42,7 @@ const accs = between(' * ACCOUNT SWITCHER BUTTON', ' * MOOD GAUGE');
 check(!accs.includes('function openaiRuntimeBlock'), 'Accs всё ещё содержит runtime-блок');
 check(!accs.includes("['кэш', last.cached_input_tokens]"), 'Accs всё ещё выводит кэш');
 check(!accs.includes("['reasoning', last.reasoning_output_tokens]"), 'Accs всё ещё выводит reasoning');
-check(source.includes("' · усилие ' + d.effort"), 'Usage не подписывает значение усилия');
+check(source.includes("' · ' + d.effort"), 'Usage не выводит значение effort после модели');
+check(!source.includes("' · усилие ' + d.effort"), 'Usage всё ещё подписывает effort словом «усилие»');
 
 console.log('accs-display: ' + passed + '/' + passed + ' checks passed');

@@ -219,6 +219,35 @@ def select_effort(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def is_title_request(payload: dict[str, Any]) -> bool:
+    """Recognize Claude Code's auxiliary structured session-title request.
+
+    Claude Code sends this request with the same ``session_id`` as the real
+    conversation.  It must not become that session's persistent Codex thread:
+    otherwise the next user turn inherits the title generator's instructions
+    and returns ``{"title": ...}`` into the chat.
+    """
+    output_config = payload.get("output_config")
+    output_format = (
+        output_config.get("format") if isinstance(output_config, dict) else None
+    )
+    if not isinstance(output_format, dict):
+        return False
+    schema = output_format.get("schema")
+    if not isinstance(schema, dict):
+        return False
+    properties = schema.get("properties")
+    required = schema.get("required")
+    return (
+        isinstance(properties, dict)
+        and set(properties) == {"title"}
+        and isinstance(properties.get("title"), dict)
+        and properties["title"].get("type") == "string"
+        and isinstance(required, list)
+        and set(required) == {"title"}
+    )
+
+
 def dynamic_tools(payload: dict[str, Any]) -> list[dict[str, Any]]:
     tools = payload.get("tools")
     if tools is None:
@@ -426,6 +455,7 @@ class BridgeSession:
     seen_compactions: set[str] = field(default_factory=set)
     pending_compaction: dict[str, Any] | None = None
     prior_context: int = 0
+    publish_usage: bool = True
 
 
 TOKEN_USAGE_FIELDS = {
@@ -559,6 +589,8 @@ class CodexTextBackend:
         self, session: BridgeSession, params: dict[str, Any],
     ) -> None:
         """Persist one safe Usage-history row for each Codex compaction."""
+        if not session.publish_usage:
+            return
         item = params.get("item")
         keys = []
         turn_id = params.get("turnId")
@@ -599,6 +631,8 @@ class CodexTextBackend:
 
     def _publish_session(self, session: BridgeSession) -> None:
         """Expose only counters and model metadata, never prompts or ids."""
+        if not session.publish_usage:
+            return
         session_hash = hashlib.sha256(session.key.encode()).hexdigest()
         value = {
             "model": session.model,
@@ -630,7 +664,8 @@ class CodexTextBackend:
             self._save_usage_state(value)
 
     def begin(self, payload: dict[str, Any]) -> TextTurn:
-        stable_key = claude_session_key(payload)
+        auxiliary_title = is_title_request(payload)
+        stable_key = None if auxiliary_title else claude_session_key(payload)
         key = stable_key or "request:" + uuid.uuid4().hex
         tools, tool_names = prepare_dynamic_tools(payload)
         tool_signature = json.dumps(tools, ensure_ascii=False, sort_keys=True)
@@ -648,6 +683,7 @@ class CodexTextBackend:
                 raise
         return self._start_session(
             key, payload, tools, tool_names, tool_signature, stable_key is not None,
+            publish_usage=not auxiliary_title,
         )
 
     def _start_session(
@@ -658,6 +694,8 @@ class CodexTextBackend:
         tool_names: dict[str, str],
         tool_signature: str,
         persistent: bool,
+        *,
+        publish_usage: bool = True,
     ) -> TextTurn:
         developer, prompt, image_inputs = build_request(payload)
         model = select_model(payload)
@@ -690,6 +728,7 @@ class CodexTextBackend:
             tool_names=tool_names,
             tool_signature=tool_signature,
             seen_messages=_message_fingerprints(payload),
+            publish_usage=publish_usage,
         )
         self._publish_session(session)
         session.response_lock.acquire()

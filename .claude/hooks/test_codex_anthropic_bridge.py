@@ -19,6 +19,7 @@ from codex_anthropic_bridge import (
     collect_message,
     claude_session_key,
     dynamic_tools,
+    is_title_request,
     _dynamic_result,
     _followup_payload,
     _normalized_usage,
@@ -88,6 +89,21 @@ class PromptConversionTests(unittest.TestCase):
         self.assertEqual(select_effort({
             "output_config": {"effort": "high"}, "effort": "low",
         }), "high")
+
+    def test_structured_title_request_is_recognized_exactly(self):
+        title_format = {
+            "format": {"type": "json_schema", "schema": {
+                "type": "object",
+                "properties": {"title": {"type": "string"}},
+                "required": ["title"],
+                "additionalProperties": False,
+            }},
+        }
+        self.assertTrue(is_title_request({"output_config": title_format}))
+        title_format["format"]["schema"]["properties"]["summary"] = {
+            "type": "string",
+        }
+        self.assertFalse(is_title_request({"output_config": title_format}))
 
     def test_tool_result_becomes_successful_dynamic_response(self):
         result = _dynamic_result({
@@ -325,12 +341,14 @@ class PersistentSessionTests(unittest.TestCase):
         def __init__(self):
             self.requests = []
             self.turn_number = 0
+            self.thread_number = 0
 
         def request(self, method, params):
             self.requests.append((method, params))
             if method == "thread/start":
+                self.thread_number += 1
                 return {"thread": {
-                    "id": "thread-1", "model": "gpt-test",
+                    "id": f"thread-{self.thread_number}", "model": "gpt-test",
                     "reasoningEffort": "low",
                 }}
             if method == "turn/start":
@@ -422,6 +440,66 @@ class PersistentSessionTests(unittest.TestCase):
                        "turn": {"status": "completed"}},
         })
         collect_message(third)
+
+    def test_title_generation_uses_isolated_thread_and_not_usage(self):
+        backend = CodexTextBackend(timeout=1)
+        backend.client = self.FakeClient()
+        title_payload = self.payload([{
+            "role": "user", "content": "Create a concise session title",
+        }])
+        title_payload["system"] = "Return only a title."
+        title_payload["output_config"] = {
+            "format": {"type": "json_schema", "schema": {
+                "type": "object",
+                "properties": {"title": {"type": "string"}},
+                "required": ["title"],
+                "additionalProperties": False,
+            }},
+        }
+
+        title_turn = backend.begin(title_payload)
+        self.assertNotIn("claude-1", backend._sessions)
+        title_session = backend._tool_queues["thread-1"]
+        backend._handle_notification({
+            "method": "thread/tokenUsage/updated",
+            "params": {"threadId": "thread-1", "tokenUsage": {
+                "last": {"inputTokens": 50}, "total": {"inputTokens": 50},
+                "modelContextWindow": 258400,
+            }},
+        })
+        self.assertEqual(backend._latest_usage, {})
+        title_session.events.put({
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": "thread-1", "turnId": "turn-1",
+                       "delta": '{"title":"Greeting"}'},
+        })
+        title_session.events.put({
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turnId": "turn-1",
+                       "turn": {"status": "completed"}},
+        })
+        collect_message(title_turn)
+
+        chat_turn = backend.begin(self.payload([{
+            "role": "user", "content": "Tell me about yourself",
+        }]))
+        self.assertEqual(backend._sessions["claude-1"].thread_id, "thread-2")
+        thread_starts = [params for method, params in backend.client.requests
+                         if method == "thread/start"]
+        self.assertEqual(len(thread_starts), 2)
+        self.assertIn(
+            "Return only a title", thread_starts[0]["developerInstructions"],
+        )
+        self.assertNotIn(
+            "Return only a title", thread_starts[1]["developerInstructions"],
+        )
+        chat_session = backend._sessions["claude-1"]
+        chat_session.events.put({
+            "method": "turn/completed",
+            "params": {"threadId": "thread-2", "turnId": "turn-2",
+                       "turn": {"status": "completed"}},
+        })
+        collect_message(chat_turn)
 
     def test_usage_notification_updates_turn_and_safe_snapshot(self):
         backend = CodexTextBackend(timeout=1)
