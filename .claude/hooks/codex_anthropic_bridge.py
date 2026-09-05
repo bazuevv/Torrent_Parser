@@ -19,6 +19,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from itertools import chain
 from typing import Any, Iterator
 
 from codex_app_server import CodexAppServerClient, CodexAppServerError
@@ -288,32 +289,24 @@ def _message_fingerprints(payload: dict[str, Any]) -> list[str]:
 def _followup_payload(
     payload: dict[str, Any], previous: list[str],
 ) -> dict[str, Any]:
-    """Return new user input without ever replaying a rewritten long history."""
-    current = _message_fingerprints(payload)
+    """Return the newest real user input without replaying old history.
+
+    Claude Code may append ephemeral hook, attachment, or assistant scaffolding
+    after the user's message.  Those blocks are not stable between API calls,
+    so an anchor against the former last fingerprint can land after the new
+    user message and make the suffix appear empty.  A persistent Codex thread
+    already owns every earlier turn: the only conversation block it needs is
+    the newest non-tool-result user message.
+    """
+    del previous  # retained in the signature for callers and focused tests
     messages = payload.get("messages") or []
-    if len(current) >= len(previous) and current[:len(previous)] == previous:
-        suffix = messages[len(previous):]
-    else:
-        # Claude may merge blocks or compact old history. The Codex thread
-        # already owns that context, so replaying it can exceed the window.
-        anchor = previous[-1] if previous else None
-        matched_at = -1
-        if anchor is not None:
-            for index in range(len(current) - 1, -1, -1):
-                if current[index] == anchor:
-                    matched_at = index
-                    break
-        suffix = messages[matched_at + 1:] if matched_at >= 0 else messages[-1:]
-    user_messages = [
-        item for item in suffix
-        if isinstance(item, dict) and item.get("role") == "user"
-        and not _is_tool_result_only(item.get("content"))
-    ]
-    if not user_messages:
-        raise BridgeError("Claude session has no new user input")
-    result = dict(payload)
-    result["messages"] = user_messages
-    return result
+    for item in reversed(messages):
+        if (isinstance(item, dict) and item.get("role") == "user"
+                and not _is_tool_result_only(item.get("content"))):
+            result = dict(payload)
+            result["messages"] = [item]
+            return result
+    raise BridgeError("Claude session has no new user input")
 
 
 def _is_tool_result_only(content: Any) -> bool:
@@ -437,6 +430,7 @@ TOKEN_USAGE_FIELDS = {
     "reasoningOutputTokens": "reasoning_output_tokens",
     "totalTokens": "total_tokens",
 }
+USAGE_READY = object()
 
 
 def _normalized_usage(value: Any) -> dict[str, int]:
@@ -816,6 +810,8 @@ class CodexTextBackend:
                     delta = params.get("delta")
                     if isinstance(delta, str) and delta:
                         yield delta
+                elif method == "thread/tokenUsage/updated" and session.last_usage:
+                    yield USAGE_READY
                 elif method == "turn/completed":
                     turn = params.get("turn") or {}
                     status = turn.get("status")
@@ -862,9 +858,22 @@ def message_object(
 
 
 def stream_events(turn: TextTurn) -> Iterator[tuple[str, dict[str, Any]]]:
+    chunks = turn.chunks
+    pending = []
+    for first in chunks:
+        if first is USAGE_READY:
+            break
+        pending.append(first)
+
+    # Priming the Codex iterator lets tokenUsage/updated run before the
+    # Anthropic message_start frame is serialized.  Without it Claude Code
+    # permanently records input/cache usage as zero even though the final
+    # bridge snapshot contains the correct values.
     yield "message_start", {
         "type": "message_start",
-        "message": message_object(turn.message_id, turn.model, "") | {
+        "message": message_object(
+            turn.message_id, turn.model, "", usage=turn.usage,
+        ) | {
             "content": [], "stop_reason": None,
         },
     }
@@ -872,8 +881,9 @@ def stream_events(turn: TextTurn) -> Iterator[tuple[str, dict[str, Any]]]:
     text_open = False
     emitted = False
     stop_reason = "end_turn"
-    chunks = turn.chunks
-    for chunk in chunks:
+    for chunk in chain(pending, chunks):
+        if chunk is USAGE_READY:
+            continue
         if isinstance(chunk, str):
             if not text_open:
                 yield "content_block_start", {

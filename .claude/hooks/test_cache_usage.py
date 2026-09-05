@@ -18,12 +18,16 @@ class OpenAIUsageTests(unittest.TestCase):
             "session_key_hash": hashlib.sha256(session.encode()).hexdigest(),
             "model": "gpt-5.6-sol",
             "model_context_window": 258400,
-            "last": {"input_tokens": 63893},
+            "turns_started": 2,
+            "last": {"input_tokens": 63893, "cached_input_tokens": 50000,
+                     "cache_write_input_tokens": 0},
         }
         result = cache_usage.apply_openai_usage(stats, usage, session)
         self.assertEqual(result["model"], "gpt-5.6-sol")
         self.assertEqual(result["context"], 63893)
         self.assertEqual(result["context_window"], 258400)
+        self.assertEqual(result["last"]["read"], 50000)
+        self.assertEqual(result["last"]["verdict"], "попадание")
 
         stale = {"ok": True, "model": "glm-5.3", "context": 299300}
         cache_usage.apply_openai_usage(stale, usage, "another-session")

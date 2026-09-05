@@ -584,6 +584,18 @@ def apply_openai_usage(stats: dict, usage: object, session_key: str) -> dict:
         context = last.get("input_tokens")
         if isinstance(context, int) and context >= 0:
             stats["context"] = context
+        cached = last.get("cached_input_tokens")
+        written = last.get("cache_write_input_tokens")
+        if isinstance(cached, int) and cached >= 0:
+            stats.setdefault("last", {})["read"] = cached
+        if isinstance(written, int) and written >= 0:
+            stats.setdefault("last", {})["write"] = written
+        if isinstance(cached, int) and isinstance(written, int):
+            stats["last"]["verdict"] = (
+                "попадание" if cached > 0 else
+                "старт" if usage.get("turns_started") == 1 else "промах"
+            )
+            stats["last"]["gap"] = None
     stats["live_provider"] = "openai"
     return stats
 

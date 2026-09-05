@@ -13,6 +13,7 @@ from codex_anthropic_bridge import (
     CodexTextBackend,
     DynamicToolCall,
     TextTurn,
+    USAGE_READY,
     build_prompt,
     build_request,
     collect_message,
@@ -70,6 +71,17 @@ class PromptConversionTests(unittest.TestCase):
         followup = _followup_payload(payload, ["different"])
         self.assertEqual(followup["messages"], [
             {"role": "user", "content": "continue safely"},
+        ])
+
+    def test_ephemeral_tail_after_new_user_does_not_hide_followup(self):
+        payload = {"messages": [
+            {"role": "user", "content": "old"},
+            {"role": "user", "content": "new request"},
+            {"role": "assistant", "content": "ephemeral scaffold"},
+        ]}
+        followup = _followup_payload(payload, ["fingerprint-not-present"])
+        self.assertEqual(followup["messages"], [
+            {"role": "user", "content": "new request"},
         ])
 
     def test_claude_output_config_effort_is_selected(self):
@@ -239,6 +251,44 @@ class AnthropicResponseTests(unittest.TestCase):
         encoded = json.dumps(events)
         self.assertIn("hel", encoded)
         self.assertIn("lo", encoded)
+
+    def test_stream_primes_usage_before_message_start(self):
+        usage = {}
+
+        def chunks():
+            usage.update({
+                "input_tokens": 246872,
+                "cached_input_tokens": 100000,
+                "output_tokens": 3,
+            })
+            yield "ok"
+
+        events = list(stream_events(TextTurn(
+            "msg_1", "gpt-test", chunks(), usage,
+        )))
+        start_usage = events[0][1]["message"]["usage"]
+        self.assertEqual(start_usage["input_tokens"], 246872)
+        self.assertEqual(start_usage["cache_read_input_tokens"], 100000)
+
+    def test_stream_buffers_only_until_usage_notification(self):
+        usage = {}
+        progress = []
+
+        def chunks():
+            progress.append("early text")
+            yield "early"
+            usage["input_tokens"] = 100
+            progress.append("usage")
+            yield USAGE_READY
+            progress.append("late text")
+            yield "late"
+
+        events = stream_events(TextTurn("msg_1", "gpt-test", chunks(), usage))
+        first_event = next(events)
+        self.assertEqual(first_event[0], "message_start")
+        self.assertEqual(first_event[1]["message"]["usage"]["input_tokens"], 100)
+        self.assertEqual(progress, ["early text", "usage"])
+        self.assertIn("late", json.dumps(list(events)))
 
     def test_stream_emits_anthropic_tool_use(self):
         response = __import__("queue").Queue(maxsize=1)
