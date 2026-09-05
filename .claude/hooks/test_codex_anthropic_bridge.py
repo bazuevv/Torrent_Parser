@@ -462,6 +462,45 @@ class PersistentSessionTests(unittest.TestCase):
         self.assertEqual(snapshot["bridgeUsage"]["effort"], "low")
         self.assertEqual(snapshot["bridgeUsage"]["turns_started"], 1)
 
+    def test_usage_arriving_after_completion_is_included_in_stream_start(self):
+        backend = CodexTextBackend(timeout=1)
+        backend.client = self.FakeClient()
+        turn = backend.begin(self.payload([{"role": "user", "content": "hello"}]))
+        session = backend._sessions["claude-1"]
+        session.events.put({
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": "thread-1", "turnId": "turn-1", "delta": "ok"},
+        })
+        session.events.put({
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turnId": "turn-1",
+                       "turn": {"status": "completed"}},
+        })
+
+        def delayed_usage():
+            __import__("time").sleep(0.01)
+            backend._handle_notification({
+                "method": "thread/tokenUsage/updated",
+                "params": {"threadId": "thread-1", "turnId": "turn-1",
+                           "tokenUsage": {
+                               "last": {"inputTokens": 89800,
+                                        "cachedInputTokens": 25300,
+                                        "outputTokens": 12},
+                               "total": {"inputTokens": 89800,
+                                         "cachedInputTokens": 25300,
+                                         "outputTokens": 12},
+                               "modelContextWindow": 258400,
+                           }},
+            })
+
+        worker = threading.Thread(target=delayed_usage)
+        worker.start()
+        events = list(stream_events(turn))
+        worker.join(timeout=1)
+        usage = events[0][1]["message"]["usage"]
+        self.assertEqual(usage["input_tokens"], 89800)
+        self.assertEqual(usage["cache_read_input_tokens"], 25300)
+
     def test_high_effort_is_forwarded_to_turn_and_reported(self):
         backend = CodexTextBackend(timeout=1)
         backend.client = self.FakeClient()

@@ -836,6 +836,26 @@ class CodexTextBackend:
                         error = turn.get("error") or {}
                         raise BridgeError(error.get("message") or f"turn {status}")
                     session.active_turn_id = None
+                    # After automatic compaction App Server can emit the
+                    # completion before its final tokenUsage notification.
+                    # Give that telemetry a short grace period so Claude's
+                    # message_start and transcript do not permanently record
+                    # zero input/cache tokens for an otherwise valid turn.
+                    usage_deadline = min(deadline, time.monotonic() + 0.5)
+                    while not session.last_usage and time.monotonic() < usage_deadline:
+                        try:
+                            trailing = session.events.get(
+                                timeout=max(
+                                    0.001,
+                                    min(0.1, usage_deadline - time.monotonic()),
+                                ),
+                            )
+                        except queue.Empty:
+                            continue
+                        if (trailing.get("method") == "thread/tokenUsage/updated"
+                                and session.last_usage):
+                            yield USAGE_READY
+                            break
                     return
                 elif method == "error":
                     error = params.get("error") or {}
