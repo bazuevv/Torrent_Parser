@@ -19,6 +19,9 @@ BRIDGE_PORT = int(os.environ.get("CLAUDE_OPENAI_BRIDGE_PORT", "18925"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE_SCRIPT = os.path.join(HERE, "codex_anthropic_bridge.py")
 APP_SERVER_CLIENT = os.path.join(HERE, "codex_app_server.py")
+BRIDGE_USAGE_FILE = os.path.join(
+    os.path.dirname(HERE), "hooks-runtime", "codex-bridge-usage.json",
+)
 
 
 def _url(path: str) -> str:
@@ -44,6 +47,27 @@ def health(timeout: float = 0.5) -> dict[str, Any] | None:
 def account_snapshot(timeout: float = 8.0) -> dict[str, Any] | None:
     value = _read("/account", timeout)
     return value if value and value.get("ok") is True else None
+
+
+def bridge_usage_snapshot(timeout: float = 1.0) -> dict[str, Any] | None:
+    """Return the last atomic Usage snapshot without depending on /account.
+
+    ``/account`` asks Codex App Server for fresh account/rate-limit data and
+    can legitimately take longer than the Usage popup's one-second budget.
+    The bridge already persists every token-usage update atomically, so that
+    file is the stable source for model, effort, cache and context counters.
+    """
+    try:
+        with open(BRIDGE_USAGE_FILE, encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        value = None
+    if isinstance(value, dict) and value.get("session_key_hash"):
+        return value
+
+    snapshot = account_snapshot(timeout=timeout)
+    usage = snapshot.get("bridgeUsage") if isinstance(snapshot, dict) else None
+    return usage if isinstance(usage, dict) else None
 
 
 def _source_mtime() -> float:

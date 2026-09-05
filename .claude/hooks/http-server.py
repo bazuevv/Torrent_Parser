@@ -1242,10 +1242,8 @@ class Handler(BaseHTTPRequestHandler):
                 if isinstance(configured_model, str) and configured_model:
                     stats["model"] = configured_model
                 if active.get("provider") == "openai":
-                    snapshot = codex_bridge_manager.account_snapshot(timeout=1.0)
-                    bridge_usage = (
-                        snapshot.get("bridgeUsage")
-                        if isinstance(snapshot, dict) else None
+                    bridge_usage = codex_bridge_manager.bridge_usage_snapshot(
+                        timeout=1.0,
                     )
                     session_key = os.path.basename(transcript)
                     if session_key.endswith(".jsonl"):
