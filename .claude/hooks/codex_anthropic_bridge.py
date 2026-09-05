@@ -391,6 +391,10 @@ class BridgeSession:
     last_usage: dict[str, int] = field(default_factory=dict)
     total_usage: dict[str, int] = field(default_factory=dict)
     context_window: int | None = None
+    turns_started: int = 0
+    tool_continuations: int = 0
+    initial_input_chars: int | None = None
+    last_input_chars: int = 0
 
 
 TOKEN_USAGE_FIELDS = {
@@ -471,16 +475,24 @@ class CodexTextBackend:
                 session.context_window = (
                     context_window if isinstance(context_window, int) else None
                 )
-                with self._usage_lock:
-                    self._latest_usage = {
-                        "model": session.model,
-                        "effort": session.effort,
-                        "last": dict(last),
-                        "total": dict(total),
-                        "model_context_window": session.context_window,
-                        "updated_at": int(time.time()),
-                    }
+                self._publish_session(session)
         self.router.dispatch(message)
+
+    def _publish_session(self, session: BridgeSession) -> None:
+        """Expose only counters and model metadata, never prompts or ids."""
+        with self._usage_lock:
+            self._latest_usage = {
+                "model": session.model,
+                "effort": session.effort,
+                "last": dict(session.last_usage),
+                "total": dict(session.total_usage),
+                "model_context_window": session.context_window,
+                "turns_started": session.turns_started,
+                "tool_continuations": session.tool_continuations,
+                "initial_input_chars": session.initial_input_chars,
+                "last_input_chars": session.last_input_chars,
+                "updated_at": int(time.time()),
+            }
 
     def begin(self, payload: dict[str, Any]) -> TextTurn:
         stable_key = claude_session_key(payload)
@@ -544,15 +556,7 @@ class CodexTextBackend:
             tool_signature=tool_signature,
             seen_messages=_message_fingerprints(payload),
         )
-        with self._usage_lock:
-            self._latest_usage = {
-                "model": session.model,
-                "effort": session.effort,
-                "last": {},
-                "total": {},
-                "model_context_window": None,
-                "updated_at": int(time.time()),
-            }
+        self._publish_session(session)
         session.response_lock.acquire()
         with self._tool_lock:
             self._tool_queues[thread_id] = session
@@ -585,7 +589,9 @@ class CodexTextBackend:
                     matched += 1
             if not matched:
                 raise BridgeError("Codex turn is waiting for a Claude tool_result")
+            session.tool_continuations += matched
             session.seen_messages = _message_fingerprints(payload)
+            self._publish_session(session)
             return self._text_turn(session)
 
         followup = _followup_payload(payload, session.seen_messages)
@@ -618,6 +624,11 @@ class CodexTextBackend:
         if not isinstance(turn_id, str):
             raise BridgeError("turn/start returned no turn id")
         session.active_turn_id = turn_id
+        session.turns_started += 1
+        session.last_input_chars = len(prompt)
+        if session.initial_input_chars is None:
+            session.initial_input_chars = len(prompt)
+        self._publish_session(session)
 
     def _text_turn(self, session: BridgeSession) -> TextTurn:
         return TextTurn(

@@ -347,6 +347,11 @@ class PersistentSessionTests(unittest.TestCase):
         self.assertEqual(len(turn_starts), 2)
         self.assertIn("Now summarize", turn_starts[-1]["input"][0]["text"])
         self.assertNotIn("file contents", turn_starts[-1]["input"][0]["text"])
+        self.assertEqual(session.turns_started, 2)
+        self.assertEqual(session.tool_continuations, 1)
+        self.assertEqual(
+            session.last_input_chars, len(turn_starts[-1]["input"][0]["text"]),
+        )
         session.events.put({
             "method": "turn/completed",
             "params": {"threadId": "thread-1", "turnId": "turn-2",
@@ -391,6 +396,7 @@ class PersistentSessionTests(unittest.TestCase):
         self.assertEqual(snapshot["bridgeUsage"]["last"]["total_tokens"], 112)
         self.assertEqual(snapshot["bridgeUsage"]["model_context_window"], 258400)
         self.assertEqual(snapshot["bridgeUsage"]["effort"], "low")
+        self.assertEqual(snapshot["bridgeUsage"]["turns_started"], 1)
 
 
 if __name__ == "__main__":
