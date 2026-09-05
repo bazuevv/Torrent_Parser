@@ -1159,7 +1159,7 @@
   opacity: 0.6;
 }
 
-/* Endpoint и модель — служебная строка: моноширинный, приглушённый,
+/* Endpoint — служебная строка: моноширинный, приглушённый,
  * с обрезкой длинных URL многоточием. */
 .claude-accs-sub {
   font-family: var(--vscode-editor-font-family, monospace);
@@ -1168,21 +1168,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* Фактические токены последнего запроса OpenAI. В одну строку: панель
- * расширяется по содержимому до своего max-width, затем аккуратно обрезает
- * длинную разбивку; полностью она остаётся доступна в title. */
-.claude-accs-runtime {
-  margin-top: 3px;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.72;
 }
 
 /* --- лимиты подписки claude.ai -----------------------------------------

@@ -6030,7 +6030,8 @@
         ? ' / ' + human(d.context_window) : '');
     var sub = document.createElement('span');
     sub.className = 'claude-cache-sub';
-    sub.textContent = (d.model || '') + (d.effort ? ' · ' + d.effort : '');
+    sub.textContent = (d.model || '')
+      + (d.effort ? ' · усилие ' + d.effort : '');
     head.appendChild(sub);
     body.appendChild(head);
 
@@ -8725,8 +8726,8 @@
             throw new Error((d && (d.message || d.error)) || 'сервер отказал');
           }
           logInfo('настройки сохранены:', acc.file);
-          // Перерисовываем весь список: подпись строки (endpoint и
-          // модель) только что изменилась, и оставлять старую нельзя.
+          // Перерисовываем весь список: подпись endpoint могла только
+          // что измениться, и оставлять старую нельзя.
           // Форма при этом закрывается вместе со старой разметкой,
           // поэтому итог показываем в подвале панели.
           renderAccounts(body, d.accounts, btn);
@@ -9068,59 +9069,20 @@
    * У логина claude.ai это тариф и почта: endpoint у него всегда
    * `api.anthropic.com`, одинаковый у любого такого аккаунта, и в
    * строке он не отличает его ни от чего. У аккаунта провайдера
-   * наоборот — адрес и модель и есть всё различие.
+   * различием остаётся адрес; модель показывается только в Usage.
    *
    * Тариф идёт первым, потому что он короткий: длинная почта уходит
-   * под многоточие, и обрезаться должна именно она, а не он. Модель
-   * показываем только когда она задана явно — пустой разделитель
-   * выглядел бы как потерянное значение.
+   * под многоточие, и обрезаться должна именно она, а не он.
    */
   function accountSubtitle(acc) {
     // У логина claude.ai тариф и почта стоят в строке имени, а вторую
     // строку занимают полоски лимитов — endpoint там уже не нужен.
     // Но если ни тарифа, ни почты нет (файлы CLI не прочитались),
     // строка не должна оставаться пустой: показываем endpoint.
-    if (acc.provider === 'openai') {
-      var runtime = acc.runtime || {};
-      var model = runtime.model || acc.model || '';
-      var parts = model ? [model] : [];
-      if (runtime.effort) parts.push('усилие ' + runtime.effort);
-      if (parts.length) return parts.join('  ·  ');
+    if ((acc.oauth || acc.provider === 'openai') && (acc.plan || acc.email)) {
+      return '';
     }
-    if (acc.oauth && (acc.plan || acc.email)) return '';
-    return acc.model ? acc.baseUrl + '  ·  ' + acc.model : acc.baseUrl;
-  }
-
-  function formatTokenCount(value) {
-    if (typeof value !== 'number' || !isFinite(value)) return '';
-    return String(Math.max(0, Math.floor(value))).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-  }
-
-  /** Точная разбивка последнего Codex-запроса, без оценки по длине текста. */
-  function openaiRuntimeBlock(runtime) {
-    var last = runtime && runtime.last;
-    if (!last) return null;
-    var fields = [
-      ['вход', last.input_tokens],
-      ['кэш', last.cached_input_tokens],
-      ['запись кэша', last.cache_write_input_tokens],
-      ['ответ', last.output_tokens],
-      ['reasoning', last.reasoning_output_tokens],
-      ['всего', last.total_tokens],
-    ];
-    var parts = [];
-    for (var i = 0; i < fields.length; i++) {
-      var shown = formatTokenCount(fields[i][1]);
-      if (shown) parts.push(fields[i][0] + ' ' + shown);
-    }
-    if (!parts.length) return null;
-    var line = document.createElement('span');
-    line.className = 'claude-accs-runtime';
-    line.textContent = 'последний ход: ' + parts.join('  ·  ');
-    line.title = line.textContent + (runtime.modelContextWindow
-      ? '\nконтекст модели: ' + formatTokenCount(runtime.modelContextWindow)
-      : '');
-    return line;
+    return acc.baseUrl || '';
   }
 
   /** «Pro (почта)» — приписка к названию OAuth-аккаунта. */
@@ -9198,8 +9160,6 @@
     if (showUsage && acc.provider === 'openai') {
       var openaiUsage = usageBlock(acc.usage);
       if (openaiUsage) text.appendChild(openaiUsage);
-      var runtimeLine = openaiRuntimeBlock(acc.runtime);
-      if (runtimeLine) text.appendChild(runtimeLine);
     }
 
     row.appendChild(text);
@@ -9371,8 +9331,7 @@
     modalRow(card, 'claude-accs-modal-label', 'Активен');
     modalRow(card, 'claude-accs-modal-value', (acc && acc.name) || file);
     if (acc && acc.baseUrl) {
-      modalRow(card, 'claude-accs-modal-sub',
-        acc.model ? acc.baseUrl + '  ·  ' + acc.model : acc.baseUrl);
+      modalRow(card, 'claude-accs-modal-sub', acc.baseUrl);
     }
     box.appendChild(card);
 
