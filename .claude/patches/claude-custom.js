@@ -5875,18 +5875,69 @@
     }
   }
 
-  /** Все попадания сессии: одна строка вместо одного ряда на ход/серию. */
+  /**
+   * Все попадания сессии: компактная строка раскрывает прежнюю
+   * детализацию по непрерывным сериям, не возвращая постоянный шум.
+   */
   function hitRow(hit) {
     var count = typeof hit.count === 'number' && hit.count > 0 ? hit.count : 1;
     var since = count > 1 ? ' с ' + hhmm(hit.started_ts) : '';
-    return row(
-      hhmm(hit.ts) + '  ·  попадания в кэш × ' + count,
+    var label = hhmm(hit.ts) + '  ·  попадания в кэш × ' + count;
+    var summary = row(
+      label,
       'прочитано ' + human(hit.read),
       'claude-cache-hit',
       'Все успешные чтения prompt-кэша за сессию' + since
         + (hit.models && hit.models.length
           ? ' · ' + hit.models.map(shortModel).join(', ')
           : hit.model ? ' · ' + shortModel(hit.model) : '')
+    );
+    var details = hit.details || [];
+    if (!details.length) return summary;
+
+    var group = document.createElement('div');
+    group.className = 'claude-cache-hit-group';
+    summary.classList.add('claude-cache-expandable');
+    summary.setAttribute('role', 'button');
+    summary.setAttribute('tabindex', '0');
+    summary.setAttribute('aria-expanded', 'false');
+    summary.title += '. Нажмите, чтобы показать подробности';
+
+    var detailBox = document.createElement('div');
+    detailBox.className = 'claude-cache-hit-details';
+    detailBox.hidden = true;
+    for (var i = 0; i < details.length; i++) {
+      detailBox.appendChild(hitDetailRow(details[i]));
+    }
+
+    function toggle() {
+      var expanded = summary.getAttribute('aria-expanded') === 'true';
+      summary.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      detailBox.hidden = expanded;
+      summary.children[0].textContent = (expanded ? '▸ ' : '▾ ') + label;
+    }
+    summary.children[0].textContent = '▸ ' + label;
+    summary.addEventListener('click', toggle);
+    summary.addEventListener('keydown', function (event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      toggle();
+    });
+    group.appendChild(summary);
+    group.appendChild(detailBox);
+    return group;
+  }
+
+  /** Одна прежняя строка серии внутри раскрытой сводки. */
+  function hitDetailRow(hit) {
+    var count = typeof hit.count === 'number' && hit.count > 0 ? hit.count : 1;
+    var started = count > 1 ? ' с ' + hhmm(hit.started_ts) : '';
+    return row(
+      hhmm(hit.ts) + '  ·  попадания в кэш × ' + count,
+      'прочитано ' + human(hit.read),
+      'claude-cache-hit claude-cache-hit-detail',
+      'Непрерывная серия успешных чтений prompt-кэша' + started
+        + (hit.model ? ' · ' + shortModel(hit.model) : '')
     );
   }
 

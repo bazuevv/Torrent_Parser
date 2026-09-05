@@ -639,6 +639,37 @@
 .claude-cache-hit .claude-cache-value {
   color: var(--vscode-charts-green, #89d185);
 }
+
+/* Сводка попаданий остаётся одной строкой, но по клику раскрывает
+ * прежние серии. Клавиатурный focus обязателен: строка имеет role=button. */
+.claude-cache-expandable {
+  padding: 1px 3px;
+  margin: -1px -3px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.claude-cache-expandable:hover,
+.claude-cache-expandable:focus-visible {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
+  outline: none;
+}
+.claude-cache-expandable:focus-visible {
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007fd4);
+}
+.claude-cache-hit-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 0 3px 7px;
+  padding-left: 7px;
+  border-left: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+}
+.claude-cache-hit-details[hidden] {
+  display: none;
+}
+.claude-cache-hit-detail {
+  font-size: 11px;
+}
 .claude-cache-miss .claude-cache-value {
   color: var(--vscode-charts-red, #f14c4c);
 }

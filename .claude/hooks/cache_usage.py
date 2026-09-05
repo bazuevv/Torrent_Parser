@@ -537,8 +537,7 @@ def build_history(
 
 
 def cache_hit_runs(marked: list, events: list, compactions: list) -> list[dict]:
-    """Return one session-wide summary for every successful cache read."""
-    del events, compactions  # all providers and interruptions share one counter
+    """Return one session total with the former per-series rows as details."""
     hits = [
         turn for turn in marked or []
         if turn.get("verdict") == "попадание" and (turn.get("read") or 0) > 0
@@ -555,7 +554,57 @@ def cache_hit_runs(marked: list, events: list, compactions: list) -> list[dict]:
         "read": sum(turn.get("read") or 0 for turn in hits),
         "model": models[0] if len(models) == 1 else "",
         "models": models,
+        "details": cache_hit_details(marked, events, compactions),
     }]
+
+
+def cache_hit_details(marked: list, events: list, compactions: list) -> list[dict]:
+    """Group adjacent hits exactly as the pre-summary Usage history did."""
+    breakers = []
+    for event in list(events or []) + list(compactions or []):
+        when = parse_ts(event.get("ts") or "")
+        if when:
+            breakers.append(when)
+    breakers.sort()
+
+    result = []
+    run = None
+    previous_when = None
+    for turn in marked or []:
+        when = parse_ts(turn.get("ts") or "")
+        model = turn.get("model") or ""
+        interrupted = bool(turn.get("explain"))
+        if previous_when and when:
+            interrupted = interrupted or any(
+                previous_when < breaker <= when for breaker in breakers
+            )
+        if run and model != run.get("model"):
+            interrupted = True
+        if interrupted and run:
+            result.append(run)
+            run = None
+
+        is_hit = turn.get("verdict") == "попадание" and (turn.get("read") or 0) > 0
+        if is_hit:
+            if run is None:
+                run = {
+                    "ts": turn.get("ts") or "",
+                    "started_ts": turn.get("ts") or "",
+                    "count": 0,
+                    "read": 0,
+                    "model": model,
+                }
+            run["ts"] = turn.get("ts") or run["ts"]
+            run["count"] += 1
+            run["read"] += turn.get("read") or 0
+        elif run:
+            result.append(run)
+            run = None
+        previous_when = when or previous_when
+
+    if run:
+        result.append(run)
+    return result
 
 
 def account_events() -> list:

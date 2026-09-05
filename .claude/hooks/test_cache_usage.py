@@ -87,6 +87,13 @@ class OpenAIUsageTests(unittest.TestCase):
                           for run in runs], [
             (4, 670, ["glm-5.3", "gpt-5.6-sol"]),
         ])
+        self.assertEqual([
+            (detail["count"], detail["read"], detail["model"])
+            for detail in runs[0]["details"]
+        ], [
+            (2, 220, "glm-5.3"),
+            (2, 450, "gpt-5.6-sol"),
+        ])
 
     def test_account_event_does_not_split_session_cache_total(self):
         marked = [
@@ -99,6 +106,8 @@ class OpenAIUsageTests(unittest.TestCase):
         runs = cache_usage.cache_hit_runs(marked, events, [])
         self.assertEqual([run["count"] for run in runs], [2])
         self.assertEqual(runs[0]["read"], 220)
+        self.assertEqual([detail["count"] for detail in runs[0]["details"]],
+                         [1, 1])
 
 
 if __name__ == "__main__":
