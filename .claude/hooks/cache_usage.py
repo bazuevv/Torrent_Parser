@@ -86,7 +86,7 @@ MAX_TRACKED_TURNS = 3000
 # набора полей: старое состояние тогда отбрасывается и транскрипт
 # перечитывается целиком. Без этого добавленное поле молча остаётся
 # пустым на всех сессиях, у которых состояние уже накоплено.
-STATE_VERSION = 7
+STATE_VERSION = 8
 
 
 def rate_for(model: str):
@@ -123,6 +123,10 @@ def blank_state() -> dict:
         "miss_log": [],  # хвост последних промахов для панели
         "miss_gaps": [],  # паузы перед промахами, мин (для доли ранних)
         "context_peak": 0,  # самый большой контекст хода за сессию
+        # Сжатия, восстановленные из OpenAI-ответа с output, но без
+        # входной usage. Такой ответ остаётся в Claude-транскрипте,
+        # даже если runtime-событие моста потерялось при перезапуске.
+        "compactions": [],
         # Ряд ходов для истории Mood: по записи на ход. Храним сырьё
         # (был ли промах, какая пауза, какой контекст), а не готовое
         # значение шкалы — сравнение паузы с TTL делается при выдаче,
@@ -188,14 +192,6 @@ def consume(state: dict, path: str) -> None:
         wr = usage.get("cache_creation_input_tokens") or 0
         fresh = usage.get("input_tokens") or 0
         out = usage.get("output_tokens") or 0
-        if not (rd or wr or fresh):
-            continue  # служебная запись с нулевой usage
-
-        sig = [fresh, wr, rd, out]
-        prev = state["prev"]
-        if prev is not None and prev["sig"] == sig:
-            continue  # дубль той же записи (стрим отдаёт её дважды)
-
         # Модель этого хода. `<synthetic>` — служебная отметка самого
         # CLI (сообщения об ошибках API), а не модель; сегодня такие
         # записи и так отсеиваются нулевой usage выше, но принять их
@@ -205,6 +201,37 @@ def consume(state: dict, path: str) -> None:
             turn_model = state.get("model") or ""
 
         ts_raw = rec.get("timestamp") or ""
+        prev = state["prev"]
+        is_openai = turn_model.startswith(("gpt-", "o1", "o3", "o4"))
+        if not (rd or wr or fresh):
+            # После автоматического сжатия Codex App Server иногда
+            # завершает ответ раньше финальной tokenUsage notification.
+            # Claude успевает записать output с нулевым input. Это не
+            # новый нулевой ход, а единственный устойчивый след сжатия.
+            if out and is_openai and prev is not None and ts_raw:
+                # Это только кандидат: если позднее встретится ход с
+                # нормальной input usage, нулевая запись была обычным
+                # сбоем телеметрии, а не последним сжатием. Поэтому
+                # держим лишь последний не подтверждённый хвост.
+                state["compactions"] = [{
+                    "kind": "compact", "ts": ts_raw,
+                    "model": turn_model,
+                    "context_before": prev.get("context") or 0,
+                    "context_after": None,
+                    "inferred": True,
+                }]
+            continue  # служебная либо поздняя запись с нулевой input usage
+
+        # Нормальная следующая usage опровергает хвостовой кандидат.
+        state["compactions"] = []
+        sig = [fresh, wr, rd, out]
+        if prev is not None and prev["sig"] == sig:
+            continue  # дубль той же записи (стрим отдаёт её дважды)
+
+        # В Codex inputTokens — полный вход текущего хода, а cachedInputTokens
+        # является его частью. В Anthropic-совместимых ответах свежий input,
+        # чтение и запись — непересекающиеся части, поэтому складываются.
+        context = fresh if is_openai else fresh + rd + wr
         verdict = "старт"
         gap_min = None
         if prev is not None:
@@ -250,13 +277,13 @@ def consume(state: dict, path: str) -> None:
         # Держим максимум за сессию: «сколько сейчас» видно из last,
         # а вот докуда окно вообще раскрывалось, по последнему ходу
         # уже не восстановить — компактификация обнуляет контекст.
-        state["context_peak"] = max(state["context_peak"], rd + wr)
+        state["context_peak"] = max(state["context_peak"], context)
         state["turns"].append({
             "ts": ts_raw,
             # Промах в смысле Mood — потерянный кэш, включая частичный.
             "miss": verdict in ("промах", "частичное"),
             "gap": round(gap_min, 2) if gap_min is not None else None,
-            "ctx": rd + wr,
+            "ctx": context,
             # Первый ход шанса не имел: кэшу неоткуда было взяться.
             "chance": prev is not None,
             # Модель хода. Хранится у каждого хода, а не только
@@ -278,11 +305,13 @@ def consume(state: dict, path: str) -> None:
             state["model"] = turn_model
 
         state["prev"] = {"ts": ts_raw, "rd": rd, "wr": wr, "sig": sig,
-                         "model": turn_model}
+                         "model": turn_model, "context": context}
         state["last"] = {
             "ts": ts_raw,
             "read": rd,
             "write": wr,
+            "input": fresh,
+            "context": context,
             "verdict": verdict,
             "gap": round(gap_min, 1) if gap_min is not None else None,
         }
@@ -368,6 +397,11 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
     # пауз хранится 500, ходов 3000. Теперь источник один.
     events = account_events()
     compactions = context_events(key, state_dir)
+    seen_compaction_ts = {item.get("ts") for item in compactions}
+    compactions.extend(
+        item for item in state.get("compactions") or []
+        if item.get("ts") not in seen_compaction_ts
+    )
     marked = explain_turns(state.get("turns") or [], events, ttl_minutes)
     early = sum(1 for t in marked if t.get("early"))
     # Знаменатель — ходы, на которых кэш вообще мог сработать. Первый
@@ -384,7 +418,7 @@ def collect(transcript_path: str, state_dir: str = STATE_DIR,
         "model": state["model"],
         "started": state["started"],
         "requests": state["requests"],
-        "context": last["read"] + last["write"],
+        "context": last.get("context", last["read"] + last["write"]),
         "context_peak": state["context_peak"],
         "last": last,
         # Промахи, которых не должно было быть: кэш ещё жил, но ход
@@ -518,14 +552,17 @@ def build_history(
         when = parse_ts(ev.get("ts") or "")
         if not when or (started and when < started):
             continue
-        items.append({
+        item = {
             "kind": "compact",
             "ts": ev.get("ts") or "",
             "model": ev.get("model") or "",
             "context_before": ev.get("context_before") or 0,
             "context_window": ev.get("context_window"),
             "context_after": ev.get("context_after"),
-        })
+        }
+        if ev.get("inferred"):
+            item["inferred"] = True
+        items.append(item)
 
     # Событие (model/account) сортируется раньше всего остального с той
     # же меткой времени: у переключения и хода, который его вызвал,
@@ -626,6 +663,7 @@ def context_events(session_key: str, state_dir: str = STATE_DIR) -> list:
     wanted = hashlib.sha256(session_key.encode()).hexdigest()
     path = os.path.join(state_dir, "codex-context-events.jsonl")
     result = []
+    by_id = {}
     try:
         with open(path, encoding="utf-8") as handle:
             for line in handle:
@@ -636,10 +674,64 @@ def context_events(session_key: str, state_dir: str = STATE_DIR) -> list:
                 if (isinstance(event, dict)
                         and event.get("kind") == "compact"
                         and event.get("session_hash") == wanted):
-                    result.append(event)
+                    event_id = event.get("event_id")
+                    if isinstance(event_id, str) and event_id:
+                        if event_id not in by_id:
+                            result.append(event)
+                        else:
+                            result[result.index(by_id[event_id])] = event
+                        by_id[event_id] = event
+                    else:
+                        result.append(event)
     except OSError:
         return []
     return result[-MAX_HISTORY_ITEMS:]
+
+
+def codex_model_context_window(model: str, cache_path: str | None = None) -> int | None:
+    """Read Codex's effective context window from its local model catalog."""
+    if not isinstance(model, str) or not model:
+        return None
+    path = cache_path or os.path.expanduser("~/.codex/models_cache.json")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            catalog = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return None
+    for item in catalog.get("models") or []:
+        if not isinstance(item, dict) or item.get("slug") != model:
+            continue
+        window = item.get("context_window")
+        percent = item.get("effective_context_window_percent", 100)
+        if (isinstance(window, int) and window > 0
+                and isinstance(percent, (int, float)) and percent > 0):
+            return int(window * min(percent, 100) / 100)
+    return None
+
+
+def apply_openai_fallback(
+    stats: dict, model: str, cache_path: str | None = None,
+) -> dict:
+    """Fill stable Codex metadata when the live bridge snapshot is absent."""
+    if not stats.get("ok"):
+        return stats
+    window = codex_model_context_window(model, cache_path)
+    if window and not stats.get("context_window"):
+        stats["context_window"] = window
+    for event in stats.get("history") or []:
+        if event.get("kind") == "compact" and not event.get("context_window"):
+            event["context_window"] = window
+    if stats.get("live_provider") != "openai":
+        # Старые Anthropic-совместимые строки OpenAI могли получить нули,
+        # если финальная tokenUsage пришла после закрытия stream. Ноль здесь
+        # выглядел как измерение; тире честно означает «снимок не сохранился».
+        last = stats.setdefault("last", {})
+        last["read"] = None
+        last["write"] = None
+        last["verdict"] = "н/д"
+        last["gap"] = None
+        stats["telemetry_source"] = "transcript"
+    return stats
 
 
 def apply_openai_usage(stats: dict, usage: object, session_key: str) -> dict:

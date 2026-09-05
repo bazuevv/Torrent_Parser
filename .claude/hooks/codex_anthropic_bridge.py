@@ -33,6 +33,10 @@ CONTEXT_EVENTS_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "hooks-runtime", "codex-context-events.jsonl",
 )
+BRIDGE_USAGE_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "hooks-runtime", "codex-bridge-usage.json",
+)
 SOURCE_MTIME = max(
     os.path.getmtime(__file__),
     os.path.getmtime(os.path.join(os.path.dirname(__file__), "codex_app_server.py")),
@@ -458,7 +462,10 @@ def _anthropic_usage(usage: dict[str, int]) -> dict[str, int]:
 class CodexTextBackend:
     """Keep one Codex thread per Claude Code session."""
 
-    def __init__(self, *, timeout: float = DEFAULT_REQUEST_TIMEOUT) -> None:
+    def __init__(
+        self, *, timeout: float = DEFAULT_REQUEST_TIMEOUT,
+        usage_state_file: str | None = None,
+    ) -> None:
         self.timeout = timeout
         self.router = EventRouter()
         self._tool_lock = threading.Lock()
@@ -466,7 +473,8 @@ class CodexTextBackend:
         self._usage_lock = threading.Lock()
         self._sessions: dict[str, BridgeSession] = {}
         self._tool_queues: dict[str, BridgeSession] = {}
-        self._latest_usage: dict[str, Any] = {}
+        self._usage_state_file = usage_state_file
+        self._latest_usage: dict[str, Any] = self._load_usage_state()
         self.client = CodexAppServerClient(
             notification_handler=self._handle_notification,
             server_request_handler=self._handle_server_request,
@@ -485,6 +493,28 @@ class CodexTextBackend:
         with self._usage_lock:
             result["bridgeUsage"] = dict(self._latest_usage)
         return result
+
+    def _load_usage_state(self) -> dict[str, Any]:
+        if not self._usage_state_file:
+            return {}
+        try:
+            with open(self._usage_state_file, encoding="utf-8") as handle:
+                value = json.load(handle)
+        except (OSError, ValueError, TypeError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def _save_usage_state(self, value: dict[str, Any]) -> None:
+        if not self._usage_state_file or not value.get("last"):
+            return
+        try:
+            os.makedirs(os.path.dirname(self._usage_state_file), exist_ok=True)
+            temporary = self._usage_state_file + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump(value, handle, ensure_ascii=False)
+            os.replace(temporary, self._usage_state_file)
+        except OSError:
+            return
 
     def _handle_notification(self, message: dict[str, Any]) -> None:
         method = message.get("method")
@@ -542,6 +572,7 @@ class CodexTextBackend:
         session.seen_compactions.update(keys)
         event = {
             "kind": "compact",
+            "event_id": keys[0] if keys else "compact:" + uuid.uuid4().hex,
             "ts": datetime.now(timezone.utc).isoformat(),
             "session_hash": hashlib.sha256(session.key.encode()).hexdigest(),
             "model": session.model,
@@ -551,6 +582,11 @@ class CodexTextBackend:
             "context_window": session.context_window,
         }
         session.pending_compaction = event
+        # Сохраняем событие сразу. Если Extension Host или мост умрёт до
+        # следующей tokenUsage notification, строка сжатия всё равно останется;
+        # поздняя usage допишет вторую версию с context_after, а читатель
+        # объединит обе по event_id.
+        self._append_context_event(event)
 
     @staticmethod
     def _append_context_event(event: dict[str, Any]) -> None:
@@ -563,20 +599,35 @@ class CodexTextBackend:
 
     def _publish_session(self, session: BridgeSession) -> None:
         """Expose only counters and model metadata, never prompts or ids."""
+        session_hash = hashlib.sha256(session.key.encode()).hexdigest()
+        value = {
+            "model": session.model,
+            "effort": session.effort,
+            "last": dict(session.last_usage),
+            "total": dict(session.total_usage),
+            "model_context_window": session.context_window,
+            "turns_started": session.turns_started,
+            "tool_continuations": session.tool_continuations,
+            "initial_input_chars": session.initial_input_chars,
+            "last_input_chars": session.last_input_chars,
+            "updated_at": int(time.time()),
+            "session_key_hash": session_hash,
+        }
         with self._usage_lock:
-            self._latest_usage = {
-                "model": session.model,
-                "effort": session.effort,
-                "last": dict(session.last_usage),
-                "total": dict(session.total_usage),
-                "model_context_window": session.context_window,
-                "turns_started": session.turns_started,
-                "tool_continuations": session.tool_continuations,
-                "initial_input_chars": session.initial_input_chars,
-                "last_input_chars": session.last_input_chars,
-                "updated_at": int(time.time()),
-                "session_key_hash": hashlib.sha256(session.key.encode()).hexdigest(),
-            }
+            previous = self._latest_usage
+            # turn/start очищает session.last_usage, чтобы в Anthropic stream
+            # не ушли счётчики прошлого хода. Для панели при этом сохраняем
+            # последний подтверждённый снимок до прихода новой телеметрии.
+            if (not value["last"] and previous.get("session_key_hash") == session_hash
+                    and previous.get("last")):
+                value["last"] = dict(previous["last"])
+                value["total"] = dict(previous.get("total") or {})
+                value["model_context_window"] = (
+                    value["model_context_window"]
+                    or previous.get("model_context_window")
+                )
+            self._latest_usage = value
+            self._save_usage_state(value)
 
     def begin(self, payload: dict[str, Any]) -> TextTurn:
         stable_key = claude_session_key(payload)
@@ -1090,7 +1141,7 @@ def main() -> int:
     if not address.is_loopback:
         raise SystemExit("refusing to expose the bridge beyond loopback")
 
-    backend = CodexTextBackend().start()
+    backend = CodexTextBackend(usage_state_file=BRIDGE_USAGE_FILE).start()
     try:
         server = BridgeHttpServer((args.host, args.port), backend)
         try:

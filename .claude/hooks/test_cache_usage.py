@@ -56,6 +56,79 @@ class OpenAIUsageTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["context_before"], 200000)
 
+    def test_context_event_updates_are_collapsed_by_event_id(self):
+        session = "session-42"
+        session_hash = hashlib.sha256(session.encode()).hexdigest()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "codex-context-events.jsonl")
+            with open(path, "w", encoding="utf-8") as handle:
+                for after in (None, 63893):
+                    handle.write(json.dumps({
+                        "kind": "compact", "event_id": "turn:1",
+                        "session_hash": session_hash,
+                        "ts": "2026-09-05T10:00:00+00:00",
+                        "context_before": 247329, "context_after": after,
+                    }) + "\n")
+            result = cache_usage.context_events(session, tmp)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["context_after"], 63893)
+
+    def test_codex_context_window_uses_effective_percentage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "models_cache.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump({"models": [{
+                    "slug": "gpt-test", "context_window": 272000,
+                    "effective_context_window_percent": 95,
+                }]}, handle)
+            result = cache_usage.codex_model_context_window("gpt-test", path)
+        self.assertEqual(result, 258400)
+
+    def test_openai_fallback_marks_missing_live_cache_usage_unknown(self):
+        stats = {
+            "ok": True, "context": 247329,
+            "last": {"read": 0, "write": 0, "verdict": "промах"},
+            "history": [{"kind": "compact", "context_window": None}],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "models_cache.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump({"models": [{
+                    "slug": "gpt-test", "context_window": 272000,
+                    "effective_context_window_percent": 95,
+                }]}, handle)
+            cache_usage.apply_openai_fallback(stats, "gpt-test", path)
+        self.assertEqual(stats["context"], 247329)
+        self.assertEqual(stats["context_window"], 258400)
+        self.assertEqual(stats["history"][0]["context_window"], 258400)
+        self.assertIsNone(stats["last"]["read"])
+        self.assertEqual(stats["last"]["verdict"], "н/д")
+
+    def test_openai_zero_input_record_restores_compaction_and_context(self):
+        records = [
+            {"timestamp": "2026-09-05T06:14:32Z", "message": {
+                "model": "gpt-5.6-sol", "usage": {
+                    "input_tokens": 247329, "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0, "output_tokens": 231,
+                }}},
+            {"timestamp": "2026-09-05T06:16:13Z", "message": {
+                "model": "gpt-5.6-sol", "usage": {
+                    "input_tokens": 0, "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0, "output_tokens": 231,
+                }}},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = os.path.join(tmp, "session-42.jsonl")
+            with open(transcript, "w", encoding="utf-8") as handle:
+                for record in records:
+                    handle.write(json.dumps(record) + "\n")
+            result = cache_usage.collect(transcript, state_dir=tmp)
+        compact = next(item for item in result["history"]
+                       if item["kind"] == "compact")
+        self.assertEqual(result["context"], 247329)
+        self.assertEqual(compact["context_before"], 247329)
+        self.assertTrue(compact["inferred"])
+
     def test_compaction_is_included_in_history(self):
         state = {"started": "2026-09-05T09:00:00+00:00", "miss_log": []}
         history = cache_usage.build_history(state, [], [], [{

@@ -1253,6 +1253,9 @@ class Handler(BaseHTTPRequestHandler):
                     cache_usage.apply_openai_usage(
                         stats, bridge_usage, session_key,
                     )
+                    cache_usage.apply_openai_fallback(
+                        stats, stats.get("model") or configured_model or "",
+                    )
         except Exception as exc:
             self._json_response(500, {"ok": False, "error": str(exc)})
             return

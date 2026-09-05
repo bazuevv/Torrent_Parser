@@ -462,6 +462,28 @@ class PersistentSessionTests(unittest.TestCase):
         self.assertEqual(snapshot["bridgeUsage"]["effort"], "low")
         self.assertEqual(snapshot["bridgeUsage"]["turns_started"], 1)
 
+    def test_safe_usage_snapshot_survives_bridge_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "usage.json")
+            backend = CodexTextBackend(timeout=1, usage_state_file=path)
+            backend.client = self.FakeClient()
+            backend.begin(self.payload([{"role": "user", "content": "hello"}]))
+            backend._handle_notification({
+                "method": "thread/tokenUsage/updated",
+                "params": {"threadId": "thread-1", "tokenUsage": {
+                    "last": {"inputTokens": 247329, "cachedInputTokens": 200000},
+                    "total": {"inputTokens": 247329, "cachedInputTokens": 200000},
+                    "modelContextWindow": 258400,
+                }},
+            })
+            restored = CodexTextBackend(timeout=1, usage_state_file=path)
+            restored.client = self.FakeClient()
+            with mock.patch("codex_anthropic_bridge._safe_probe", return_value={}):
+                snapshot = restored.snapshot()["bridgeUsage"]
+        self.assertEqual(snapshot["last"]["input_tokens"], 247329)
+        self.assertEqual(snapshot["last"]["cached_input_tokens"], 200000)
+        self.assertEqual(snapshot["model_context_window"], 258400)
+
     def test_usage_arriving_after_completion_is_included_in_stream_start(self):
         backend = CodexTextBackend(timeout=1)
         backend.client = self.FakeClient()
@@ -553,11 +575,13 @@ class PersistentSessionTests(unittest.TestCase):
             })
             with open(os.path.join(tmp, "events.jsonl"), encoding="utf-8") as handle:
                 events = [json.loads(line) for line in handle]
-        self.assertEqual(len(events), 1)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["event_id"], events[1]["event_id"])
         self.assertEqual(events[0]["kind"], "compact")
         self.assertEqual(events[0]["context_before"], 120)
-        self.assertEqual(events[0]["context_after"], 80)
-        self.assertEqual(events[0]["context_window"], 258400)
+        self.assertNotIn("context_after", events[0])
+        self.assertEqual(events[1]["context_after"], 80)
+        self.assertEqual(events[1]["context_window"], 258400)
 
     def test_history_and_tool_metadata_changes_do_not_recreate_thread(self):
         backend = CodexTextBackend(timeout=1)
