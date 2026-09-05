@@ -21,6 +21,7 @@ from codex_anthropic_bridge import (
     _normalized_usage,
     message_object,
     prepare_dynamic_tools,
+    select_effort,
     stream_events,
 )
 
@@ -59,9 +60,20 @@ class PromptConversionTests(unittest.TestCase):
             {"role": "user", "content": "second"},
         ])
 
-    def test_rewritten_history_requests_new_thread(self):
-        payload = {"messages": [{"role": "user", "content": "summary"}]}
-        self.assertIsNone(_followup_payload(payload, ["different"]))
+    def test_rewritten_history_sends_only_latest_user_message(self):
+        payload = {"messages": [
+            {"role": "assistant", "content": "compacted summary"},
+            {"role": "user", "content": "continue safely"},
+        ]}
+        followup = _followup_payload(payload, ["different"])
+        self.assertEqual(followup["messages"], [
+            {"role": "user", "content": "continue safely"},
+        ])
+
+    def test_claude_output_config_effort_is_selected(self):
+        self.assertEqual(select_effort({
+            "output_config": {"effort": "high"}, "effort": "low",
+        }), "high")
 
     def test_tool_result_becomes_successful_dynamic_response(self):
         result = _dynamic_result({
@@ -397,6 +409,60 @@ class PersistentSessionTests(unittest.TestCase):
         self.assertEqual(snapshot["bridgeUsage"]["model_context_window"], 258400)
         self.assertEqual(snapshot["bridgeUsage"]["effort"], "low")
         self.assertEqual(snapshot["bridgeUsage"]["turns_started"], 1)
+
+    def test_high_effort_is_forwarded_to_turn_and_reported(self):
+        backend = CodexTextBackend(timeout=1)
+        backend.client = self.FakeClient()
+        payload = self.payload([{"role": "user", "content": "think"}])
+        payload["output_config"] = {"effort": "high"}
+        turn = backend.begin(payload)
+        session = backend._sessions["claude-1"]
+        turn_start = next(params for method, params in backend.client.requests
+                          if method == "turn/start")
+        self.assertEqual(turn_start["effort"], "high")
+        self.assertEqual(session.effort, "high")
+        session.events.put({
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turnId": "turn-1",
+                       "turn": {"status": "completed"}},
+        })
+        collect_message(turn)
+
+    def test_history_and_tool_metadata_changes_do_not_recreate_thread(self):
+        backend = CodexTextBackend(timeout=1)
+        backend.client = self.FakeClient()
+        first = backend.begin(self.payload([
+            {"role": "user", "content": "old long conversation"},
+        ]))
+        session = backend._sessions["claude-1"]
+        session.events.put({
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turnId": "turn-1",
+                       "turn": {"status": "completed"}},
+        })
+        collect_message(first)
+
+        changed = self.payload([
+            {"role": "assistant", "content": "new compacted summary"},
+            {"role": "user", "content": "continue after compaction"},
+        ])
+        changed["tools"][0]["description"] = "Updated description"
+        second = backend.begin(changed)
+        thread_starts = [params for method, params in backend.client.requests
+                         if method == "thread/start"]
+        turn_starts = [params for method, params in backend.client.requests
+                       if method == "turn/start"]
+        self.assertEqual(len(thread_starts), 1)
+        self.assertEqual(len(turn_starts), 2)
+        latest_input = turn_starts[-1]["input"][0]["text"]
+        self.assertIn("continue after compaction", latest_input)
+        self.assertNotIn("old long conversation", latest_input)
+        session.events.put({
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turnId": "turn-2",
+                       "turn": {"status": "completed"}},
+        })
+        collect_message(second)
 
 
 if __name__ == "__main__":

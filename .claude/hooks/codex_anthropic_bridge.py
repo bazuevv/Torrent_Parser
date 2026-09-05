@@ -193,6 +193,21 @@ def select_model(payload: dict[str, Any]) -> str | None:
     return configured or None
 
 
+def select_effort(payload: dict[str, Any]) -> str | None:
+    """Translate Claude's Messages API effort into a Codex turn override."""
+    output_config = payload.get("output_config")
+    candidates = [
+        output_config.get("effort") if isinstance(output_config, dict) else None,
+        payload.get("effort"),
+    ]
+    for value in candidates:
+        if isinstance(value, str) and value in (
+            "low", "medium", "high", "xhigh", "max",
+        ):
+            return value
+    return None
+
+
 def dynamic_tools(payload: dict[str, Any]) -> list[dict[str, Any]]:
     tools = payload.get("tools")
     if tools is None:
@@ -266,13 +281,23 @@ def _message_fingerprints(payload: dict[str, Any]) -> list[str]:
 
 def _followup_payload(
     payload: dict[str, Any], previous: list[str],
-) -> dict[str, Any] | None:
-    """Return only newly appended user input, or None after history rewrite."""
+) -> dict[str, Any]:
+    """Return new user input without ever replaying a rewritten long history."""
     current = _message_fingerprints(payload)
-    if len(current) < len(previous) or current[:len(previous)] != previous:
-        return None
     messages = payload.get("messages") or []
-    suffix = messages[len(previous):]
+    if len(current) >= len(previous) and current[:len(previous)] == previous:
+        suffix = messages[len(previous):]
+    else:
+        # Claude may merge blocks or compact old history. The Codex thread
+        # already owns that context, so replaying it can exceed the window.
+        anchor = previous[-1] if previous else None
+        matched_at = -1
+        if anchor is not None:
+            for index in range(len(current) - 1, -1, -1):
+                if current[index] == anchor:
+                    matched_at = index
+                    break
+        suffix = messages[matched_at + 1:] if matched_at >= 0 else messages[-1:]
     user_messages = [
         item for item in suffix
         if isinstance(item, dict) and item.get("role") == "user"
@@ -564,7 +589,10 @@ class CodexTextBackend:
             with self._sessions_lock:
                 self._sessions[key] = session
         try:
-            self._start_turn(session, prompt, image_inputs)
+            self._start_turn(
+                session, prompt, image_inputs,
+                model=model, effort=select_effort(payload),
+            )
         except Exception:
             self._discard_session(session)
             session.response_lock.release()
@@ -595,17 +623,18 @@ class CodexTextBackend:
             return self._text_turn(session)
 
         followup = _followup_payload(payload, session.seen_messages)
-        if followup is None or tool_signature != session.tool_signature:
-            self._discard_session(session)
-            with self._sessions_lock:
-                self._sessions.pop(session.key, None)
-            session.response_lock.release()
-            return self._start_session(
-                session.key, payload, tools, tool_names, tool_signature, True,
-            )
+        if tool_signature != session.tool_signature:
+            # Claude can reorder or refresh tool descriptions between turns.
+            # Never replay a long transcript merely because that metadata
+            # changed; the live Codex thread already owns the conversation.
+            session.tool_names = tool_names
+            session.tool_signature = tool_signature
         _developer, prompt, image_inputs = build_request(followup)
         session.seen_messages = _message_fingerprints(payload)
-        self._start_turn(session, prompt, image_inputs)
+        self._start_turn(
+            session, prompt, image_inputs,
+            model=select_model(payload), effort=select_effort(payload),
+        )
         return self._text_turn(session)
 
     def _start_turn(
@@ -613,17 +642,29 @@ class CodexTextBackend:
         session: BridgeSession,
         prompt: str,
         image_inputs: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        effort: str | None = None,
     ) -> None:
         session.last_usage.clear()
-        turn = self.client.request("turn/start", {
+        params: dict[str, Any] = {
             "threadId": session.thread_id,
             "input": [{"type": "text", "text": prompt}] + image_inputs,
-        })
+        }
+        if model:
+            params["model"] = model
+        if effort:
+            params["effort"] = effort
+        turn = self.client.request("turn/start", params)
         turn_obj = turn.get("turn") if isinstance(turn, dict) else None
         turn_id = turn_obj.get("id") if isinstance(turn_obj, dict) else None
         if not isinstance(turn_id, str):
             raise BridgeError("turn/start returned no turn id")
         session.active_turn_id = turn_id
+        if model:
+            session.model = model
+        if effort:
+            session.effort = effort
         session.turns_started += 1
         session.last_input_chars = len(prompt)
         if session.initial_input_chars is None:
