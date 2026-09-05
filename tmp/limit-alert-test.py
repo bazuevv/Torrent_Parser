@@ -35,9 +35,11 @@ def cfg(mode="threshold", percent=95, repeatMin=0, playSec=0, allowRepeat=True):
             "allowRepeat": allowRepeat}
 
 
-def snap(reset_at, percent=100, uuid="uuid-A", age_sec=60):
+def snap(reset_at, percent=100, uuid="uuid-A", age_sec=60,
+         signal_on_rollover=False):
     return {"percent": percent, "resetAt": reset_at,
-            "accountUuid": uuid, "ageSec": age_sec}
+            "accountUuid": uuid, "ageSec": age_sec,
+            "signalOnRollover": signal_on_rollover}
 
 
 T0 = 1_000_000.0           # «сейчас»
@@ -220,7 +222,23 @@ foreign = limit_alert.foreign_streams(streams)
 check("свой ffplay отфильтрован",
       120 not in [s[0] for s in foreign] and len(foreign) == 2, repr(foreign))
 
-print("14. конфиг: битый/отсутствующий TOML — монитор выключен")
+print("14. OpenAI: новое окно подтверждает сброс старого")
+state = {}
+limit_alert.decide(
+    state, snap(RESET1, percent=98, uuid="openai-A",
+                signal_on_rollover=True), cfg(), T0,
+)
+act, why = limit_alert.decide(
+    state, snap(RESET2, percent=0, uuid="openai-A",
+                signal_on_rollover=True), cfg(), RESET1 + 5,
+)
+check("rollover после порога — звук",
+      act == "play" and why == "reset-rollover-threshold", (act, why))
+check("свидетель уже относится к новому окну",
+      state["window"]["resetAt"] == RESET2
+      and state["window"]["percentMax"] == 0, state)
+
+print("15. конфиг: битый/отсутствующий TOML — монитор выключен")
 saved = limit_alert.CONFIG_PATH
 limit_alert.CONFIG_PATH = os.path.join(os.path.dirname(saved), "нет-такого.toml")
 c = limit_alert._monitor_config()

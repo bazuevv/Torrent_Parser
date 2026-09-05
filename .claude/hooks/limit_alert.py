@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Сигнал сброса пятичасового окна лимита claude.ai (.claude/notification.mp3).
+Сигнал сброса пятичасового окна claude.ai и OpenAI
+(.claude/notification.mp3).
 
 Звук звучит в момент, когда окно «5 ч» сбрасывается на 0% — «лимит, в
 который упёрлись, снова доступен», а не при исчерпании. Момент сброса
@@ -8,8 +9,9 @@
 замёрзшему кэшу: CLI на стороннем провайдере кэш не обновляет, а момент,
 до которого окно жило, всё равно называет.
 
-Данные — anthropic_usage_raw() из account_switcher (сырое окно, без
-маскировки истёкших, какую делает anthropic_usage для полосок).
+Данные — anthropic_usage_raw() и openai_usage_raw() из account_switcher.
+Состояние окон раздельное: наблюдение OpenAI не стирает свидетеля
+Anthropic и наоборот.
 
 Правило свидетеля: сигнал звучит только для окна, которое монитор сам
 видел активным. Иначе рестарт сервера (а он перезапускается по mtime на
@@ -148,6 +150,27 @@ def decide(state: dict, snap: dict | None, cfg: dict, now: float) -> tuple[str, 
         # выражает высшая точка.
         window = state.get("window")
         percent = snap.get("percent")
+        if (snap.get("signalOnRollover") and window is not None
+                and window.get("resetAt") != reset_at
+                and isinstance(window.get("resetAt"), (int, float))
+                and window["resetAt"] <= now):
+            # Codex может сразу заменить истёкшее окно следующим и ни
+            # разу не вернуть resetAt <= now. Старое окно мы видели живым,
+            # поэтому смена якоря после его срока — такой же честный сброс.
+            expired_reset = window["resetAt"]
+            percent_max = window.get("percentMax")
+            state["window"] = {"resetAt": reset_at, "percentMax": percent}
+            if state.get("lastSignaledReset") != expired_reset:
+                if cfg.get("mode") == "any":
+                    state["lastSignaledReset"] = expired_reset
+                    state["lastPlayAt"] = now
+                    return ("play", "reset-rollover-any")
+                if (percent_max is not None
+                        and percent_max >= cfg.get("percent", 95)):
+                    state["lastSignaledReset"] = expired_reset
+                    state["lastPlayAt"] = now
+                    return ("play", "reset-rollover-threshold")
+            return ("quiet", "active")
         if window is None or window.get("resetAt") != reset_at:
             state["window"] = {"resetAt": reset_at, "percentMax": percent}
         elif percent is not None:
@@ -510,6 +533,12 @@ _MONITOR = {
     "providerActive": False,
 }
 
+# Оба лимита наблюдаются одновременно. Иначе переключение на OpenAI
+# ради ожидания Anthropic стирало бы свидетеля одного окна другим.
+_PROVIDER_STATES: dict[str, dict] = {}
+_PROVIDER_SNAPS: dict[str, dict | None] = {}
+_PROVIDER_REASONS: dict[str, str] = {}
+
 
 def _fmt(moment) -> str | None:
     if moment is None:
@@ -603,25 +632,47 @@ def run_monitor() -> None:
                     _run_wpctl("get-volume", "@DEFAULT_AUDIO_SINK@"))
 
             if cfg["enabled"]:
-                # Наблюдение — на любом активном аккаунте: сброса окна
-                # claude.ai ждут как раз работая на стороннем провайдере
-                # (упёрся — переключился — ждёшь звука). Провайдер гасит
-                # только повторы: кэш claude.ai на нём не обновляется, и
-                # «окно свободно» не сменится на «тратится» само.
-                cfg["allowRepeat"] = account_switcher.active_account_is_oauth()
-                snap = account_switcher.anthropic_usage_raw()
+                active_provider = account_switcher.current_account_runtime().get(
+                    "provider",
+                )
+                sources = (
+                    ("anthropic", account_switcher.anthropic_usage_raw()),
+                    ("openai", account_switcher.openai_usage_raw()),
+                )
                 now = time.time()
+                play_reason = None
                 with _STATUS_LOCK:
                     _MONITOR["cfg"] = cfg
                     _MONITOR["enabled"] = True
-                    _MONITOR["providerActive"] = not cfg["allowRepeat"]
-                    _MONITOR["snap"] = snap
-                    action, reason = decide(_MONITOR["state"], snap, cfg, now)
-                    if reason != _MONITOR["lastReason"]:
-                        hook_log.log("limit-alert", f"состояние: {reason}")
-                        _MONITOR["lastReason"] = reason
-                if action in ("play", "repeat"):
-                    play(cfg, reason=reason)
+                    _MONITOR["providerActive"] = active_provider not in (
+                        "anthropic", "openai",
+                    )
+                    for provider, snap in sources:
+                        provider_cfg = dict(cfg)
+                        provider_cfg["allowRepeat"] = active_provider == provider
+                        state = _PROVIDER_STATES.setdefault(provider, {})
+                        action, reason = decide(
+                            state, snap, provider_cfg, now,
+                        )
+                        _PROVIDER_SNAPS[provider] = snap
+                        if reason != _PROVIDER_REASONS.get(provider):
+                            hook_log.log(
+                                "limit-alert", f"{provider}: состояние: {reason}",
+                            )
+                            _PROVIDER_REASONS[provider] = reason
+                        if action in ("play", "repeat") and play_reason is None:
+                            play_reason = f"{provider}:{reason}"
+
+                    # Старый плоский статус сохраняем для webview и ручной
+                    # диагностики; показываем активный источник, а на custom
+                    # провайдере — Anthropic, как до поддержки OpenAI.
+                    shown = (active_provider if active_provider in
+                             ("anthropic", "openai") else "anthropic")
+                    _MONITOR["snap"] = _PROVIDER_SNAPS.get(shown)
+                    _MONITOR["state"] = _PROVIDER_STATES.get(shown, {})
+                    _MONITOR["lastReason"] = _PROVIDER_REASONS.get(shown)
+                if play_reason is not None:
+                    play(cfg, reason=play_reason)
             else:
                 with _STATUS_LOCK:
                     _MONITOR["cfg"] = cfg

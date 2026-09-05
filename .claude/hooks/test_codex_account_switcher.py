@@ -64,6 +64,24 @@ class OpenAIUsageTests(unittest.TestCase):
         self.assertNotIn("access_token", rendered)
         self.assertNotIn("auth_token", rendered)
 
+    def test_openai_raw_primary_window_is_safe_and_absolute(self):
+        result = account_switcher.openai_usage_raw({
+            "account": {
+                "type": "chatgpt", "email": "person@example.test",
+                "planType": "plus",
+            },
+            "rateLimits": {"primary": {
+                "usedPercent": 96, "windowDurationMins": 300,
+                "resetsAt": 1_600,
+            }},
+        })
+        self.assertEqual(result["percent"], 96)
+        self.assertEqual(result["resetAt"], 1_600)
+        self.assertEqual(result["provider"], "openai")
+        self.assertTrue(result["signalOnRollover"])
+        self.assertTrue(result["accountUuid"].startswith("openai:"))
+        self.assertNotIn("person@example.test", str(result))
+
 
 if __name__ == "__main__":
     unittest.main()

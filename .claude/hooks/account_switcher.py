@@ -34,6 +34,7 @@ Reload Window — редакторы, вкладки и терминалы ос�
 
 import datetime
 import glob
+import hashlib
 import json
 import os
 import re
@@ -414,6 +415,47 @@ def _openai_usage(rate_limits: Any) -> dict | None:
         return None
     return {"windows": windows, "ageSec": 0,
             "sourceLabel": "Данные Codex App Server"}
+
+
+def openai_usage_raw(snapshot: dict | None = None) -> dict | None:
+    """Raw primary Codex limit window for the reset-sound monitor.
+
+    Unlike ``_openai_usage``, this keeps the absolute reset timestamp and
+    identifies the ChatGPT login without exposing its email.  The rollover
+    flag lets the monitor recognize a reset even when Codex immediately
+    replaces the expired window with the next active one.
+    """
+    if snapshot is None:
+        snapshot = codex_bridge_manager.account_snapshot(timeout=4.0)
+    if not isinstance(snapshot, dict):
+        return None
+    limits = snapshot.get("rateLimits")
+    primary = limits.get("primary") if isinstance(limits, dict) else None
+    if not isinstance(primary, dict):
+        return None
+    percent = primary.get("usedPercent")
+    if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+        percent = None
+    reset_at = primary.get("resetsAt")
+    if (isinstance(reset_at, bool)
+            or not isinstance(reset_at, (int, float))):
+        reset_at = None
+
+    account = snapshot.get("account")
+    identity = "chatgpt"
+    if isinstance(account, dict):
+        identity = "|".join(str(account.get(key) or "") for key in (
+            "type", "email", "planType",
+        ))
+    account_key = "openai:" + hashlib.sha256(identity.encode()).hexdigest()
+    return {
+        "percent": percent,
+        "resetAt": reset_at,
+        "accountUuid": account_key,
+        "ageSec": 0,
+        "provider": "openai",
+        "signalOnRollover": True,
+    }
 
 
 def _openai_runtime(value: Any) -> dict | None:
