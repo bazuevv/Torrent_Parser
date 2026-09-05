@@ -5870,8 +5870,22 @@
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       if (it.kind === 'miss') body.appendChild(missRow(it, ttl, rate));
+      else if (it.kind === 'hit') body.appendChild(hitRow(it));
       else body.appendChild(eventRow(it));
     }
+  }
+
+  /** Непрерывная серия попаданий: одна строка вместо одного ряда на ход. */
+  function hitRow(hit) {
+    var count = typeof hit.count === 'number' && hit.count > 0 ? hit.count : 1;
+    var since = count > 1 ? ' с ' + hhmm(hit.started_ts) : '';
+    return row(
+      hhmm(hit.ts) + '  ·  попадания в кэш × ' + count,
+      'прочитано ' + human(hit.read),
+      'claude-cache-hit',
+      'Непрерывная серия успешных чтений prompt-кэша' + since
+        + (hit.model ? ' · ' + shortModel(hit.model) : '')
+    );
   }
 
   /** Строка промаха. */
@@ -5911,10 +5925,14 @@
   function eventRow(ev) {
     if (ev.kind === 'compact') {
       var before = typeof ev.context_before === 'number' && ev.context_before > 0
-        ? human(ev.context_before) : '—';
+        ? human(ev.context_before) : '';
+      var after = typeof ev.context_after === 'number' && ev.context_after > 0
+        ? human(ev.context_after) : '';
+      var size = before && after ? before + ' → ' + after
+        : before ? 'до ' + before : after ? 'после ' + after : 'размер н/д';
       return row(
         hhmm(ev.ts) + '  ·  сжатие контекста',
-        before + (ev.model ? '  ·  ' + shortModel(ev.model) : ''),
+        size + (ev.model ? '  ·  ' + shortModel(ev.model) : ''),
         'claude-cache-event',
         'Codex App Server завершил сжатие контекста; число справа — '
           + 'размер контекста перед событием'
@@ -5959,7 +5977,7 @@
         ? ' / ' + human(d.context_window) : '');
     var sub = document.createElement('span');
     sub.className = 'claude-cache-sub';
-    sub.textContent = d.model || '';
+    sub.textContent = (d.model || '') + (d.effort ? ' · ' + d.effort : '');
     head.appendChild(sub);
     body.appendChild(head);
 
@@ -5984,6 +6002,8 @@
     body.appendChild(row('запросов', String(d.requests)));
     body.appendChild(row('прочитано из кэша', human(d.read)));
     body.appendChild(row('записано в кэш', human(d.write)));
+    body.appendChild(row('свежий input', human(d.fresh)));
+    body.appendChild(row('output', human(d.output)));
     body.appendChild(row(
       'промахов',
       d.misses + (d.rewritten ? ' · переписано ' + human(d.rewritten) : ''),

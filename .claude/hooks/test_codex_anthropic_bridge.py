@@ -505,11 +505,19 @@ class PersistentSessionTests(unittest.TestCase):
                 "method": "thread/compacted",
                 "params": {"threadId": "thread-1", "turnId": "turn-1"},
             })
+            backend._handle_notification({
+                "method": "thread/tokenUsage/updated",
+                "params": {"threadId": "thread-1", "tokenUsage": {
+                    "last": {"inputTokens": 80}, "total": {"inputTokens": 200},
+                    "modelContextWindow": 258400,
+                }},
+            })
             with open(os.path.join(tmp, "events.jsonl"), encoding="utf-8") as handle:
                 events = [json.loads(line) for line in handle]
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["kind"], "compact")
         self.assertEqual(events[0]["context_before"], 120)
+        self.assertEqual(events[0]["context_after"], 80)
         self.assertEqual(events[0]["context_window"], 258400)
 
     def test_history_and_tool_metadata_changes_do_not_recreate_thread(self):

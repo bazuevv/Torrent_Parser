@@ -86,7 +86,7 @@ MAX_TRACKED_TURNS = 3000
 # набора полей: старое состояние тогда отбрасывается и транскрипт
 # перечитывается целиком. Без этого добавленное поле молча остаётся
 # пустым на всех сессиях, у которых состояние уже накоплено.
-STATE_VERSION = 6
+STATE_VERSION = 7
 
 
 def rate_for(model: str):
@@ -265,6 +265,8 @@ def consume(state: dict, path: str) -> None:
             # промах чем объяснён, положено при выдаче — здесь только
             # сырьё, как с паузой и TTL.
             "model": turn_model,
+            "verdict": verdict,
+            "read": rd,
         })
         del state["turns"][:-MAX_TRACKED_TURNS]
         state["requests"] += 1
@@ -454,6 +456,8 @@ def build_history(
     items = []
     by_ts = {t.get("ts"): t for t in marked if t.get("ts")}
 
+    items.extend(cache_hit_runs(marked, events, compactions or []))
+
     for miss in state.get("miss_log") or []:
         if (miss.get("written") or 0) <= 0:
             continue
@@ -520,6 +524,7 @@ def build_history(
             "model": ev.get("model") or "",
             "context_before": ev.get("context_before") or 0,
             "context_window": ev.get("context_window"),
+            "context_after": ev.get("context_after"),
         })
 
     # Событие (model/account) сортируется раньше всего остального с той
@@ -529,6 +534,56 @@ def build_history(
     items.sort(key=lambda it: (it.get("ts") or "",
                                0 if it.get("kind") in ("model", "account") else 1))
     return items[-MAX_HISTORY_ITEMS:]
+
+
+def cache_hit_runs(marked: list, events: list, compactions: list) -> list[dict]:
+    """Collapse uninterrupted prompt-cache hits into compact history rows."""
+    breakers = []
+    for event in list(events or []) + list(compactions or []):
+        when = parse_ts(event.get("ts") or "")
+        if when:
+            breakers.append(when)
+    breakers.sort()
+
+    result = []
+    run = None
+    previous_when = None
+    for turn in marked or []:
+        when = parse_ts(turn.get("ts") or "")
+        model = turn.get("model") or ""
+        interrupted = bool(turn.get("explain"))
+        if previous_when and when:
+            interrupted = interrupted or any(
+                previous_when < breaker <= when for breaker in breakers
+            )
+        if run and model != run.get("model"):
+            interrupted = True
+        if interrupted and run:
+            result.append(run)
+            run = None
+
+        is_hit = turn.get("verdict") == "попадание" and (turn.get("read") or 0) > 0
+        if is_hit:
+            if run is None:
+                run = {
+                    "kind": "hit",
+                    "ts": turn.get("ts") or "",
+                    "started_ts": turn.get("ts") or "",
+                    "count": 0,
+                    "read": 0,
+                    "model": model,
+                }
+            run["ts"] = turn.get("ts") or run["ts"]
+            run["count"] += 1
+            run["read"] += turn.get("read") or 0
+        elif run:
+            result.append(run)
+            run = None
+        previous_when = when or previous_when
+
+    if run:
+        result.append(run)
+    return result
 
 
 def account_events() -> list:
@@ -576,6 +631,9 @@ def apply_openai_usage(stats: dict, usage: object, session_key: str) -> dict:
     model = usage.get("model")
     if isinstance(model, str) and model:
         stats["model"] = model
+    effort = usage.get("effort")
+    if isinstance(effort, str) and effort:
+        stats["effort"] = effort
     window = usage.get("model_context_window")
     if isinstance(window, int) and window > 0:
         stats["context_window"] = window
@@ -584,6 +642,12 @@ def apply_openai_usage(stats: dict, usage: object, session_key: str) -> dict:
         context = last.get("input_tokens")
         if isinstance(context, int) and context >= 0:
             stats["context"] = context
+            for event in reversed(stats.get("history") or []):
+                if (event.get("kind") == "compact"
+                        and not event.get("context_before")
+                        and not event.get("context_after")):
+                    event["context_after"] = context
+                    break
         cached = last.get("cached_input_tokens")
         written = last.get("cache_write_input_tokens")
         if isinstance(cached, int) and cached >= 0:

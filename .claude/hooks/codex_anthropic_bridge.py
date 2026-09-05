@@ -420,6 +420,8 @@ class BridgeSession:
     initial_input_chars: int | None = None
     last_input_chars: int = 0
     seen_compactions: set[str] = field(default_factory=set)
+    pending_compaction: dict[str, Any] | None = None
+    prior_context: int = 0
 
 
 TOKEN_USAGE_FIELDS = {
@@ -502,6 +504,12 @@ class CodexTextBackend:
                 session.context_window = (
                     context_window if isinstance(context_window, int) else None
                 )
+                if session.pending_compaction is not None:
+                    session.pending_compaction["context_after"] = last.get(
+                        "input_tokens", 0,
+                    )
+                    self._append_context_event(session.pending_compaction)
+                    session.pending_compaction = None
                 self._publish_session(session)
         elif method in ("item/completed", "thread/compacted"):
             params = message.get("params")
@@ -537,9 +545,15 @@ class CodexTextBackend:
             "ts": datetime.now(timezone.utc).isoformat(),
             "session_hash": hashlib.sha256(session.key.encode()).hexdigest(),
             "model": session.model,
-            "context_before": session.last_usage.get("input_tokens", 0),
+            "context_before": (
+                session.last_usage.get("input_tokens", 0) or session.prior_context
+            ),
             "context_window": session.context_window,
         }
+        session.pending_compaction = event
+
+    @staticmethod
+    def _append_context_event(event: dict[str, Any]) -> None:
         try:
             os.makedirs(os.path.dirname(CONTEXT_EVENTS_FILE), exist_ok=True)
             with open(CONTEXT_EVENTS_FILE, "a", encoding="utf-8") as handle:
@@ -691,6 +705,9 @@ class CodexTextBackend:
         model: str | None = None,
         effort: str | None = None,
     ) -> None:
+        session.prior_context = session.last_usage.get(
+            "input_tokens", session.prior_context,
+        )
         session.last_usage.clear()
         params: dict[str, Any] = {
             "threadId": session.thread_id,
