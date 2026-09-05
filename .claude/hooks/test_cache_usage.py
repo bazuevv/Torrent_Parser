@@ -31,6 +31,7 @@ class OpenAIUsageTests(unittest.TestCase):
         self.assertEqual(result["effort"], "high")
         self.assertEqual(result["last"]["read"], 50000)
         self.assertEqual(result["last"]["verdict"], "попадание")
+        self.assertEqual(result["last"]["cache_status"], "попадание")
         self.assertEqual(result["history"][0]["context_after"], 63893)
 
         stale = {"ok": True, "model": "glm-5.3", "context": 299300}
@@ -104,6 +105,20 @@ class OpenAIUsageTests(unittest.TestCase):
         self.assertIsNone(stats["last"]["read"])
         self.assertEqual(stats["last"]["verdict"], "н/д")
 
+    def test_openai_first_live_turn_is_labeled_cold_start(self):
+        session = "session-42"
+        stats = {"ok": True, "last": {}, "history": []}
+        usage = {
+            "session_key_hash": hashlib.sha256(session.encode()).hexdigest(),
+            "last": {"input_tokens": 249919, "cached_input_tokens": 0,
+                     "cache_write_input_tokens": 0},
+            "turns_started": 1,
+        }
+        cache_usage.apply_openai_usage(stats, usage, session)
+        self.assertEqual(stats["last"]["cache_status"], "холодный старт")
+        self.assertEqual(stats["last"]["read"], 0)
+        self.assertEqual(stats["last"]["write"], 0)
+
     def test_openai_zero_input_record_restores_compaction_and_context(self):
         records = [
             {"timestamp": "2026-09-05T06:14:32Z", "message": {
@@ -116,6 +131,11 @@ class OpenAIUsageTests(unittest.TestCase):
                     "input_tokens": 0, "cache_read_input_tokens": 0,
                     "cache_creation_input_tokens": 0, "output_tokens": 231,
                 }}},
+            {"timestamp": "2026-09-05T09:46:50Z", "message": {
+                "model": "gpt-5.6-sol", "usage": {
+                    "input_tokens": 249919, "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0, "output_tokens": 173,
+                }}},
         ]
         with tempfile.TemporaryDirectory() as tmp:
             transcript = os.path.join(tmp, "session-42.jsonl")
@@ -125,7 +145,7 @@ class OpenAIUsageTests(unittest.TestCase):
             result = cache_usage.collect(transcript, state_dir=tmp)
         compact = next(item for item in result["history"]
                        if item["kind"] == "compact")
-        self.assertEqual(result["context"], 247329)
+        self.assertEqual(result["context"], 249919)
         self.assertEqual(compact["context_before"], 247329)
         self.assertTrue(compact["inferred"])
 

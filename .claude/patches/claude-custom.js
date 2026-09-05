@@ -6042,10 +6042,29 @@
       verdict + (gap ? ' · пауза ' + gap : ''),
       verdictCls
     ));
+    var openaiLive = d.live_provider === 'openai';
     body.appendChild(row(
-      'чтение / запись',
-      human(last.read) + ' / ' + human(last.write)
+      'чтение / запись' + (openaiLive ? ' (API)' : ''),
+      human(last.read) + ' / ' + human(last.write),
+      '',
+      openaiLive
+        ? 'Сырые cachedInputTokens / cacheWriteInputTokens, полученные '
+          + 'от Codex App Server для последнего хода'
+        : ''
     ));
+    if (openaiLive && last.cache_status) {
+      var cacheStatusClass = last.cache_status === 'попадание'
+        ? 'claude-cache-hit'
+        : last.cache_status === 'холодный старт'
+          ? 'claude-cache-explained' : 'claude-cache-miss';
+      body.appendChild(row(
+        'кэш OpenAI', last.cache_status, cacheStatusClass,
+        last.cache_status === 'холодный старт'
+          ? 'Первый запрос нового Codex-thread: читать ещё нечего. '
+            + 'Следующий запрос покажет попадание либо промах'
+          : 'Состояние prompt-кэша по cachedInputTokens последнего хода'
+      ));
+    }
     if (typeof d.context_window === 'number' && d.context_window > 0) {
       body.appendChild(row('окно модели', human(d.context_window)));
     }

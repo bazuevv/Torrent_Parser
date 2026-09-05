@@ -86,7 +86,7 @@ MAX_TRACKED_TURNS = 3000
 # набора полей: старое состояние тогда отбрасывается и транскрипт
 # перечитывается целиком. Без этого добавленное поле молча остаётся
 # пустым на всех сессиях, у которых состояние уже накоплено.
-STATE_VERSION = 8
+STATE_VERSION = 9
 
 
 def rate_for(model: str):
@@ -222,8 +222,6 @@ def consume(state: dict, path: str) -> None:
                 }]
             continue  # служебная либо поздняя запись с нулевой input usage
 
-        # Нормальная следующая usage опровергает хвостовой кандидат.
-        state["compactions"] = []
         sig = [fresh, wr, rd, out]
         if prev is not None and prev["sig"] == sig:
             continue  # дубль той же записи (стрим отдаёт её дважды)
@@ -773,6 +771,11 @@ def apply_openai_usage(stats: dict, usage: object, session_key: str) -> dict:
                 "старт" if usage.get("turns_started") == 1 else "промах"
             )
             stats["last"]["gap"] = None
+            stats["last"]["cache_status"] = (
+                "попадание" if cached > 0 else
+                "холодный старт" if usage.get("turns_started") == 1 else
+                "промах"
+            )
     stats["live_provider"] = "openai"
     return stats
 
