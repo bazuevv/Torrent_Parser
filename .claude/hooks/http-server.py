@@ -877,14 +877,21 @@ class Handler(BaseHTTPRequestHandler):
             self._json_response(400, {"ok": False, "error": message})
             return
         # `env` отдаётся тем же ключом, что и раньше: старый webview
-        # читает только его и продолжает работать.
-        self._json_response(200, {
+        # читает только его и продолжает работать. То же про
+        # `subscription`: ключа нет у webview, загруженного до
+        # появления раздела, — отсутствие значит «не знаю», не «нет».
+        # None (OpenAI: подписка автоматическая из Codex id_token)
+        # отдаётся тоже отсутствием ключа — поле не рисуется вовсе.
+        body = {
             "ok": True,
             "file": filename,
             "env": config["env"],
             "settings": config["settings"],
             "hints": account_switcher.hints(),
-        })
+        }
+        if config["subscription"] is not None:
+            body["subscription"] = config["subscription"]
+        self._json_response(200, body)
 
     def _handle_account_env_post(self) -> None:
         body = self._read_body()
@@ -902,20 +909,34 @@ class Handler(BaseHTTPRequestHandler):
         filename = str(payload.get("file") or "")
         # Отсутствующий раздел — это «не трогать», а не «очистить»:
         # старый webview шлёт одно `env`, и его правка не должна
-        # стирать настройки верхнего уровня.
+        # стирать настройки верхнего уровня. То же про подписку:
+        # ключа нет у webview до появления раздела.
         env = payload.get("env")
         settings = payload.get("settings")
+        subscription = payload.get("subscription")
+
+        results = []
         try:
-            ok, message = account_switcher.write_account_config(
-                filename, env, settings)
+            if isinstance(subscription, dict):
+                results.append(account_switcher.write_subscription(
+                    filename, subscription.get("paidAt"),
+                    subscription.get("days"), subscription.get("email"),
+                    subscription.get("plan")))
+            if env is not None or settings is not None or not results:
+                results.append(account_switcher.write_account_config(
+                    filename, env, settings))
         except Exception as exc:  # noqa: BLE001
             self._json_response(500, {"ok": False, "error": str(exc)})
             return
+        ok = all(r[0] for r in results)
+        message = " ".join(r[1] for r in results)
 
         names = ", ".join(sorted(
             list(env if isinstance(env, dict) else [])
             + list(settings if isinstance(settings, dict) else [])
         )) or "—"
+        if isinstance(subscription, dict):
+            names += " + подписка"
         _log(f"правка настроек {filename!r}: {message} [{names}]")
         self._json_response(200 if ok else 400, {
             "ok": ok,

@@ -1170,6 +1170,29 @@
   text-overflow: ellipsis;
 }
 
+/* Срок подписки — в строке имени, сразу после тарифа и почты,
+ * тем же служебным слогом, что и приписка meta: моно, приглушено,
+ * обрезка многоточием. Жёлтым — меньше недели до конца (время
+ * продлевать), красным — истёкшая; у обеих приглушение снято,
+ * иначе цвет на фоне панели не различить. Точные числа —
+ * в подсказке. */
+.claude-accs-paid {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.claude-accs-paid[data-level="1"] {
+  opacity: 1;
+  color: var(--vscode-charts-yellow, #cca700);
+}
+.claude-accs-paid[data-level="2"] {
+  opacity: 1;
+  color: var(--vscode-charts-red, #f14c4c);
+}
+
 /* --- лимиты подписки claude.ai -----------------------------------------
  *
  * Две полоски (5 ч и 7 дн) справа в строке аккаунта Anthropic; у Max
@@ -1374,14 +1397,6 @@
   color: var(--app-primary-foreground, #1f1f1f);
 }
 
-.claude-accs-foot {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
-  font-size: 11px;
-  opacity: 0.65;
-}
-
 /* --- редактор env ------------------------------------------------------
  *
  * Строка аккаунта — кнопка, поэтому шестерёнку кладём рядом с ней, а не
@@ -1484,6 +1499,132 @@
 
 .claude-accs-env-val {
   flex: 5 1 0;
+}
+
+/* Метка поля в разделе подписки («оплачена», «срок, дн»). Доля ширины
+ * та же, что у колонки ключа: поле даты встаёт ровно в колонку
+ * значений env-строк ниже, и форма читается одной сеткой. */
+.claude-accs-env-label {
+  flex: 4 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* --- календарь даты оплаты ----------------------------------------------
+ *
+ * Свой пикер, а не нативный у input[type=datetime-local]: webview
+ * расширения не даёт всплывающим панелям Chromium открыться, и поле
+ * молча оставалось без календаря. Разворачивается прямо в форме,
+ * под полем «оплачена», — плавающим быть не обязано, панель и так
+ * подгоняет высоту (positionPanel). */
+.claude-accs-cal {
+  margin: 2px 0 4px;
+  padding: 6px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 5px;
+  background: var(--vscode-editor-background, rgba(0, 0, 0, 0.25));
+}
+
+.claude-accs-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.claude-accs-cal-title {
+  font-size: 12px;
+}
+
+/* Стрелки месяца — маленькие квадраты, курсор-рука как у кнопок
+ * формы; фоновая плашка только под курсором. */
+.claude-accs-cal-nav {
+  flex: 0 0 22px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
+}
+.claude-accs-cal-nav:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
+}
+
+/* Семь равных колонок: заголовки дней недели и числа одной сеткой.
+ * Ширина получается из формы; ячейки тянутся сами. */
+.claude-accs-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.claude-accs-cal-wd {
+  text-align: center;
+  font-size: 10px;
+  opacity: 0.45;
+  padding: 1px 0;
+}
+
+/* День — кнопка без оформления: плашка появится на hover, а выбранный
+ * и сегодняшний расписаны ниже. */
+.claude-accs-cal-day {
+  padding: 3px 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
+}
+.claude-accs-cal-day:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
+}
+
+/* Выбранный день — цвет кнопки расширения: это единственная метка
+ * выбора в форме, и теряться ей нельзя. */
+.claude-accs-cal-sel {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+}
+.claude-accs-cal-sel:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+/* Сегодня — тонкая рамка: отличие справочное, выбирать сегодня никто
+ * не обязан (платят когда платят). */
+.claude-accs-cal-today {
+  outline: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.35));
+}
+
+.claude-accs-cal-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.claude-accs-cal-colon {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.claude-accs-cal-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
 }
 
 /* Обёртка поля значения настройки. Тип поля меняется вместе с именем
@@ -2699,4 +2840,13 @@
 
 .claude-limit-stop-float:active {
   transform: translateX(-50%) scale(0.92);
+}
+
+/* Пустая ячейка начала месяца: держит колонку, но не кнопка —
+ * курсор-рука над пустым местом обещала бы выбор, которого нет. */
+.claude-accs-cal-blank {
+  cursor: default;
+}
+.claude-accs-cal-blank:hover {
+  background: none;
 }

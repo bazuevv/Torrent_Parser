@@ -41,6 +41,7 @@ import re
 import shutil
 import tempfile
 import time
+import urllib.request
 from typing import Any
 
 import codex_bridge_manager
@@ -49,6 +50,12 @@ CLAUDE_DIR = os.path.expanduser("~/.claude")
 SETTINGS_FILE = os.path.join(CLAUDE_DIR, "settings.json")
 BACKUP_FILE = SETTINGS_FILE + ".bak"
 ACTIVE_MARKER = os.path.join(CLAUDE_DIR, ".active-account")
+
+# Сроки подписок аккаунтов: {файл: {paidAt, days}}. Живут отдельно от
+# settings-файлов (те принадлежат Claude Code, и служебный ключ в них —
+# риск без выгоды), а ключи здесь — имена файлов, поэтому подписка
+# следует за аккаунтом при любых переключениях.
+SUBS_FILE = os.path.join(CLAUDE_DIR, ".account-subs.json")
 
 # Журнал переключений — JSONL в hooks-runtime проекта.
 #
@@ -123,6 +130,58 @@ SETTING_KEY_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_]*$")
 # Правило по типу, а не по списку: незнакомая настройка-скаляр должна
 # появляться в панели сама, как и незнакомый settings-файл в списке.
 SETTINGS_HIDDEN = {"env", "$schema"}
+
+# --- подписка аккаунта ---------------------------------------------------
+#
+# Когда за аккаунт заплачено, знает только пользователь: ни Claude Code,
+# ни провайдер этих данных панели не отдают. Дату оплаты вводят в
+# настройках аккаунта (шестерёнка в панели Accs), срок считаем от неё.
+
+# Срок по умолчанию — месяц: самый частый период подписки.
+DEFAULT_SUB_DAYS = 30
+# Верхняя граница срока: защита от опечатки в поле «дней».
+MAX_SUB_DAYS = 3650
+
+# «2026-09-05T14:30» — как его присылает input[type=datetime-local].
+SUB_PAID_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$")
+
+# --- подписка Z.AI (GLM) через API ---------------------------------------
+#
+# У Z.AI нет ни OAuth-файлов, ни локального моста, но мониторинговые
+# ручки открывает тот же API-ключ, что уже лежит в env аккаунта
+# (пути — как у glm-for-copilot, ответ проверен на живом аккаунте):
+#   GET /api/biz/subscription/list → productName и период подписки
+# Китайская станция (open.bigmodel.cn) держит те же пути, но с
+# raw-ключом вместо Bearer. Ответ кэшируется: список аккаунтов панель
+# перечитывает часто, а ходить в сеть на каждый чих нельзя.
+ZAI_SUB_PATH = "/api/biz/subscription/list"
+ZAI_CACHE_FILE = os.path.join(
+    _PROJECT_DIR, ".claude", "hooks-runtime", "zai-subs-cache.json"
+)
+ZAI_CACHE_TTL_SEC = 600      # удачный ответ
+ZAI_FAIL_TTL_SEC = 120       # неудача: сеть лечится, панель не тормозит
+ZAI_HTTP_TIMEOUT = 4.0
+
+# Квоты Coding Plan: окно 5 ч и недельная квота. Endpoint клиентский
+# (его страница подписки в кабинете Z.AI рисует прогресс квоты),
+# формат окон — percentage + nextResetTime (epoch ms).
+ZAI_QUOTA_PATH = "/api/monitor/usage/quota/limit"
+ZAI_USAGE_CACHE_FILE = os.path.join(
+    _PROJECT_DIR, ".claude", "hooks-runtime", "zai-usage-cache.json"
+)
+ZAI_USAGE_TTL_SEC = 300      # квота тратится на глазах: чаще подписки
+# Подписи окон: ключи те же, что у claude.ai, — панель рисует полоски
+# одним кодом. (unit, number) → (key, label, title).
+ZAI_WINDOW_KINDS = {
+    (3, 5): ("five_hour", "5 ч", "Пятичасовое окно"),
+    (6, 1): ("seven_day", "7 дн", "Недельная квота"),
+}
+ZAI_UNIT_NAMES = {3: "ч", 6: "нед"}
+
+# Диапазон действия подписки в ответе Z.AI: «2026-09-19 15:55:07-2026-10-19 15:55:07».
+ZAI_VALID_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})-(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})$"
+)
 
 # Описания переменных окружения. Показываются по значку «?» в строке;
 # незнакомой переменной значка нет — врать про неё нечего.
@@ -807,6 +866,7 @@ def list_accounts() -> list[dict]:
     # а аккаунтов на OAuth-логине может оказаться больше одного.
     usage = anthropic_usage()
     identity = anthropic_identity()
+    subs = _read_subs()
     openai_identity: dict | None = None
     accounts = []
     for path in sorted(glob.glob(os.path.join(CLAUDE_DIR, "settings*.json"))):
@@ -823,10 +883,18 @@ def list_accounts() -> list[dict]:
             "oauth": info["oauth"],
             "provider": info["provider"],
         }
-        # Лимиты принадлежат логину claude.ai, а не активному аккаунту:
-        # пока сессия идёт через стороннего провайдера, они не тратятся,
-        # но остаются тем, что ждёт при возврате на Anthropic. Почта и
-        # тариф — по той же причине: это свойства логина.
+        # Срок подписки и данные логина — по-разному в зависимости от
+        # того, кто их знает:
+        #   claude.ai  — лимиты/почта/тариф из кэша и credentials CLI;
+        #   OpenAI     — то же из локального Codex App Server, срок
+        #                подписки — из Codex id_token (запись в
+        #                SUBS_FILE ведёт codex_id_token_sync.py);
+        #   Z.AI       — тариф, период и окна квот из его API (ключ уже
+        #                в env аккаунта, ответ кэшируется);
+        #   остальные  — только ручная запись из SUBS_FILE.
+        # Приоритет API над ручной записью: в собственном биллинге
+        # провайдер не ошибается, а рука — может.
+        record = read_subscription(filename, subs)
         if info["oauth"]:
             if usage:
                 entry["usage"] = usage
@@ -835,6 +903,35 @@ def list_accounts() -> list[dict]:
             if openai_identity is None:
                 openai_identity = openai_account()
             entry.update(openai_identity)
+            # Срока подписки в протоколе Codex нет, зато он есть в
+            # id_token из ~/.codex/auth.json: хук codex_id_token_sync.py
+            # лениво обновляет запись в SUBS_FILE, как только срок
+            # истёк. Поэтому `record` здесь уже актуален — ручной
+            # строки для OpenAI больше не существует.
+            if record:
+                info_sub = subscription_info(record)
+                if info_sub:
+                    entry["subscription"] = info_sub
+        else:
+            env = _read_env(source_path(filename))
+            usage = zai_usage(env)
+            if usage:
+                entry["usage"] = usage
+                entry["usageZai"] = True
+            zai = zai_subscription(env)
+            if zai:
+                entry["subscription"] = zai
+                entry["plan"] = zai["plan"]
+            elif record:
+                info_sub = subscription_info(record)
+                if info_sub:
+                    entry["subscription"] = info_sub
+            # Почта — только ручная: через API её не отдают. Ручной
+            # тариф — запас на случай, когда API молчит.
+            if record:
+                for key in ("email", "plan"):
+                    if record.get(key) and key not in entry:
+                        entry[key] = record[key]
         accounts.append(entry)
 
     # Базовый аккаунт первым, остальные по алфавиту.
@@ -880,18 +977,26 @@ def _visible_settings(data: dict) -> dict:
 def read_account_config(filename: str) -> tuple[bool, str, dict]:
     """Правимая часть файла аккаунта: (успех, сообщение, разделы).
 
-    Разделов два. `env` задаёт провайдера — адрес, ключ, подмену
+    Разделов три. `env` задаёт провайдера — адрес, ключ, подмену
     моделей. `settings` — скалярные настройки верхнего уровня (`model`,
     `language`, `effortLevel`, …): у аккаунта Anthropic секции `env` нет
-    вовсе, и без них редактор для него был бы пуст.
+    вовсе, и без них редактор для него был бы пуст. `subscription` —
+    дата оплаты подписки и срок: их вводят руками, отдельного
+    хранилища в settings-файле для них нет (см. SUBS_FILE). Для
+    OpenAI раздел — None: подписка пишется автоматически из Codex
+    id_token (codex_id_token_sync.py), ручного поля быть не должно.
     """
     ok, message, data = _load_account(filename)
     if not ok:
         return False, message, {}
     env = data.get("env")
+    subscription = None
+    if _describe(source_path(filename))["provider"] != "openai":
+        subscription = read_subscription(filename)
     return True, "", {
         "env": env if isinstance(env, dict) else {},
         "settings": _visible_settings(data),
+        "subscription": subscription,
     }
 
 
@@ -1033,6 +1138,362 @@ def _copy_atomic(src: str, dst: str) -> None:
         if os.path.exists(tmp):
             os.remove(tmp)
         raise
+
+
+def _read_subs() -> dict:
+    """Все записи о подписках: {файл: {paidAt, days}}. Битые — мимо."""
+    try:
+        with open(SUBS_FILE, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _parse_paid_at(value) -> datetime.datetime | None:
+    """«2026-09-05T14:30» → datetime; None, если значение не дата."""
+    if not isinstance(value, str) or not SUB_PAID_AT_RE.match(value):
+        return None
+    try:
+        return datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def read_subscription(filename: str, subs: dict | None = None) -> dict | None:
+    """Запись о подписке аккаунта: {paidAt, days, email, plan} или None.
+
+    `subs` — уже прочитанный файл записей: list_accounts читает его
+    один раз на все аккаунты. Запись валидна, если есть хоть что-то:
+    дата оплаты, тариф или почта. Молча дотягивает срок до
+    предельного: показывать в панели пустоту из-за опечатки в ручном
+    JSON хуже, чем показать с запасным.
+    """
+    if not ACCOUNT_NAME_RE.match(filename or ""):
+        return None
+    if subs is None:
+        subs = _read_subs()
+    record = subs.get(filename)
+    if not isinstance(record, dict):
+        return None
+    out: dict = {}
+    if _parse_paid_at(record.get("paidAt")) is not None:
+        out["paidAt"] = record["paidAt"]
+        days = record.get("days")
+        if (not isinstance(days, int) or isinstance(days, bool)
+                or not 1 <= days <= MAX_SUB_DAYS):
+            days = DEFAULT_SUB_DAYS
+        out["days"] = days
+    for key in ("email", "plan"):
+        value = record.get(key)
+        if isinstance(value, str) and value.strip():
+            out[key] = value.strip()[:128]
+    return out or None
+
+
+def write_subscription(filename: str, paid_at, days, email, plan,
+                       automatic: bool = False) -> tuple[bool, str]:
+    """Сохраняет запись о подписке или удаляет её, когда пусто всё.
+
+    Пустая дата — не ошибка: запись может жить ради тарифа и почты
+    (у Z.AI срок всё равно приходит из его API). Дата без срока —
+    месяц по умолчанию.
+
+    Для OpenAI-аккаунта запись ведёт только автоматика: срок подписки
+    ChatGPT берётся из Codex id_token (хук codex_id_token_sync.py),
+    ручной ввод был бы затёр при ближайшем обновлении. `automatic=True`
+    открывает запись этому хуку.
+    """
+    if not ACCOUNT_NAME_RE.match(filename or ""):
+        return False, f"Недопустимое имя аккаунта: {filename!r}"
+    if not automatic and _describe(source_path(filename))["provider"] == "openai":
+        return False, ("Срок подписки OpenAI-аккаунта поддерживается "
+                       "автоматически — из Codex id_token")
+
+    text = "" if paid_at is None else str(paid_at).strip()
+    moment = _parse_paid_at(text) if text else None
+    if text and moment is None:
+        return False, "Дата оплаты не разобрана: нужен формат ГГГГ-ММ-ДД ЧЧ:ММ"
+
+    labels: dict[str, str] = {}
+    for key, value in (("email", email), ("plan", plan)):
+        clean = "" if value is None else str(value).strip()
+        if len(clean) > 128:
+            return False, f"Поле «{key}»: не длиннее 128 символов"
+        if clean:
+            labels[key] = clean
+
+    subs = _read_subs()
+    if moment is None and not labels:
+        if filename not in subs:
+            return True, "Данных подписки у аккаунта и не было"
+        del subs[filename]
+        try:
+            _write_json_atomic(SUBS_FILE, subs)
+        except OSError as exc:
+            return False, f"Ошибка записи: {exc}"
+        return True, "Данные подписки убраны — строка срока исчезнет из списка"
+
+    number = DEFAULT_SUB_DAYS
+    if moment is not None:
+        if days is not None and not isinstance(days, bool):
+            try:
+                number = int(str(days).strip())
+            except (TypeError, ValueError):
+                return False, f"Срок подписки — число дней, а не {days!r}"
+        if not 1 <= number <= MAX_SUB_DAYS:
+            return False, f"Срок подписки — от 1 до {MAX_SUB_DAYS} дней"
+
+    record: dict = dict(labels)
+    if moment is not None:
+        record["paidAt"] = moment.isoformat(timespec="minutes")
+        record["days"] = number
+    subs[filename] = record
+    try:
+        _write_json_atomic(SUBS_FILE, subs)
+    except OSError as exc:
+        return False, f"Ошибка записи: {exc}"
+
+    bits = []
+    if moment is not None:
+        bits.append("оплачена " + moment.strftime("%d.%m.%Y %H:%M")
+                    + f", срок {number} дн")
+    if labels:
+        bits.append("тариф и почта" if len(labels) == 2
+                    else next(iter(labels)))
+    return True, ("Данные подписки " + _display_name(filename) + ": "
+                  + "; ".join(bits))
+
+
+def subscription_info(record: dict) -> dict | None:
+    """Валидная запись подписки, дополненная рассчитанным сроком.
+
+    Пока период не кончился, отдаём остаток; после конца — признак
+    `expired`, чтобы панель честно написала «истекла», а не ноль дней.
+    Время локальное и без пояса с обеих сторон — разность корректна.
+    """
+    moment = _parse_paid_at(record.get("paidAt"))
+    if moment is None:
+        return None
+    days = record.get("days", DEFAULT_SUB_DAYS)
+    until = moment + datetime.timedelta(days=days)
+    left = int((until - datetime.datetime.now()).total_seconds())
+    return {
+        "paidAt": record["paidAt"],
+        "days": days,
+        "until": until.isoformat(timespec="minutes"),
+        "leftSec": left,
+        "expired": left <= 0,
+    }
+
+
+def _zai_host(env: dict) -> str | None:
+    """Хост Z.AI из env аккаунта; None — провайдер не Z.AI."""
+    base = str(env.get("ANTHROPIC_BASE_URL") or "")
+    host = base.split("//", 1)[-1].split("/", 1)[0].lower()
+    return host if host in ("api.z.ai", "open.bigmodel.cn") else None
+
+
+def _zai_cache_payload(token: str, path: str, version: int,
+                       ok_ttl: float, fail_ttl: float) -> dict | None:
+    """Свежий кэш-файл для этого токена: {result, savedAt} или None.
+
+    Общая часть запросов к Z.AI: вычитка, сверка подписи и TTL.
+    `savedAt` нужен наружу для возраста данных.
+    """
+    stamp = hashlib.sha256(token.encode()).hexdigest()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    # Версия: правка разбора ответа должна протолкнуть старый кэш,
+    # иначе ответ прежней логики доживал бы свой TTL.
+    if (not isinstance(data, dict) or data.get("token") != stamp
+            or data.get("v") != version):
+        return None
+    ttl = ok_ttl if data.get("result") else fail_ttl
+    if time.time() - float(data.get("savedAt") or 0) > ttl:
+        return None
+    return data
+
+
+def _zai_cache_age(payload: dict) -> int:
+    """Возраст кэш-записи в секундах, от нуля и выше."""
+    return max(0, int(time.time() - float(payload.get("savedAt") or 0)))
+
+
+def _read_zai_cache(token: str, path: str = ZAI_CACHE_FILE,
+                    version: int = 2) -> dict | None:
+    """Свежий результат из кэша (None — нет/просрочен)."""
+    payload = _zai_cache_payload(
+        token, path, version, ZAI_CACHE_TTL_SEC, ZAI_FAIL_TTL_SEC)
+    if payload is None:
+        return None
+    result = payload.get("result")
+    # Отрицательный кэш — это «ничего не нашлось», а не «не Z.AI».
+    return result if isinstance(result, dict) else None
+
+
+def _write_zai_cache(token: str, result: dict | None,
+                     path: str = ZAI_CACHE_FILE, version: int = 2) -> None:
+    stamp = hashlib.sha256(token.encode()).hexdigest()
+    payload = {"v": version, "token": stamp, "savedAt": time.time(),
+               "result": result}
+    try:
+        _write_json_atomic(path, payload)
+    except OSError:
+        pass  # кэш вспомогательный: без него просто лишний запрос
+
+
+def zai_subscription(env: dict) -> dict | None:
+    """Тариф и срок Coding Plan с сервера Z.AI, в формате подписки.
+
+    Формат тот же, что у ручной записи из subscription_info, плюс
+    источник: панель показывает срок одинаково, а подсказку — честнее.
+    None — провайдер не Z.AI, ключа нет или спросить не вышло; тогда
+    строку срока даёт ручная запись, если она есть.
+    """
+    host = _zai_host(env)
+    token = env.get("ANTHROPIC_AUTH_TOKEN") or env.get("ANTHROPIC_API_KEY")
+    if not host or not token:
+        return None
+    cached = _read_zai_cache(token)
+    if cached is not None:
+        return cached
+
+    # Китайская станция ждёт raw-ключ, международная — Bearer.
+    auth = token if host == "open.bigmodel.cn" else "Bearer " + token
+    request = urllib.request.Request(
+        "https://" + host + ZAI_SUB_PATH,
+        headers={"Authorization": auth, "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=ZAI_HTTP_TIMEOUT) as resp:
+            payload = json.load(resp)
+    except (OSError, ValueError):
+        _write_zai_cache(token, None)
+        return None
+
+    items = payload.get("data") if isinstance(payload, dict) else None
+    first = None
+    if isinstance(items, list):
+        first = next((i for i in items
+                      if isinstance(i, dict) and i.get("status") == "VALID"), None)
+    valid = str(first.get("valid") or "") if first else ""
+    span = ZAI_VALID_RE.match(valid)
+    plan = first.get("productName") if first else None
+    if not span or not isinstance(plan, str) or not plan:
+        _write_zai_cache(token, None)
+        return None
+
+    # Начало — время покупки. Конец оплаченного — день следующего
+    # списания: `valid` показывает горизонт контракта (следующий
+    # период), а оплачен только текущий. Прецедент: покупка 19.08,
+    # nextRenewTime 19.09, valid 19.09–19.10 — тариф действует
+    # до 19.09, и только потом спишут за следующий.
+    start = datetime.datetime.strptime(
+        str(first.get("purchaseTime") or span.group(1)), "%Y-%m-%d %H:%M:%S")
+    renew = str(first.get("nextRenewTime") or "")
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", renew):
+        until = datetime.datetime.strptime(
+            renew + " " + start.strftime("%H:%M:%S"), "%Y-%m-%d %H:%M:%S")
+    else:
+        until = datetime.datetime.strptime(span.group(2), "%Y-%m-%d %H:%M:%S")
+    left = int((until - datetime.datetime.now()).total_seconds())
+    result = {
+        "paidAt": start.isoformat(timespec="minutes"),
+        "days": int((until - start).total_seconds() // 86400),
+        "until": until.isoformat(timespec="minutes"),
+        "leftSec": left,
+        "expired": left <= 0,
+        "source": "zai",
+        "plan": plan,
+        "autoRenew": first.get("autoRenew") == 1,
+    }
+    _write_zai_cache(token, result)
+    return result
+
+
+def zai_usage(env: dict) -> dict | None:
+    """Лимиты квот GLM Coding Plan: окна 5 ч и неделя, полосками как claude.ai.
+
+    Endpoint `/api/monitor/usage/quota/limit` — клиентская ручка, которой
+    страница подписки в кабинете Z.AI рисует прогресс квоты: ключ и хост
+    те же, что у zai_subscription. Наружу — формат anthropic_usage
+    (windows + ageSec), панель рисует полоски одним кодом. Неудача тоже
+    кэшируется на короткий TTL, чтобы панель не долбила лежащий API.
+
+    None — провайдер не Z.AI, ключа нет или данных не нашлось; панель
+    в этом случае полосок не рисует.
+    """
+    host = _zai_host(env)
+    token = env.get("ANTHROPIC_AUTH_TOKEN") or env.get("ANTHROPIC_API_KEY")
+    if not host or not token:
+        return None
+
+    payload = _zai_cache_payload(
+        token, ZAI_USAGE_CACHE_FILE, 1, ZAI_USAGE_TTL_SEC, ZAI_FAIL_TTL_SEC)
+    if payload is not None:
+        result = payload.get("result")
+        if isinstance(result, dict):
+            return {**result, "ageSec": _zai_cache_age(payload)}
+        return None  # неудача свежа — сеть не зовём
+
+    # Китайская станция ждёт raw-ключ, международная — Bearer.
+    auth = token if host == "open.bigmodel.cn" else "Bearer " + token
+    request = urllib.request.Request(
+        "https://" + host + ZAI_QUOTA_PATH,
+        headers={"Authorization": auth, "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=ZAI_HTTP_TIMEOUT) as resp:
+            body = json.load(resp)
+    except (OSError, ValueError):
+        _write_zai_cache(token, None, ZAI_USAGE_CACHE_FILE, 1)
+        return None
+
+    data = body.get("data") if isinstance(body, dict) else None
+    items = data.get("limits") if isinstance(data, dict) else None
+    windows = []
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            percent = item.get("percentage")
+            # bool — тоже int, а полоска на True шириной 100% была бы
+            # красивой неправдой.
+            if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+                continue
+            kind = ZAI_WINDOW_KINDS.get((item.get("unit"), item.get("number")))
+            if kind is not None:
+                key, label, title = kind
+            else:
+                key = None
+                unit = ZAI_UNIT_NAMES.get(item.get("unit"),
+                                          "×" + str(item.get("unit")))
+                label = f"{item.get('number')} {unit}"
+                title = label
+            reset_ms = item.get("nextResetTime")
+            if isinstance(reset_ms, bool) or not isinstance(reset_ms, (int, float)):
+                left = None
+            else:
+                left = int(reset_ms / 1000 - time.time())
+            expired = left is not None and left <= 0
+            windows.append({
+                "key": key,
+                "label": label,
+                "title": title,
+                "percent": 0 if expired else percent,
+                "resetsInSec": None if expired else left,
+                "expired": expired,
+            })
+    if not windows:
+        _write_zai_cache(token, None, ZAI_USAGE_CACHE_FILE, 1)
+        return None
+    result = {"windows": windows, "sourceLabel": "Данные Z.AI"}
+    _write_zai_cache(token, result, ZAI_USAGE_CACHE_FILE, 1)
+    return result
 
 
 def log_account_event(from_file: str, to_file: str, revert: bool = False) -> None:

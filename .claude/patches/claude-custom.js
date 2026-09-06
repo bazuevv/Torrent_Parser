@@ -8269,6 +8269,12 @@
   // ради которой всё и делается.
   var restartPrompt = cfg.accountsRestartPrompt !== false;
 
+  // Раздел «подписка» в настройках аккаунта и строка срока в списке.
+  // Здесь то же правило «отсутствие = включено», что и выше: данные
+  // о сроке приходит с сервера, а сам раздел формы рисуем только
+  // когда сервер о нём знает — см. renderConfigForm.
+  var showSub = cfg.accountsSubscription !== false;
+
   var panel = null;
   var modal = null;
   var switching = false;   // защита от двойного клика по пункту
@@ -8606,6 +8612,304 @@
     form.appendChild(head);
   }
 
+  /** «05» из 5 — для селектов времени и ячеек календаря. */
+  function pad2(n) {
+    return (n < 10 ? '0' : '') + n;
+  }
+
+  /**
+   * Раздел «подписка»: дата и время оплаты и срок в днях.
+   *
+   * Нативный input[type=datetime-local] в webview расширения свой
+   * пикер не открывает — окно VSCode не даёт всплывающим панелям
+   * Chromium показаться, — поэтому календарь и время свои: клик
+   * по полю разворачивает сетку месяца и селекты часов/минут прямо
+   * в форме. Поле только для чтения: набрать дату руками нельзя,
+   * и сломать ISO-формат, который ждёт сервер, — тоже.
+   *
+   * ISO-значение живёт в data-атрибуте поля; в самом поле —
+   * человеческая запись «06.09.2026 12:00».
+   */
+  function subscriptionBox(sub, btn) {
+    var box = document.createElement('div');
+    box.className = 'claude-accs-env-list';
+
+    var paidIso = (sub && sub.paidAt) || '';
+    var hours = 12;
+    var minutes = 0;
+
+    // Почта: у сторонних провайдеров её не спросить ни у CLI, ни
+    // по API — вводят руками и хранят с подпиской. Тарифа в форме
+    // нет: Z.AI и OpenAI сообщают его сами, а для остальных он
+    // не стоил отдельного поля.
+    var emailRow = document.createElement('div');
+    emailRow.className = 'claude-accs-env-row';
+    var emailLabel = document.createElement('span');
+    emailLabel.className = 'claude-accs-env-label';
+    emailLabel.textContent = 'email';
+    var emailInput = document.createElement('input');
+    emailInput.type = 'text';
+    emailInput.className = 'claude-accs-env-val claude-accs-sub-email';
+    emailInput.value = (sub && sub.email) || '';
+    emailInput.placeholder = 'почта аккаунта';
+    emailInput.spellcheck = false;
+    emailInput.title = 'Показывается в строке имени аккаунта';
+    emailRow.appendChild(emailLabel);
+    emailRow.appendChild(emailInput);
+    box.appendChild(emailRow);
+
+    var paidRow = document.createElement('div');
+    paidRow.className = 'claude-accs-env-row';
+    var paidLabel = document.createElement('span');
+    paidLabel.className = 'claude-accs-env-label';
+    paidLabel.textContent = 'оплачена';
+    var paidInput = document.createElement('input');
+    paidInput.type = 'text';
+    paidInput.readOnly = true;
+    paidInput.className = 'claude-accs-env-val claude-accs-sub-paid';
+    paidInput.placeholder = 'выбрать дату и время';
+    paidInput.title = 'Клик — календарь и время; кнопка «очистить» '
+      + 'внутри убирает дату вовсе';
+    paidRow.appendChild(paidLabel);
+    paidRow.appendChild(paidInput);
+    box.appendChild(paidRow);
+
+    var cal = document.createElement('div');
+    cal.className = 'claude-accs-cal';
+    cal.style.display = 'none';
+    box.appendChild(cal);
+
+    var MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+      'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+    var WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+    // Какой месяц показываем: от уже заданной даты, иначе текущий.
+    var start = paidIso ? Date.parse(paidIso) : Date.now();
+    var view = isNaN(start) ? new Date() : new Date(start);
+    if (paidIso) {
+      hours = view.getHours();
+      minutes = view.getMinutes();
+    }
+
+    /** Пересобирает ISO из даты в поле и выбранных часов/минут. */
+    function recombine(dayIso) {
+      var day = dayIso || (paidIso ? paidIso.slice(0, 10) : '');
+      return day + 'T' + pad2(hours) + ':' + pad2(minutes);
+    }
+
+    function sync() {
+      paidInput.dataset.iso = paidIso;
+      paidInput.value = paidIso ? subDate(paidIso, true) : '';
+    }
+
+    // --- каркас календаря ---
+
+    var calHead = document.createElement('div');
+    calHead.className = 'claude-accs-cal-head';
+
+    var prevBtn = document.createElement('button');
+    prevBtn.type = 'button';
+    prevBtn.className = 'claude-accs-cal-nav';
+    prevBtn.textContent = '‹';
+    prevBtn.title = 'Предыдущий месяц';
+    var calTitle = document.createElement('span');
+    calTitle.className = 'claude-accs-cal-title';
+    var nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.className = 'claude-accs-cal-nav';
+    nextBtn.textContent = '›';
+    nextBtn.title = 'Следующий месяц';
+    calHead.appendChild(prevBtn);
+    calHead.appendChild(calTitle);
+    calHead.appendChild(nextBtn);
+    cal.appendChild(calHead);
+
+    var grid = document.createElement('div');
+    grid.className = 'claude-accs-cal-grid';
+    cal.appendChild(grid);
+
+    var timeRow = document.createElement('div');
+    timeRow.className = 'claude-accs-cal-time';
+    var timeLabel = document.createElement('span');
+    timeLabel.className = 'claude-accs-env-label';
+    timeLabel.textContent = 'время';
+    var hourSel = document.createElement('select');
+    hourSel.className = 'claude-accs-env-val claude-accs-env-sel';
+    var minuteSel = document.createElement('select');
+    minuteSel.className = 'claude-accs-env-val claude-accs-env-sel';
+    var i, opt;
+    for (i = 0; i < 24; i++) {
+      opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = pad2(i);
+      hourSel.appendChild(opt);
+    }
+    for (i = 0; i < 60; i++) {
+      opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = pad2(i);
+      minuteSel.appendChild(opt);
+    }
+    hourSel.value = String(hours);
+    minuteSel.value = String(minutes);
+    var colon = document.createElement('span');
+    colon.className = 'claude-accs-cal-colon';
+    colon.textContent = ':';
+    timeRow.appendChild(timeLabel);
+    timeRow.appendChild(hourSel);
+    timeRow.appendChild(colon);
+    timeRow.appendChild(minuteSel);
+    cal.appendChild(timeRow);
+
+    var calFoot = document.createElement('div');
+    calFoot.className = 'claude-accs-cal-foot';
+    var clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'claude-accs-env-btn';
+    clearBtn.textContent = 'очистить';
+    clearBtn.title = 'Убрать дату оплаты — строка срока уйдёт из списка';
+    var doneBtn = document.createElement('button');
+    doneBtn.type = 'button';
+    doneBtn.className = 'claude-accs-env-btn claude-accs-env-save';
+    doneBtn.textContent = 'готово';
+    calFoot.appendChild(clearBtn);
+    calFoot.appendChild(doneBtn);
+    cal.appendChild(calFoot);
+
+    // --- поведение ---
+
+    function shiftMonth(delta) {
+      view = new Date(view.getFullYear(), view.getMonth() + delta, 1);
+      renderCal();
+    }
+
+    function renderCal() {
+      var y = view.getFullYear();
+      var m = view.getMonth();
+      calTitle.textContent = MONTHS[m] + ' ' + y;
+
+      grid.textContent = '';
+      var d;
+      for (d = 0; d < WEEKDAYS.length; d++) {
+        var wd = document.createElement('span');
+        wd.className = 'claude-accs-cal-wd';
+        wd.textContent = WEEKDAYS[d];
+        grid.appendChild(wd);
+      }
+
+      var picked = paidIso ? paidIso.slice(0, 10) : '';
+      var today = new Date();
+      var todayIso = today.getFullYear() + '-' + pad2(today.getMonth() + 1)
+        + '-' + pad2(today.getDate());
+      // Пустые ячейки до понедельника: без них первый день месяца
+      // встал бы не в свою колонку, а дни соседних месяцев в сетке —
+      // обещание клика, которого здесь нет.
+      var lead = (new Date(y, m, 1).getDay() + 6) % 7;
+      var total = new Date(y, m + 1, 0).getDate();
+      var day;
+      for (day = 0; day < lead; day++) {
+        var blank = document.createElement('span');
+        blank.className = 'claude-accs-cal-day claude-accs-cal-blank';
+        grid.appendChild(blank);
+      }
+      for (day = 1; day <= total; day++) {
+        var iso = y + '-' + pad2(m + 1) + '-' + pad2(day);
+        var cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'claude-accs-cal-day';
+        if (iso === picked) cell.className += ' claude-accs-cal-sel';
+        if (iso === todayIso) cell.className += ' claude-accs-cal-today';
+        cell.textContent = String(day);
+        cell.addEventListener('mousedown', function (e) { e.preventDefault(); });
+        cell.addEventListener('click', (function (dayIso) {
+          return function () {
+            paidIso = recombine(dayIso);
+            sync();
+            renderCal();
+          };
+        })(iso));
+        grid.appendChild(cell);
+      }
+    }
+
+    function toggleCal() {
+      var open = cal.style.display !== 'none';
+      cal.style.display = open ? 'none' : '';
+      if (!open) renderCal();
+      positionPanel(btn);
+    }
+
+    prevBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    nextBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    prevBtn.addEventListener('click', function () { shiftMonth(-1); });
+    nextBtn.addEventListener('click', function () { shiftMonth(1); });
+
+    hourSel.addEventListener('change', function () {
+      hours = parseInt(hourSel.value, 10) || 0;
+      if (paidIso) {
+        paidIso = recombine();
+        sync();
+      }
+    });
+    minuteSel.addEventListener('change', function () {
+      minutes = parseInt(minuteSel.value, 10) || 0;
+      if (paidIso) {
+        paidIso = recombine();
+        sync();
+      }
+    });
+
+    clearBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    clearBtn.addEventListener('click', function () {
+      paidIso = '';
+      sync();
+      renderCal();
+    });
+    doneBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    doneBtn.addEventListener('click', toggleCal);
+
+    paidInput.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    paidInput.addEventListener('click', toggleCal);
+
+    var daysRow = document.createElement('div');
+    daysRow.className = 'claude-accs-env-row';
+    var daysLabel = document.createElement('span');
+    daysLabel.className = 'claude-accs-env-label';
+    daysLabel.textContent = 'срок, дн';
+    var daysInput = document.createElement('input');
+    daysInput.type = 'number';
+    daysInput.min = '1';
+    daysInput.step = '1';
+    daysInput.className = 'claude-accs-env-val claude-accs-sub-days';
+    daysInput.value = sub && sub.days ? String(sub.days) : '';
+    daysInput.placeholder = '30';
+    daysInput.title = 'На сколько дней оплачено. Пусто — месяц';
+    daysRow.appendChild(daysLabel);
+    daysRow.appendChild(daysInput);
+    box.appendChild(daysRow);
+
+    sync();
+    return box;
+  }
+
+  /**
+   * Данные раздела подписки для сохранения. Пусто всё — null: это
+   * явное «удалить запись», а не «не трогать» (отсутствие ключа),
+   * иначе очистить поля и сохранить не получилось бы вовсе.
+   */
+  function collectSubscription(box) {
+    var input = box.querySelector('.claude-accs-sub-paid');
+    var paid = ((input && input.dataset.iso) || '').trim();
+    var email = box.querySelector('.claude-accs-sub-email').value.trim();
+    var days = parseInt(box.querySelector('.claude-accs-sub-days').value, 10);
+    if (!paid && !email) return null;
+    return {
+      paidAt: paid,
+      days: isNaN(days) ? null : days,
+      email: email,
+    };
+  }
+
   function renderConfigForm(form, acc, data, btn, body) {
     var hints = data.hints || {};
     var envHints = hints.env || {};
@@ -8624,6 +8928,19 @@
 
     var names, i;
     var setList = null;
+
+    // Подписка — первый раздел формы: у каждого провайдера своё
+    // знание о ней (Z.AI отдаёт тариф и срок сам, OpenAI — почту
+    // и тариф), а почта везде — только от пользователя. Рисуем,
+    // лишь когда сервер прислал ключ (undefined — старый
+    // http-server.py о разделе не знает; null — подписки у аккаунта
+    // нет, и поля просто пустые).
+    var subBox = null;
+    if (showSub && data.subscription !== undefined) {
+      sectionHead(form, 'подписка · срок действия');
+      subBox = subscriptionBox(data.subscription, btn);
+      form.appendChild(subBox);
+    }
 
     if (settings) {
       var datalist = document.createElement('datalist');
@@ -8708,8 +9025,10 @@
 
       var payload = { file: acc.file, env: collectRows(list, false) };
       // Раздела нет — не отправляем его вовсе: пустой объект сервер
-      // понял бы как «удалить все настройки».
+      // понял бы как «удалить все настройки». Для подписки null,
+      // наоборот, легитимен — см. collectSubscription.
       if (setList) payload.settings = collectRows(setList, true);
+      if (subBox) payload.subscription = collectSubscription(subBox);
 
       fetch(ENV_URL, {
         method: 'POST',
@@ -8776,15 +9095,19 @@
   var USAGE_STALE_SEC = 1800;
 
   /** «1 ч 51 мин», «6 д», «меньше минуты» — сколько осталось. */
-  function formatLeft(sec) {
+  function formatLeft(sec, compact) {
     if (typeof sec !== 'number' || !isFinite(sec) || sec < 0) return '';
     if (sec < 60) return 'меньше минуты';
     var min = Math.floor(sec / 60) % 60;
     var hours = Math.floor(sec / 3600) % 24;
     var days = Math.floor(sec / 86400);
-    if (days > 0) return days + ' д' + (hours ? ' ' + hours + ' ч' : '');
-    if (hours > 0) return hours + ' ч' + (min ? ' ' + min + ' мин' : '');
-    return min + ' мин';
+    // Компакт («19д 22ч») — для строки подписки в имени аккаунта;
+    // с пробелами («19 д 22 ч») — лимиты и метки свежести.
+    if (days > 0) return days + (compact ? 'д' : ' д')
+      + (hours ? ' ' + hours + (compact ? 'ч' : ' ч') : '');
+    if (hours > 0) return hours + (compact ? 'ч' : ' ч')
+      + (min ? ' ' + min + (compact ? 'мин' : ' мин') : '');
+    return min + (compact ? 'мин' : ' мин');
   }
 
   /** «обновлены 4 мин назад» — насколько данным можно верить. */
@@ -9077,21 +9400,99 @@
   function accountSubtitle(acc) {
     // У логина claude.ai тариф и почта стоят в строке имени, а вторую
     // строку занимают полоски лимитов — endpoint там уже не нужен.
-    // Но если ни тарифа, ни почты нет (файлы CLI не прочитались),
-    // строка не должна оставаться пустой: показываем endpoint.
-    if ((acc.oauth || acc.provider === 'openai') && (acc.plan || acc.email)) {
+    // То же у OpenAI (почта и тариф из Codex) и Z.AI (тариф, срок и
+    // квоты из его API). Но если опознаваемых данных нет (файлы CLI
+    // не прочитались или API провайдера промолчал), строка не должна
+    // оставаться пустой: показываем endpoint.
+    var known = acc.oauth
+      || acc.provider === 'openai'
+      || acc.usageZai
+      || (acc.subscription && acc.subscription.source === 'zai');
+    if (known && (acc.plan || acc.email)) {
       return '';
     }
     return acc.baseUrl || '';
   }
 
-  /** «Pro (почта)» — приписка к названию OAuth-аккаунта. */
+  /**
+   * «Pro (почта)» — приписка к названию аккаунта.
+   *
+   * Источник у провайдеров разный (credentials CLI, Codex App Server,
+   * API Z.AI, ручной ввод), а вид один: имя аккаунта остаётся главным
+   * словом строки, тариф и почта идут приглушённой припиской.
+   */
   function accountMeta(acc) {
-    if (!acc.oauth && acc.provider !== 'openai') return '';
     var parts = [];
     if (acc.plan) parts.push(acc.plan);
     if (acc.email) parts.push('(' + acc.email + ')');
     return parts.join(' ');
+  }
+
+  /** «05.10», «05.10.2026 14:30» — дата из ISO-строки сервера. */
+  function subDate(iso, withYear) {
+    var t = Date.parse(iso);
+    if (isNaN(t)) return '';
+    var d = new Date(t);
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    var out = p(d.getDate()) + '.' + p(d.getMonth() + 1);
+    if (!withYear) return out;
+    return out + '.' + d.getFullYear() + ' ' + p(d.getHours())
+      + ':' + p(d.getMinutes());
+  }
+
+  /**
+   * Срок подписки в строке имени аккаунта: «до 05.10 (29д)».
+   *
+   * Дату оплаты задают руками в настройках аккаунта, и точность тут
+   * та же — день оплаты плюс срок. Цветом отмечен близкий конец
+   * (жёлтый, меньше недели) и истёкший (красный); числа без цвета —
+   * ровно как у приписки с тарифом и почтой, это служебная часть
+   * строки имени.
+   */
+  function subscriptionNote(sub) {
+    if (!sub) return null;
+    var short = subDate(sub.until, false);
+    if (!short) return null;
+    var full = subDate(sub.until, true);
+    var left = formatLeft(sub.leftSec, true);
+
+    var el = document.createElement('span');
+    el.className = 'claude-accs-paid';
+
+    // Срок пришёл с сервера Z.AI: подсказка называет тариф и
+    // продление, а не дату «оплаты» — ту панель знает лишь с рук.
+    if (sub.source === 'zai') {
+      var head = sub.plan ? sub.plan + ' · ' : '';
+      if (sub.expired) {
+        el.setAttribute('data-level', '2');
+        el.textContent = 'истекла ' + short;
+        el.title = head + 'период кончился ' + full;
+        return el;
+      }
+      el.setAttribute('data-level', sub.leftSec <= 7 * 86400 ? '1' : '0');
+      el.textContent = 'до ' + short + (left ? ' (' + left + ')' : '');
+      el.title = head + 'до ' + full + ', осталось '
+        + (left || 'меньше минуты')
+        + (sub.autoRenew ? ' · продлевается автоматически' : '')
+        + ' · данные Z.AI';
+      return el;
+    }
+
+    var paid = subDate(sub.paidAt, true) || sub.paidAt;
+    if (sub.expired) {
+      el.setAttribute('data-level', '2');
+      el.textContent = 'истекла ' + short;
+      el.title = 'Оплачена ' + paid + ' · ' + sub.days + ' дн — '
+        + 'действовала до ' + full;
+      return el;
+    }
+    // Неделя до конца — время продлевать: раньше жёлтый только мешал
+    // бы стоять постоянно у кратких периодов.
+    el.setAttribute('data-level', sub.leftSec <= 7 * 86400 ? '1' : '0');
+    el.textContent = 'до ' + short + (left ? ' (' + left + ')' : '');
+    el.title = 'Оплачена ' + paid + ' · ' + sub.days + ' дн — до '
+      + full + ', осталось ' + (left || 'меньше минуты');
+    return el;
   }
 
   function accountRow(acc, btn, body) {
@@ -9133,6 +9534,14 @@
       metaEl.title = meta;
       name.appendChild(metaEl);
     }
+
+    // Срок подписки — там же, сразу за почтой: его читают первым,
+    // и второй строкой он искался бы глазами. Слово «подписка»
+    // не пишем — «до 06.10» говорит само, а строка имени коротка.
+    if (showSub) {
+      var paidNote = subscriptionNote(acc.subscription);
+      if (paidNote) name.appendChild(paidNote);
+    }
     text.appendChild(name);
 
     var subtitle = accountSubtitle(acc);
@@ -9160,6 +9569,12 @@
     if (showUsage && acc.provider === 'openai') {
       var openaiUsage = usageBlock(acc.usage);
       if (openaiUsage) text.appendChild(openaiUsage);
+    }
+    // Квоты Coding Plan — те же полоски: их отдаёт API Z.AI (ручка
+    // страницы подписки в его кабинете), ключ уже в env аккаунта.
+    if (showUsage && acc.usageZai) {
+      var zaiUsage = usageBlock(acc.usage);
+      if (zaiUsage) text.appendChild(zaiUsage);
     }
 
     row.appendChild(text);
@@ -9208,13 +9623,8 @@
       if (accounts[i] && accounts[i].isActive) activeFile = accounts[i].file;
       body.appendChild(accountRow(accounts[i], btn, body));
     }
-
-    var foot = document.createElement('div');
-    foot.className = 'claude-accs-foot';
-    foot.textContent = restartPrompt
-      ? 'Смена требует перезапуска расширения — предложим сразу после выбора'
-      : 'Смена применится после Developer: Reload Window';
-    body.appendChild(foot);
+    // Сноска «Смена требует перезапуска расширения» убрана: сразу после
+    // выбора появляется окно с кнопкой перезапуска — она всё говорит.
   }
 
   /** Аккаунт из списка по имени файла (для заголовка модалки). */
@@ -9336,14 +9746,11 @@
     box.appendChild(card);
 
     modalRow(box, 'claude-accs-modal-text',
-      'Настройки провайдера читает процесс Claude Code при запуске, '
-      + 'поэтому в текущем окне пока работает прежний аккаунт. '
-      + 'Чтобы применить смену, нужно перезапустить расширение.');
+      'Чтобы применить смену, нужно перезапустить расширение.');
 
     modalRow(box, 'claude-accs-modal-warn',
-      '⚠ Текущий диалог прервётся. Переписка сохранена на диске и '
-      + 'откроется заново, но идущая задача будет остановлена. '
-      + 'Редакторы, вкладки и терминалы останутся на месте.');
+      '⚠ Текущий диалог прервётся. Переписка откроется заново, '
+      + 'но идущая задача будет остановлена.');
 
     var status = document.createElement('div');
     status.className = 'claude-accs-modal-status';
