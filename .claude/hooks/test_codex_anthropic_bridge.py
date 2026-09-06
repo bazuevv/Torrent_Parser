@@ -16,6 +16,7 @@ from codex_anthropic_bridge import (
     USAGE_READY,
     build_prompt,
     build_request,
+    capture_claude_payload,
     collect_message,
     claude_session_key,
     dynamic_tools,
@@ -31,6 +32,46 @@ from codex_anthropic_bridge import (
 
 
 class PromptConversionTests(unittest.TestCase):
+    def test_payload_capture_is_disabled_by_config(self):
+        bridge = __import__("codex_anthropic_bridge")
+        with tempfile.TemporaryDirectory() as directory:
+            config = os.path.join(directory, "config.toml")
+            capture_dir = os.path.join(directory, "captures")
+            with open(config, "w", encoding="utf-8") as handle:
+                handle.write("codexPayloadCapture = false\n")
+            with mock.patch.object(bridge, "CONFIG_FILE", config), \
+                    mock.patch.object(bridge, "PAYLOAD_CAPTURE_DIR", capture_dir):
+                result = capture_claude_payload({"messages": []})
+            self.assertIsNone(result)
+            self.assertFalse(os.path.exists(capture_dir))
+
+    def test_payload_capture_writes_complete_owner_only_json(self):
+        bridge = __import__("codex_anthropic_bridge")
+        payload = {
+            "system": "private instructions",
+            "messages": [{"role": "user", "content": "full request"}],
+            "tools": [{"name": "Read", "input_schema": {"type": "object"}}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            config = os.path.join(directory, "config.toml")
+            capture_dir = os.path.join(directory, "captures")
+            with open(config, "w", encoding="utf-8") as handle:
+                handle.write("codexPayloadCapture = true\n")
+            with mock.patch.object(bridge, "CONFIG_FILE", config), \
+                    mock.patch.object(bridge, "PAYLOAD_CAPTURE_DIR", capture_dir):
+                result = capture_claude_payload(payload)
+            with open(result, encoding="utf-8") as handle:
+                stored = json.load(handle)
+            self.assertEqual(stored, payload)
+            self.assertEqual(os.stat(capture_dir).st_mode & 0o777, 0o700)
+            self.assertEqual(os.stat(result).st_mode & 0o777, 0o600)
+
+    def test_payload_capture_write_error_does_not_break_request(self):
+        bridge = __import__("codex_anthropic_bridge")
+        with mock.patch.object(bridge, "payload_capture_enabled", return_value=True), \
+                mock.patch.object(bridge.os, "makedirs", side_effect=OSError("full")):
+            self.assertIsNone(capture_claude_payload({"messages": []}))
+
     def test_codex_token_usage_fields_are_preserved(self):
         self.assertEqual(_normalized_usage({
             "inputTokens": 120,
@@ -332,7 +373,10 @@ class AnthropicResponseTests(unittest.TestCase):
         handler.server = mock.Mock()
         handler.server.backend.begin.side_effect = BridgeError("messages required")
         handler._json = mock.Mock()
-        handler.do_POST()
+        bridge = __import__("codex_anthropic_bridge")
+        with mock.patch.object(bridge, "capture_claude_payload") as capture:
+            handler.do_POST()
+        capture.assert_called_once_with({})
         self.assertNotEqual(handler._json.call_args.args[0], 404)
 
 

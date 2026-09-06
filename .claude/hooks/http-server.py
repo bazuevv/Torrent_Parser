@@ -74,6 +74,7 @@ _CONFIG_LOCK = threading.Lock()
 # /custom-config, inputRingColor — модуль INPUT RING оттуда же,
 # serverLog* перечитывает hook_log на каждой записи,
 # serverConfigWatchSec читает сам наблюдатель на каждом цикле,
+# codexPayloadCapture читает мост перед каждым запросом,
 # limitResetAlert* перечитывает монитор сброса лимита (limit_alert.py)
 # на каждом цикле — рестарт на правке этих ключей терял бы окно-свидетель.
 # Список обязан совпадать с тем, что там реально обновляется, иначе
@@ -88,6 +89,7 @@ HOT_KEYS = frozenset({
     "serverLog",
     "serverLogMaxBytes",
     "serverConfigWatchSec",
+    "codexPayloadCapture",
     "limitResetAlert",
     "limitResetAlertMode",
     "limitResetAlertPercent",

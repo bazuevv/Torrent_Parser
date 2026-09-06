@@ -25,6 +25,11 @@ from typing import Any, Iterator
 from codex_app_server import CodexAppServerClient, CodexAppServerError
 from codex_app_server import _safe_probe
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    tomllib = None
+
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18924
@@ -36,6 +41,14 @@ CONTEXT_EVENTS_FILE = os.path.join(
 BRIDGE_USAGE_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "hooks-runtime", "codex-bridge-usage.json",
+)
+CONFIG_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "patches", "claude-custom-config.toml",
+)
+PAYLOAD_CAPTURE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "hooks-runtime", "codex-payloads",
 )
 SOURCE_MTIME = max(
     os.path.getmtime(__file__),
@@ -51,6 +64,54 @@ faithfully."""
 
 class BridgeError(RuntimeError):
     pass
+
+
+def payload_capture_enabled() -> bool:
+    """Read the switch for every request so toggling needs no restart."""
+    if tomllib is None:
+        return False
+    try:
+        with open(CONFIG_FILE, "rb") as handle:
+            config = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    return config.get("codexPayloadCapture") is True
+
+
+def capture_claude_payload(payload: dict[str, Any]) -> str | None:
+    """Atomically persist one complete Anthropic request body when enabled.
+
+    Payloads can contain prompts, file contents and base64 images. Keep them in
+    the ignored runtime directory with owner-only permissions and never copy
+    HTTP authorization headers into the capture.
+    """
+    if not payload_capture_enabled():
+        return None
+    try:
+        os.makedirs(PAYLOAD_CAPTURE_DIR, mode=0o700, exist_ok=True)
+        os.chmod(PAYLOAD_CAPTURE_DIR, 0o700)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        filename = f"claude-payload-{stamp}-{uuid.uuid4().hex[:8]}.json"
+        target = os.path.join(PAYLOAD_CAPTURE_DIR, filename)
+        temporary = target + ".tmp"
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600,
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+            os.replace(temporary, target)
+        except Exception:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
+    except (OSError, TypeError, ValueError):
+        # Diagnostics must never make the proxied model request fail.
+        return None
+    return target
 
 
 def _text_blocks(value: Any) -> str:
@@ -1145,6 +1206,7 @@ class BridgeHandler(http.server.BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length))
             if not isinstance(payload, dict):
                 raise BridgeError("request body must be an object")
+            capture_claude_payload(payload)
             turn = self.server.backend.begin(payload)
             if payload.get("stream") is True:
                 self._stream(turn)
