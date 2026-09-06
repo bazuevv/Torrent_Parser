@@ -146,6 +146,19 @@ class ExperimentTests(unittest.TestCase):
                     tokenizer="tiktoken:o200k_base", tools=tools,
                 )
 
+    def test_csv_uses_lf_without_carriage_returns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "result.csv"
+            experiment.write_csv(path, [{
+                "step": 0,
+                "added_tool": None,
+                "tool_count": 0,
+                "input_tokens": 100,
+            }])
+            content = path.read_bytes()
+            self.assertNotIn(b"\r", content)
+            self.assertTrue(content.endswith(b"\n"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

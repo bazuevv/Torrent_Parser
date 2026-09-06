@@ -246,7 +246,10 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
+            writer = csv.DictWriter(
+                handle, fieldnames=columns, extrasaction="ignore",
+                lineterminator="\n",
+            )
             writer.writeheader()
             writer.writerows(rows)
         os.replace(temporary_name, path)
